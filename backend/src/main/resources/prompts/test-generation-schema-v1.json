@@ -1,0 +1,85 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "requirementSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actor": { "type": "string" },
+        "goal": { "type": "string" },
+        "businessValue": { "type": "string" },
+        "assumptions": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["actor", "goal", "businessValue", "assumptions"]
+    },
+    "ambiguities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["MISSING_PRECONDITION", "UNCLEAR_BUSINESS_RULE", "MISSING_ERROR_BEHAVIOR", "MISSING_PERMISSION_RULE", "MISSING_DATA_CONSTRAINT", "CONTRADICTORY_REQUIREMENT", "UNDEFINED_TERM", "OTHER"]
+          },
+          "severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+          "description": { "type": "string" },
+          "suggestedQuestion": { "type": "string" }
+        },
+        "required": ["category", "severity", "description", "suggestedQuestion"]
+      }
+    },
+    "testCases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string" },
+          "objective": { "type": "string" },
+          "category": { "type": "string", "enum": ["HAPPY_PATH", "NEGATIVE", "BOUNDARY", "VALIDATION", "PERMISSION", "DATA_INTEGRITY", "ERROR_HANDLING", "ACCESSIBILITY", "INTEGRATION", "SECURITY", "RECOVERY", "OTHER"] },
+          "priority": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "automationCandidate": { "type": "boolean" },
+          "coverageIntent": { "type": "string", "enum": ["ACCEPTANCE_CRITERIA", "SUPPORTING_EXPLORATORY"] },
+          "preconditions": { "type": "array", "items": { "type": "string" } },
+          "testData": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "description": { "type": "string" },
+                "exampleValue": { "type": "string" },
+                "sensitivity": { "type": "string", "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"] },
+                "generationStrategy": { "type": "string" }
+              },
+              "required": ["name", "description", "exampleValue", "sensitivity", "generationStrategy"]
+            }
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "stepNumber": { "type": "integer", "minimum": 1 },
+                "action": { "type": "string" },
+                "expectedResult": { "type": "string" },
+                "testDataReference": { "type": ["string", "null"] }
+              },
+              "required": ["stepNumber", "action", "expectedResult", "testDataReference"]
+            }
+          },
+          "finalExpectedOutcome": { "type": "string" },
+          "acceptanceCriteriaKeys": { "type": "array", "items": { "type": "string" } },
+          "rationale": { "type": "string" }
+        },
+        "required": ["title", "objective", "category", "priority", "riskLevel", "automationCandidate", "coverageIntent", "preconditions", "testData", "steps", "finalExpectedOutcome", "acceptanceCriteriaKeys", "rationale"]
+      }
+    }
+  },
+  "required": ["requirementSummary", "ambiguities", "testCases"]
+}

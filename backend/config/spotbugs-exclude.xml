@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Spring owns these singleton collaborators; constructors do not expose them to callers. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2" />
+        <Or>
+            <Class name="~com\.testforge\..*\.application\..*" />
+            <Class name="~com\.testforge\..*\.controller\..*" />
+            <Class name="com.testforge.config.DemoDataSeeder" />
+            <Class name="com.testforge.generation.provider.OpenAiTestGenerationProvider" />
+        </Or>
+    </Match>
+</FindBugsFilter>

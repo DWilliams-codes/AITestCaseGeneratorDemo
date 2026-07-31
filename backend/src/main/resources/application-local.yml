@@ -1,0 +1,13 @@
+logging:
+  level:
+    root: INFO
+    com.testforge: INFO
+
+testforge:
+  auth:
+    secure-cookies: false
+    refresh-cookie-name: testforge_refresh
+  security:
+    allowed-origins:
+      - http://localhost:3000
+      - http://localhost:5173

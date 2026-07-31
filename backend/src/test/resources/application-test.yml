@@ -1,0 +1,36 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testforge;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+  flyway:
+    locations: classpath:db/migration
+
+testforge:
+  auth:
+    issuer: testforge-test
+    access-token-secret: VGVzdEZvcmdlLXRlc3Qtb25seS1zaWduaW5nLWtleS0zMi1ieXRlcy1taW5pbXVt
+    access-token-ttl: PT10M
+    refresh-token-ttl: P7D
+    secure-cookies: false
+    refresh-cookie-name: testforge_refresh
+  security:
+    allowed-origins:
+      - http://localhost:5173
+    auth-attempts-per-minute: 100
+    generation-attempts-per-minute: 100
+  generation:
+    provider: fake
+    maximum-cases: 25
+    maximum-steps-per-case: 30
+  demo:
+    seed-enabled: false
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

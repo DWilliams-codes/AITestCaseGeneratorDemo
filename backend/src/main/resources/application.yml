@@ -1,0 +1,97 @@
+spring:
+  application:
+    name: testforge-backend
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:testforge}
+    username: ${DB_USERNAME:testforge_app}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 1
+      connection-timeout: 5000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    schemas: testforge
+    default-schema: testforge
+    create-schemas: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: testforge
+        jdbc:
+          time_zone: UTC
+  mvc:
+    problemdetails:
+      enabled: true
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+
+server:
+  port: 8080
+  forward-headers-strategy: framework
+  shutdown: graceful
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+springdoc:
+  api-docs:
+    enabled: ${OPENAPI_ENABLED:false}
+  swagger-ui:
+    enabled: ${OPENAPI_ENABLED:false}
+    display-request-duration: true
+    operations-sorter: method
+
+info:
+  app:
+    name: TestForge AI
+    description: AI-assisted manual test case generation platform
+    milestone: stage-1
+
+testforge:
+  auth:
+    issuer: ${JWT_ISSUER:testforge}
+    access-token-secret: ${JWT_ACCESS_TOKEN_SECRET:}
+    access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:PT10M}
+    refresh-token-ttl: ${REFRESH_TOKEN_TTL:P7D}
+    secure-cookies: ${SECURE_COOKIES:true}
+    refresh-cookie-name: ${REFRESH_COOKIE_NAME:__Host-testforge-refresh}
+  security:
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173}
+    auth-attempts-per-minute: ${AUTH_ATTEMPTS_PER_MINUTE:10}
+    generation-attempts-per-minute: ${GENERATION_ATTEMPTS_PER_MINUTE:10}
+  generation:
+    provider: ${TEST_GENERATION_PROVIDER:fake}
+    maximum-cases: ${MAXIMUM_GENERATED_CASES:25}
+    maximum-steps-per-case: ${MAXIMUM_STEPS_PER_CASE:30}
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+      model: ${OPENAI_MODEL:gpt-5-mini-2025-08-07}
+      connect-timeout-seconds: ${OPENAI_CONNECT_TIMEOUT_SECONDS:5}
+      read-timeout-seconds: ${OPENAI_READ_TIMEOUT_SECONDS:90}
+      maximum-output-tokens: ${OPENAI_MAXIMUM_OUTPUT_TOKENS:16000}
+  demo:
+    seed-enabled: false
