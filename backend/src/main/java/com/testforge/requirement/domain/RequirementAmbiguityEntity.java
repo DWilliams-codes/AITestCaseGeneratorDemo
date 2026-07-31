@@ -46,8 +46,10 @@ public class RequirementAmbiguityEntity {
 
   @Version private long version;
 
+  /** Creates an empty RequirementAmbiguityEntity instance for the persistence framework. */
   protected RequirementAmbiguityEntity() {}
 
+  /** Initializes RequirementAmbiguityEntity with its required collaborators and domain state. */
   private RequirementAmbiguityEntity(
       UUID id,
       UUID requirementId,
@@ -65,6 +67,7 @@ public class RequirementAmbiguityEntity {
     this.createdAt = now;
   }
 
+  /** Creates a new RequirementAmbiguityEntity initialized from the supplied domain values. */
   public static RequirementAmbiguityEntity create(
       UUID requirementId,
       AmbiguityCategory category,
@@ -76,52 +79,64 @@ public class RequirementAmbiguityEntity {
         UUID.randomUUID(), requirementId, category, description, severity, suggestedQuestion, now);
   }
 
+  /** Executes the resolve operation for RequirementAmbiguityEntity. */
   public void resolve(String resolution, Instant now) {
     this.resolved = true;
     this.resolution = resolution;
     this.resolvedAt = now;
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current requirement id value. */
   public UUID getRequirementId() {
     return requirementId;
   }
 
+  /** Returns the current category value. */
   public AmbiguityCategory getCategory() {
     return category;
   }
 
+  /** Returns the current description value. */
   public String getDescription() {
     return description;
   }
 
+  /** Returns the current severity value. */
   public AmbiguitySeverity getSeverity() {
     return severity;
   }
 
+  /** Returns the current suggested question value. */
   public String getSuggestedQuestion() {
     return suggestedQuestion;
   }
 
+  /** Reports whether resolved. */
   public boolean isResolved() {
     return resolved;
   }
 
+  /** Returns the current resolution value. */
   public String getResolution() {
     return resolution;
   }
 
+  /** Returns the current created at value. */
   public Instant getCreatedAt() {
     return createdAt;
   }
 
+  /** Returns the current resolved at value. */
   public Instant getResolvedAt() {
     return resolvedAt;
   }
 
+  /** Returns the current version value. */
   public long getVersion() {
     return version;
   }

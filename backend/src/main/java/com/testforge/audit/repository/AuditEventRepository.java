@@ -7,5 +7,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AuditEventRepository extends JpaRepository<AuditEventEntity, UUID> {
+  /** Finds all by project id order by timestamp desc for the supplied criteria. */
   Page<AuditEventEntity> findAllByProjectIdOrderByTimestampDesc(UUID projectId, Pageable pageable);
 }

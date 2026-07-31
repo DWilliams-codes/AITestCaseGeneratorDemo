@@ -7,6 +7,7 @@ interface AppProps {
   router?: ComponentProps<typeof RouterProvider>['router'];
 }
 
+/** Composes global providers with the selected production or test router. */
 export function App({ router = browserRouter }: AppProps) {
   return (
     <AppProviders>

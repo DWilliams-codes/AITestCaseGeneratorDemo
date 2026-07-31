@@ -26,6 +26,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
   private final String instructions;
   private final JsonNode schema;
 
+  /** Initializes OpenAiTestGenerationProvider with its required collaborators and domain state. */
   public OpenAiTestGenerationProvider(
       OpenAiProperties properties,
       ObjectMapper objectMapper,
@@ -38,6 +39,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     this.schema = readJson(resourceLoader, SCHEMA_RESOURCE, objectMapper);
   }
 
+  /** Generates structured manual test coverage from the requirement input. */
   @Override
   public TestGenerationResult generate(TestGenerationRequest request) {
     ObjectNode body = objectMapper.createObjectNode();
@@ -65,16 +67,19 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     }
   }
 
+  /** Returns the stable provider identifier stored with generation runs. */
   @Override
   public String providerName() {
     return "openai-responses";
   }
 
+  /** Returns the model or engine identifier stored with generation runs. */
   @Override
   public String modelName() {
     return properties.model();
   }
 
+  /** Parses response for the current operation. */
   private TestGenerationResult parseResponse(JsonNode response) {
     if (response == null || !"completed".equals(response.path("status").asText())) {
       throw new GenerationProviderException("The AI provider returned an incomplete response.");
@@ -109,6 +114,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     }
   }
 
+  /** Serializes input for the current operation. */
   private String serializeInput(TestGenerationRequest request) {
     try {
       ObjectNode minimized = objectMapper.createObjectNode();
@@ -125,6 +131,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     }
   }
 
+  /** Reads text for the current operation. */
   private static String readText(ResourceLoader resources, String location) {
     try (var input = resources.getResource(location).getInputStream()) {
       return new String(input.readAllBytes(), StandardCharsets.UTF_8);
@@ -133,6 +140,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     }
   }
 
+  /** Reads json for the current operation. */
   private static JsonNode readJson(
       ResourceLoader resources, String location, ObjectMapper objectMapper) {
     try (var input = resources.getResource(location).getInputStream()) {

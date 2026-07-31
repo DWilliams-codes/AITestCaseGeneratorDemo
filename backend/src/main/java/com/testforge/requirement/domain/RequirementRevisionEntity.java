@@ -27,8 +27,10 @@ public class RequirementRevisionEntity {
   @Column(name = "changed_at", nullable = false)
   private Instant changedAt;
 
+  /** Creates an empty RequirementRevisionEntity instance for the persistence framework. */
   protected RequirementRevisionEntity() {}
 
+  /** Initializes RequirementRevisionEntity with its required collaborators and domain state. */
   private RequirementRevisionEntity(
       UUID requirementId,
       long revisionNumber,
@@ -43,6 +45,7 @@ public class RequirementRevisionEntity {
     this.changedAt = changedAt;
   }
 
+  /** Creates a new RequirementRevisionEntity initialized from the supplied domain values. */
   public static RequirementRevisionEntity create(
       UUID requirementId,
       long revisionNumber,

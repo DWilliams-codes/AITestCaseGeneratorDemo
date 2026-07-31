@@ -27,8 +27,10 @@ public class TestCaseRevisionEntity {
   @Column(name = "changed_at", nullable = false)
   private Instant changedAt;
 
+  /** Creates an empty TestCaseRevisionEntity instance for the persistence framework. */
   protected TestCaseRevisionEntity() {}
 
+  /** Initializes TestCaseRevisionEntity with its required collaborators and domain state. */
   private TestCaseRevisionEntity(
       UUID testCaseId,
       long revisionNumber,
@@ -43,6 +45,7 @@ public class TestCaseRevisionEntity {
     this.changedAt = changedAt;
   }
 
+  /** Creates a new TestCaseRevisionEntity initialized from the supplied domain values. */
   public static TestCaseRevisionEntity create(
       UUID testCaseId,
       long revisionNumber,

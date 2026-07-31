@@ -11,6 +11,7 @@ public record AutomationDraft(
     Map<String, String> parameters,
     List<String> unresolvedPlaceholders,
     double suitabilityScore) {
+  /** Initializes AutomationDraft with its required collaborators and domain state. */
   public AutomationDraft {
     setupActions = setupActions == null ? List.of() : List.copyOf(setupActions);
     testActions = testActions == null ? List.of() : List.copyOf(testActions);

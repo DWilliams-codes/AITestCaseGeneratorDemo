@@ -66,8 +66,10 @@ public class GenerationRunEntity {
   @Column(name = "correlation_id", nullable = false, length = 100)
   private String correlationId;
 
+  /** Creates an empty GenerationRunEntity instance for the persistence framework. */
   protected GenerationRunEntity() {}
 
+  /** Initializes GenerationRunEntity with its required collaborators and domain state. */
   private GenerationRunEntity(
       UUID id,
       UUID requirementId,
@@ -92,6 +94,7 @@ public class GenerationRunEntity {
     this.startedAt = now;
   }
 
+  /** Executes the pending operation for GenerationRunEntity. */
   public static GenerationRunEntity pending(
       UUID requirementId,
       UUID requestedBy,
@@ -115,6 +118,7 @@ public class GenerationRunEntity {
         now);
   }
 
+  /** Executes the complete operation for GenerationRunEntity. */
   public void complete(int caseCount, int inputTokens, int outputTokens, Instant now) {
     this.status = GenerationStatus.COMPLETED;
     this.generatedCaseCount = caseCount;
@@ -124,6 +128,7 @@ public class GenerationRunEntity {
     this.latencyMs = Math.max(0, now.toEpochMilli() - startedAt.toEpochMilli());
   }
 
+  /** Executes the fail operation for GenerationRunEntity. */
   public void fail(GenerationStatus failureStatus, String code, String message, Instant now) {
     if (failureStatus != GenerationStatus.FAILED
         && failureStatus != GenerationStatus.REJECTED_BY_VALIDATION) {
@@ -136,66 +141,82 @@ public class GenerationRunEntity {
     this.latencyMs = Math.max(0, now.toEpochMilli() - startedAt.toEpochMilli());
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current requirement id value. */
   public UUID getRequirementId() {
     return requirementId;
   }
 
+  /** Returns the current requested by value. */
   public UUID getRequestedBy() {
     return requestedBy;
   }
 
+  /** Returns the current provider value. */
   public String getProvider() {
     return provider;
   }
 
+  /** Returns the current model value. */
   public String getModel() {
     return model;
   }
 
+  /** Returns the current prompt version value. */
   public String getPromptVersion() {
     return promptVersion;
   }
 
+  /** Returns the current status value. */
   public GenerationStatus getStatus() {
     return status;
   }
 
+  /** Returns the current started at value. */
   public Instant getStartedAt() {
     return startedAt;
   }
 
+  /** Returns the current completed at value. */
   public Instant getCompletedAt() {
     return completedAt;
   }
 
+  /** Returns the current latency ms value. */
   public Long getLatencyMs() {
     return latencyMs;
   }
 
+  /** Returns the current generated case count value. */
   public int getGeneratedCaseCount() {
     return generatedCaseCount;
   }
 
+  /** Returns the current input tokens value. */
   public Integer getInputTokens() {
     return inputTokens;
   }
 
+  /** Returns the current output tokens value. */
   public Integer getOutputTokens() {
     return outputTokens;
   }
 
+  /** Returns the current failure code value. */
   public String getFailureCode() {
     return failureCode;
   }
 
+  /** Returns the current failure message value. */
   public String getFailureMessage() {
     return failureMessage;
   }
 
+  /** Returns the current correlation id value. */
   public String getCorrelationId() {
     return correlationId;
   }

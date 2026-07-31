@@ -5,6 +5,7 @@ let csrfToken: string | null = null;
 let refreshPromise: Promise<TokenResponse | null> | null = null;
 
 export class ApiError extends Error {
+  /** Preserves normalized HTTP status, problem code, and field errors for the UI. */
   constructor(
     public readonly status: number,
     message: string,
@@ -15,10 +16,12 @@ export class ApiError extends Error {
   }
 }
 
+/** Replaces the in-memory bearer token without persisting credentials in browser storage. */
 export function setAccessToken(value: string | null) {
   accessToken = value;
 }
 
+/** Lazily obtains and caches the CSRF token required for state-changing requests. */
 async function ensureCsrf(): Promise<string> {
   if (csrfToken) return csrfToken;
   const response = await fetch('/api/v1/auth/csrf', { credentials: 'include' });
@@ -28,6 +31,7 @@ async function ensureCsrf(): Promise<string> {
   return data.token;
 }
 
+/** Coalesces concurrent refresh attempts and restores the short-lived in-memory access token. */
 export async function refreshSession(): Promise<TokenResponse | null> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
@@ -52,6 +56,7 @@ export async function refreshSession(): Promise<TokenResponse | null> {
   return refreshPromise;
 }
 
+/** Sends an authenticated API request and retries once after a successful token rotation. */
 export async function apiRequest<T>(
   path: string,
   init: RequestInit = {},
@@ -74,6 +79,7 @@ export async function apiRequest<T>(
   return (await response.json()) as T;
 }
 
+/** Downloads a generated artifact and transparently recovers from one expired access token. */
 export async function downloadExport(requirementId: string, format: string, retry = true) {
   const headers = new Headers();
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
@@ -97,6 +103,7 @@ export async function downloadExport(requirementId: string, format: string, retr
   URL.revokeObjectURL(url);
 }
 
+/** Derives a safe export filename from response metadata with a conservative fallback. */
 function exportFilename(disposition: string, format: string) {
   const extended = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
   if (extended) {
@@ -110,6 +117,7 @@ function exportFilename(disposition: string, format: string) {
   return basic ?? `testforge-export.${format === 'markdown' ? 'md' : format}`;
 }
 
+/** Normalizes problem details and non-JSON failures into a stable UI error. */
 async function toApiError(response: Response): Promise<ApiError> {
   try {
     const body = (await response.json()) as {

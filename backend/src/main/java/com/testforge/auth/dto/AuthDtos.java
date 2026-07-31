@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 public final class AuthDtos {
+  /** Prevents instantiation because AuthDtos is a static utility namespace. */
   private AuthDtos() {}
 
   public record RegisterRequest(

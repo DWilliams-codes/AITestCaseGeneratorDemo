@@ -47,6 +47,7 @@ const schema = z.object({
 });
 type Values = z.infer<typeof schema>;
 
+/** Displays one owned project and manages creation and navigation for its user stories. */
 export function ProjectPage() {
   const { projectId = '' } = useParams();
   const navigate = useNavigate();

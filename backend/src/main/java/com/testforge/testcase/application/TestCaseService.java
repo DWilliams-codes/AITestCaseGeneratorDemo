@@ -51,6 +51,7 @@ public class TestCaseService {
   private final ObjectMapper objectMapper;
   private final Clock clock;
 
+  /** Initializes TestCaseService with its required collaborators and domain state. */
   public TestCaseService(
       TestCaseRepository testCases,
       TestCasePreconditionRepository preconditions,
@@ -78,6 +79,7 @@ public class TestCaseService {
     this.clock = clock;
   }
 
+  /** Lists resources visible to the current owner using the requested page. */
   @Transactional(readOnly = true)
   public List<TestCaseResponse> list(UUID ownerId, UUID requirementId) {
     requirementService.requireOwned(ownerId, requirementId);
@@ -86,11 +88,13 @@ public class TestCaseService {
         .toList();
   }
 
+  /** Returns the owned resource identified by the request. */
   @Transactional(readOnly = true)
   public TestCaseResponse get(UUID ownerId, UUID testCaseId) {
     return toResponse(requireOwned(ownerId, testCaseId));
   }
 
+  /** Applies a validated update while preserving concurrency guarantees. */
   @Transactional
   public TestCaseResponse update(UUID ownerId, UUID testCaseId, UpdateTestCaseRequest request) {
     TestCaseEntity testCase = requireOwned(ownerId, testCaseId);
@@ -123,6 +127,7 @@ public class TestCaseService {
     return toResponse(testCase);
   }
 
+  /** Executes the review operation for TestCaseService. */
   @Transactional
   public TestCaseResponse review(
       UUID ownerId, UUID testCaseId, ReviewDecision decision, ReviewRequest request) {
@@ -143,6 +148,7 @@ public class TestCaseService {
     return toResponse(testCase);
   }
 
+  /** Loads the requested resource and verifies that it belongs to the current owner. */
   @Transactional(readOnly = true)
   public TestCaseEntity requireOwned(UUID ownerId, UUID testCaseId) {
     return testCases
@@ -150,6 +156,7 @@ public class TestCaseService {
         .orElseThrow(() -> ApiExceptions.notFound("Test case not found."));
   }
 
+  /** Maps the source data to response. */
   public TestCaseResponse toResponse(TestCaseEntity testCase) {
     Map<UUID, String> keyById = new HashMap<>();
     criteria
@@ -216,6 +223,7 @@ public class TestCaseService {
         testCase.getVersion());
   }
 
+  /** Executes the replace parts operation for TestCaseService. */
   private void replaceParts(UUID testCaseId, UpdateTestCaseRequest request) {
     preconditions.deleteAllByTestCaseId(testCaseId);
     steps.deleteAllByTestCaseId(testCaseId);
@@ -253,6 +261,7 @@ public class TestCaseService {
                         item.generationStrategy().strip())));
   }
 
+  /** Executes the validate step numbers operation for TestCaseService. */
   private void validateStepNumbers(UpdateTestCaseRequest request) {
     if (request.steps().isEmpty()) {
       throw ApiExceptions.badRequest(
@@ -266,6 +275,7 @@ public class TestCaseService {
     }
   }
 
+  /** Persists revision and returns its stored representation. */
   private void saveRevision(TestCaseEntity testCase, UUID ownerId) {
     try {
       revisions.save(
@@ -280,6 +290,7 @@ public class TestCaseService {
     }
   }
 
+  /** Normalizes optional text before it is compared or persisted. */
   private String clean(String value) {
     return value == null ? "" : value.strip();
   }

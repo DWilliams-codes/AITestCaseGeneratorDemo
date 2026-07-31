@@ -24,6 +24,7 @@ public class TraceabilityService {
   private final TestCaseRepository testCases;
   private final TraceabilityLinkRepository links;
 
+  /** Initializes TraceabilityService with its required collaborators and domain state. */
   public TraceabilityService(
       RequirementService requirementService,
       AcceptanceCriterionRepository criteria,
@@ -35,6 +36,7 @@ public class TraceabilityService {
     this.links = links;
   }
 
+  /** Executes the traceability operation for TraceabilityService. */
   @Transactional(readOnly = true)
   public TraceabilityResponse traceability(UUID ownerId, UUID requirementId) {
     requirementService.requireOwned(ownerId, requirementId);
@@ -76,6 +78,7 @@ public class TraceabilityService {
     return new TraceabilityResponse(requirementId, rows);
   }
 
+  /** Executes the coverage operation for TraceabilityService. */
   @Transactional(readOnly = true)
   public CoverageResponse coverage(UUID ownerId, UUID requirementId) {
     TraceabilityResponse matrix = traceability(ownerId, requirementId);
@@ -94,6 +97,7 @@ public class TraceabilityService {
         requirementId, total, covered, approved, percent(covered, total), percent(approved, total));
   }
 
+  /** Executes the percent operation for TraceabilityService. */
   private double percent(int numerator, int denominator) {
     if (denominator == 0) {
       return 0;

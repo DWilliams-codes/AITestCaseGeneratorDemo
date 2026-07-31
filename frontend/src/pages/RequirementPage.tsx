@@ -93,6 +93,7 @@ const priorityRank: Record<TestPriority, number> = {
 type TestCaseSort =
   'sequence-asc' | 'sequence-desc' | 'priority-desc' | 'status-asc' | 'updated-desc';
 
+/** Orders test cases by their global work-item number with stable creation and UUID tie-breakers. */
 function compareByTestCaseNumber(left: TestCase, right: TestCase) {
   return (
     left.workItemNumber - right.workItemNumber ||
@@ -101,6 +102,7 @@ function compareByTestCaseNumber(left: TestCase, right: TestCase) {
   );
 }
 
+/** Coordinates requirement details, generated coverage, review actions, traceability, and exports. */
 export function RequirementPage() {
   const { requirementId = '' } = useParams();
   const queryClient = useQueryClient();
@@ -177,12 +179,14 @@ export function RequirementPage() {
   }, [caseCategory, casePriority, caseSearch, caseSort, caseStatus, cases.data]);
   const hasCaseFilters =
     Boolean(caseSearch) || caseStatus !== 'ALL' || caseCategory !== 'ALL' || casePriority !== 'ALL';
+  /** Restores all test-case controls to the unfiltered review queue. */
   const clearCaseFilters = () => {
     setCaseSearch('');
     setCaseStatus('ALL');
     setCaseCategory('ALL');
     setCasePriority('ALL');
   };
+  /** Invalidates every requirement-derived query after a generation, edit, or review transition. */
   const refreshAll = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['requirement', requirementId] }),
@@ -245,6 +249,7 @@ export function RequirementPage() {
     );
   const req = requirement.data;
 
+  /** Downloads one export format and reports a user-facing success or failure notice. */
   const exportFile = async (format: string) => {
     setNotice('');
     try {
@@ -676,6 +681,7 @@ export function RequirementPage() {
   );
 }
 
+/** Renders one compact requirement health metric with supporting context. */
 function MetricCard({
   label,
   value,
@@ -702,6 +708,7 @@ function MetricCard({
   );
 }
 
+/** Renders a titled block of preserved requirement prose. */
 function Section({ title, text }: { title: string; text: string }) {
   return (
     <Box>
@@ -713,6 +720,7 @@ function Section({ title, text }: { title: string; text: string }) {
   );
 }
 
+/** Presents a generated test case, its evidence, and the available human review actions. */
 function TestCasePanel({
   testCase,
   onEdit,
@@ -818,6 +826,7 @@ function TestCasePanel({
   );
 }
 
+/** Edits structured test-case fields while guarding against accidental loss of local changes. */
 function EditTestCaseDialog({
   testCase,
   onClose,
@@ -837,6 +846,7 @@ function EditTestCaseDialog({
   const preconditionFields = useFieldArray({ control, name: 'preconditions' });
   const dataFields = useFieldArray({ control, name: 'testData' });
   const [error, setError] = useState('');
+  /** Closes immediately when clean or asks before discarding unsaved edits. */
   const requestClose = () => {
     if (!isDirty || window.confirm('Discard the unsaved test-case changes?')) onClose();
   };

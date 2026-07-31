@@ -22,11 +22,13 @@ public class ExportController {
   private final ExportService exportService;
   private final CurrentUser currentUser;
 
+  /** Initializes ExportController with its required collaborators and domain state. */
   public ExportController(ExportService exportService, CurrentUser currentUser) {
     this.exportService = exportService;
     this.currentUser = currentUser;
   }
 
+  /** Handles the authenticated HTTP request to export. */
   @GetMapping
   ResponseEntity<String> export(
       Authentication authentication,

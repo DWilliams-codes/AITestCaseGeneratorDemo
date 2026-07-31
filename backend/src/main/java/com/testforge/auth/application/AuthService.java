@@ -36,6 +36,7 @@ public class AuthService {
   private final Clock clock;
   private final AuditService auditService;
 
+  /** Initializes AuthService with its required collaborators and domain state. */
   public AuthService(
       UserRepository users,
       RefreshTokenRepository refreshTokens,
@@ -53,6 +54,7 @@ public class AuthService {
     this.auditService = auditService;
   }
 
+  /** Registers a new user and creates an authenticated session. */
   @Transactional
   public Session register(RegisterRequest request) {
     String email = request.email().strip();
@@ -73,6 +75,7 @@ public class AuthService {
     return newSession(user, UUID.randomUUID(), now);
   }
 
+  /** Authenticates supplied credentials and creates a rotating session. */
   @Transactional
   public Session login(LoginRequest request) {
     UserEntity user =
@@ -88,6 +91,7 @@ public class AuthService {
     return newSession(user, UUID.randomUUID(), now);
   }
 
+  /** Rotates a valid refresh token and returns a renewed session. */
   @Transactional
   public Session refresh(String rawToken) {
     if (rawToken == null || rawToken.isBlank()) {
@@ -118,6 +122,7 @@ public class AuthService {
     return replacement;
   }
 
+  /** Revokes the active refresh token and clears the browser session. */
   @Transactional
   public void logout(String rawToken) {
     if (rawToken == null || rawToken.isBlank()) {
@@ -135,6 +140,7 @@ public class AuthService {
             });
   }
 
+  /** Executes the me operation for AuthService. */
   @Transactional(readOnly = true)
   public UserResponse me(UUID userId) {
     return users
@@ -144,6 +150,7 @@ public class AuthService {
         .orElseThrow(() -> ApiExceptions.unauthorized("The account is unavailable."));
   }
 
+  /** Executes the new session operation for AuthService. */
   private Session newSession(UserEntity user, UUID familyId, Instant now) {
     byte[] bytes = new byte[48];
     SECURE_RANDOM.nextBytes(bytes);
@@ -163,6 +170,7 @@ public class AuthService {
             jwtService.issue(user), properties.accessTokenTtl().toSeconds(), toUserResponse(user)));
   }
 
+  /** Maps the source data to user response. */
   private UserResponse toUserResponse(UserEntity user) {
     return new UserResponse(
         user.getId(),
@@ -172,10 +180,12 @@ public class AuthService {
         user.getCreatedAt());
   }
 
+  /** Normalizes email for the current operation. */
   private String normalizeEmail(String email) {
     return email.strip().toLowerCase(java.util.Locale.ROOT);
   }
 
+  /** Reports whether the result h. */
   private String hash(String rawToken) {
     try {
       byte[] digest =

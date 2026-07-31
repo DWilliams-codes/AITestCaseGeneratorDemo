@@ -36,8 +36,10 @@ public class RefreshTokenEntity {
   @Column(name = "reuse_detected", nullable = false)
   private boolean reuseDetected;
 
+  /** Creates an empty RefreshTokenEntity instance for the persistence framework. */
   protected RefreshTokenEntity() {}
 
+  /** Initializes RefreshTokenEntity with its required collaborators and domain state. */
   private RefreshTokenEntity(
       UUID id, UUID userId, UUID familyId, String tokenHash, Instant createdAt, Instant expiresAt) {
     this.id = id;
@@ -48,57 +50,70 @@ public class RefreshTokenEntity {
     this.expiresAt = expiresAt;
   }
 
+  /** Creates a new RefreshTokenEntity initialized from the supplied domain values. */
   public static RefreshTokenEntity create(
       UUID userId, UUID familyId, String tokenHash, Instant now, Instant expiresAt) {
     return new RefreshTokenEntity(UUID.randomUUID(), userId, familyId, tokenHash, now, expiresAt);
   }
 
+  /** Executes the rotate to operation for RefreshTokenEntity. */
   public void rotateTo(UUID replacementId, Instant now) {
     this.replacedByTokenId = replacementId;
     this.revokedAt = now;
   }
 
+  /** Executes the revoke operation for RefreshTokenEntity. */
   public void revoke(Instant now) {
     this.revokedAt = now;
   }
 
+  /** Executes the mark reuse detected operation for RefreshTokenEntity. */
   public void markReuseDetected(Instant now) {
     this.reuseDetected = true;
     this.revokedAt = now;
   }
 
+  /** Reports whether expired. */
   public boolean isExpired(Instant now) {
     return !expiresAt.isAfter(now);
   }
 
+  /** Reports whether revoked. */
   public boolean isRevoked() {
     return revokedAt != null;
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current user id value. */
   public UUID getUserId() {
     return userId;
   }
 
+  /** Returns the current family id value. */
   public UUID getFamilyId() {
     return familyId;
   }
 
+  /** Returns the current token hash value. */
   public String getTokenHash() {
     return tokenHash;
   }
 
+  /** Returns the current expires at value. */
   public Instant getExpiresAt() {
     return expiresAt;
   }
 
+  /** Returns the current replaced by token id value. */
   public UUID getReplacedByTokenId() {
     return replacedByTokenId;
   }
 
+  /** Reports whether reuse detected. */
   public boolean isReuseDetected() {
     return reuseDetected;
   }

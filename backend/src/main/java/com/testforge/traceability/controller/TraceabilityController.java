@@ -17,17 +17,20 @@ public class TraceabilityController {
   private final TraceabilityService traceabilityService;
   private final CurrentUser currentUser;
 
+  /** Initializes TraceabilityController with its required collaborators and domain state. */
   public TraceabilityController(TraceabilityService traceabilityService, CurrentUser currentUser) {
     this.traceabilityService = traceabilityService;
     this.currentUser = currentUser;
   }
 
+  /** Handles the authenticated HTTP request to traceability. */
   @GetMapping("/traceability")
   TraceabilityResponse traceability(
       Authentication authentication, @PathVariable UUID requirementId) {
     return traceabilityService.traceability(currentUser.id(authentication), requirementId);
   }
 
+  /** Handles the authenticated HTTP request to coverage. */
   @GetMapping("/coverage")
   CoverageResponse coverage(Authentication authentication, @PathVariable UUID requirementId) {
     return traceabilityService.coverage(currentUser.id(authentication), requirementId);

@@ -24,10 +24,12 @@ public class GenerationResultValidator {
 
   private final GenerationProperties properties;
 
+  /** Initializes GenerationResultValidator with its required collaborators and domain state. */
   public GenerationResultValidator(GenerationProperties properties) {
     this.properties = properties;
   }
 
+  /** Validates generated content before any result is persisted. */
   public void validate(TestGenerationRequest request, TestGenerationResult result) {
     if (result == null || result.testCases() == null || result.testCases().isEmpty()) {
       fail("The provider returned no test cases.");
@@ -45,6 +47,7 @@ public class GenerationResultValidator {
     }
   }
 
+  /** Executes the validate case operation for GenerationResultValidator. */
   private void validateCase(
       GeneratedTestCase testCase, Set<String> allowedKeys, Set<String> normalizedTitles) {
     requireText(testCase.title(), "A generated test case title is missing.");
@@ -103,6 +106,7 @@ public class GenerationResultValidator {
     rejectUnsafeOrVague(testCase.finalExpectedOutcome());
   }
 
+  /** Executes the reject unsafe or vague operation for GenerationResultValidator. */
   private void rejectUnsafeOrVague(String value) {
     requireText(value, "Generated text must not be blank.");
     String normalized = value.toLowerCase(Locale.ROOT);
@@ -114,12 +118,14 @@ public class GenerationResultValidator {
     }
   }
 
+  /** Requires text for the current operation. */
   private void requireText(String value, String message) {
     if (value == null || value.isBlank()) {
       fail(message);
     }
   }
 
+  /** Executes the fail operation for GenerationResultValidator. */
   private void fail(String message) {
     throw new GenerationValidationException(message);
   }

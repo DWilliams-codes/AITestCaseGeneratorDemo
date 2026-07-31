@@ -6,8 +6,10 @@ public final class CorrelationIds {
   public static final String HEADER = "X-Correlation-ID";
   public static final String MDC_KEY = "correlationId";
 
+  /** Creates an empty CorrelationIds instance for framework-managed construction. */
   private CorrelationIds() {}
 
+  /** Executes the current operation for CorrelationIds. */
   public static String current() {
     String value = MDC.get(MDC_KEY);
     return value == null ? "unavailable" : value;

@@ -46,6 +46,7 @@ public class RequirementService {
   private final ObjectMapper objectMapper;
   private final Clock clock;
 
+  /** Initializes RequirementService with its required collaborators and domain state. */
   public RequirementService(
       RequirementRepository requirements,
       WorkItemNumberService workItemNumbers,
@@ -67,6 +68,7 @@ public class RequirementService {
     this.clock = clock;
   }
 
+  /** Lists resources visible to the current owner using the requested page. */
   @Transactional(readOnly = true)
   public PageResponse<RequirementSummaryResponse> list(
       UUID ownerId, UUID projectId, int page, int size) {
@@ -77,11 +79,13 @@ public class RequirementService {
             .map(this::toSummary));
   }
 
+  /** Returns the owned resource identified by the request. */
   @Transactional(readOnly = true)
   public RequirementResponse get(UUID ownerId, UUID requirementId) {
     return toResponse(requireOwned(ownerId, requirementId));
   }
 
+  /** Creates and persists a new domain resource from validated input. */
   @Transactional
   public RequirementResponse create(
       UUID ownerId, UUID projectId, CreateRequirementRequest request) {
@@ -111,6 +115,7 @@ public class RequirementService {
     return toResponse(requirement);
   }
 
+  /** Applies a validated update while preserving concurrency guarantees. */
   @Transactional
   public RequirementResponse update(
       UUID ownerId, UUID requirementId, UpdateRequirementRequest request) {
@@ -136,6 +141,7 @@ public class RequirementService {
     return toResponse(requirement);
   }
 
+  /** Executes the add criterion operation for RequirementService. */
   @Transactional
   public AcceptanceCriterionResponse addCriterion(
       UUID ownerId, UUID requirementId, AcceptanceCriterionRequest request) {
@@ -165,6 +171,7 @@ public class RequirementService {
     return toCriterion(criterion);
   }
 
+  /** Executes the update criterion operation for RequirementService. */
   @Transactional
   public AcceptanceCriterionResponse updateCriterion(
       UUID ownerId, UUID criterionId, AcceptanceCriterionRequest request) {
@@ -190,6 +197,7 @@ public class RequirementService {
     return toCriterion(criterion);
   }
 
+  /** Deletes criterion from persistent storage. */
   @Transactional
   public void deleteCriterion(UUID ownerId, UUID criterionId) {
     AcceptanceCriterionEntity criterion =
@@ -212,6 +220,7 @@ public class RequirementService {
         Map.of("criterionKey", criterion.getCriterionKey()));
   }
 
+  /** Resolves ambiguity for the current operation. */
   @Transactional
   public AmbiguityResponse resolveAmbiguity(
       UUID ownerId, UUID ambiguityId, ResolveAmbiguityRequest request) {
@@ -232,6 +241,7 @@ public class RequirementService {
     return toAmbiguity(ambiguity);
   }
 
+  /** Loads the requested resource and verifies that it belongs to the current owner. */
   @Transactional(readOnly = true)
   public RequirementEntity requireOwned(UUID ownerId, UUID requirementId) {
     return requirements
@@ -239,6 +249,7 @@ public class RequirementService {
         .orElseThrow(() -> ApiExceptions.notFound("Requirement not found."));
   }
 
+  /** Maps the source data to response. */
   private RequirementResponse toResponse(RequirementEntity requirement) {
     return new RequirementResponse(
         requirement.getId(),
@@ -261,6 +272,7 @@ public class RequirementService {
         requirement.getVersion());
   }
 
+  /** Maps the source data to summary. */
   private RequirementSummaryResponse toSummary(RequirementEntity requirement) {
     return new RequirementSummaryResponse(
         requirement.getId(),
@@ -273,6 +285,7 @@ public class RequirementService {
         requirement.getVersion());
   }
 
+  /** Maps the source data to criterion. */
   private AcceptanceCriterionResponse toCriterion(AcceptanceCriterionEntity criterion) {
     return new AcceptanceCriterionResponse(
         criterion.getId(),
@@ -283,6 +296,7 @@ public class RequirementService {
         criterion.getUpdatedAt());
   }
 
+  /** Maps the source data to ambiguity. */
   private AmbiguityResponse toAmbiguity(RequirementAmbiguityEntity ambiguity) {
     return new AmbiguityResponse(
         ambiguity.getId(),
@@ -297,6 +311,7 @@ public class RequirementService {
         ambiguity.getVersion());
   }
 
+  /** Executes the ensure criterion unique operation for RequirementService. */
   private void ensureCriterionUnique(
       List<AcceptanceCriterionEntity> existing,
       UUID currentId,
@@ -315,6 +330,7 @@ public class RequirementService {
     }
   }
 
+  /** Persists revision and returns its stored representation. */
   private void saveRevision(RequirementEntity requirement, UUID userId) {
     Map<String, Object> snapshot =
         Map.of(
@@ -338,6 +354,7 @@ public class RequirementService {
     }
   }
 
+  /** Asserts user managed status for the current operation. */
   private void assertUserManagedStatus(RequirementStatus status) {
     if (status == RequirementStatus.GENERATED || status == RequirementStatus.NEEDS_CLARIFICATION) {
       throw ApiExceptions.badRequest(
@@ -345,6 +362,7 @@ public class RequirementService {
     }
   }
 
+  /** Rejects stale updates by comparing the submitted and persisted entity versions. */
   private void assertVersion(long actual, long requested, String resource) {
     if (actual != requested) {
       throw ApiExceptions.conflict(
@@ -352,10 +370,12 @@ public class RequirementService {
     }
   }
 
+  /** Normalizes key for the current operation. */
   private String normalizeKey(String value) {
     return value.strip().toUpperCase(Locale.ROOT);
   }
 
+  /** Normalizes optional text before it is compared or persisted. */
   private String clean(String value) {
     return value == null ? "" : value.strip();
   }

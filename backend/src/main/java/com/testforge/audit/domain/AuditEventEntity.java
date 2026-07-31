@@ -36,8 +36,10 @@ public class AuditEventEntity {
   @Column(name = "correlation_id", nullable = false, length = 100)
   private String correlationId;
 
+  /** Creates an empty AuditEventEntity instance for the persistence framework. */
   protected AuditEventEntity() {}
 
+  /** Initializes AuditEventEntity with its required collaborators and domain state. */
   private AuditEventEntity(
       UUID actorId,
       UUID projectId,
@@ -58,6 +60,7 @@ public class AuditEventEntity {
     this.correlationId = correlationId;
   }
 
+  /** Creates a new AuditEventEntity initialized from the supplied domain values. */
   public static AuditEventEntity create(
       UUID actorId,
       UUID projectId,
@@ -71,38 +74,47 @@ public class AuditEventEntity {
         actorId, projectId, entityType, entityId, action, metadata, timestamp, correlationId);
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current actor id value. */
   public UUID getActorId() {
     return actorId;
   }
 
+  /** Returns the current project id value. */
   public UUID getProjectId() {
     return projectId;
   }
 
+  /** Returns the current entity type value. */
   public String getEntityType() {
     return entityType;
   }
 
+  /** Returns the current entity id value. */
   public UUID getEntityId() {
     return entityId;
   }
 
+  /** Returns the current action value. */
   public String getAction() {
     return action;
   }
 
+  /** Returns the current metadata value. */
   public String getMetadata() {
     return metadata;
   }
 
+  /** Returns the current timestamp value. */
   public Instant getTimestamp() {
     return timestamp;
   }
 
+  /** Returns the current correlation id value. */
   public String getCorrelationId() {
     return correlationId;
   }

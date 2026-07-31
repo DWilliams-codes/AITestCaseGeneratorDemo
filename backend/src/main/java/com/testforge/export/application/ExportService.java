@@ -25,6 +25,7 @@ public class ExportService {
   private final ObjectMapper objectMapper;
   private final AuditService auditService;
 
+  /** Initializes ExportService with its required collaborators and domain state. */
   public ExportService(
       RequirementService requirementService,
       TestCaseRepository testCases,
@@ -38,6 +39,7 @@ public class ExportService {
     this.auditService = auditService;
   }
 
+  /** Executes the export operation for ExportService. */
   @Transactional
   public ExportFile export(UUID ownerId, UUID requirementId, String requestedFormat) {
     RequirementEntity requirement = requirementService.requireOwned(ownerId, requirementId);
@@ -73,6 +75,7 @@ public class ExportService {
     return file;
   }
 
+  /** Maps the source data to json. */
   private String toJson(List<TestCaseResponse> approved) {
     try {
       return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(approved);
@@ -81,6 +84,7 @@ public class ExportService {
     }
   }
 
+  /** Maps the source data to csv. */
   private String toCsv(List<TestCaseResponse> approved) {
     StringBuilder csv =
         new StringBuilder(
@@ -112,6 +116,7 @@ public class ExportService {
     return csv.toString();
   }
 
+  /** Maps the source data to markdown. */
   private String toMarkdown(RequirementEntity requirement, List<TestCaseResponse> approved) {
     StringBuilder markdown =
         new StringBuilder("# ").append(markdownText(requirement.getTitle())).append("\n\n");
@@ -152,11 +157,13 @@ public class ExportService {
     return markdown.toString();
   }
 
+  /** Executes the csv cell operation for ExportService. */
   private String csvCell(String value) {
     String safe = formulaSafe(value == null ? "" : value);
     return '"' + safe.replace("\"", "\"\"") + '"';
   }
 
+  /** Executes the formula safe operation for ExportService. */
   private String formulaSafe(String value) {
     String stripped = value.stripLeading();
     if (!stripped.isEmpty() && "=+-@".indexOf(stripped.charAt(0)) >= 0) {
@@ -165,6 +172,7 @@ public class ExportService {
     return value;
   }
 
+  /** Executes the markdown text operation for ExportService. */
   private String markdownText(String value) {
     return (value == null ? "" : value)
         .replace("&", "&amp;")

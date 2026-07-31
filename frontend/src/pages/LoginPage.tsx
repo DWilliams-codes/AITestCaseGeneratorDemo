@@ -28,6 +28,7 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
+/** Presents sign-in and registration flows with validation and recoverable API errors. */
 export function LoginPage() {
   const { user, login, register: registerAccount } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');

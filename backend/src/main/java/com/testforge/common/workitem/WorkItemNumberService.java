@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 public class WorkItemNumberService {
   @PersistenceContext private EntityManager entityManager;
 
+  /** Allocates the next globally unique work-item number from the database. */
   public long next() {
     Number value =
         (Number)

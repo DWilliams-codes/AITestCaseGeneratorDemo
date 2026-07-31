@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 public final class TestCaseDtos {
+  /** Prevents instantiation because TestCaseDtos is a static utility namespace. */
   private TestCaseDtos() {}
 
   public record StepRequest(
@@ -45,6 +46,7 @@ public final class TestCaseDtos {
       @NotNull @Size(min = 1, max = 30) List<@Valid StepRequest> steps,
       @NotNull @Size(max = 30) List<@Valid TestDataRequest> testData,
       @NotNull @PositiveOrZero Long version) {
+    /** Initializes UpdateTestCaseRequest with its required collaborators and domain state. */
     public UpdateTestCaseRequest {
       preconditions = preconditions == null ? null : List.copyOf(preconditions);
       steps = steps == null ? null : List.copyOf(steps);
@@ -93,6 +95,7 @@ public final class TestCaseDtos {
       Instant createdAt,
       Instant updatedAt,
       long version) {
+    /** Initializes TestCaseResponse with its required collaborators and domain state. */
     public TestCaseResponse {
       preconditions = preconditions == null ? null : List.copyOf(preconditions);
       steps = steps == null ? null : List.copyOf(steps);

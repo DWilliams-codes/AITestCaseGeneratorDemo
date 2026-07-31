@@ -51,8 +51,10 @@ public class RequirementEntity {
 
   @Version private long version;
 
+  /** Creates an empty RequirementEntity instance for the persistence framework. */
   protected RequirementEntity() {}
 
+  /** Initializes RequirementEntity with its required collaborators and domain state. */
   private RequirementEntity(
       UUID id,
       long workItemNumber,
@@ -78,6 +80,7 @@ public class RequirementEntity {
     this.updatedAt = now;
   }
 
+  /** Creates a new RequirementEntity initialized from the supplied domain values. */
   public static RequirementEntity create(
       long workItemNumber,
       UUID projectId,
@@ -101,6 +104,7 @@ public class RequirementEntity {
         now);
   }
 
+  /** Updates the entity's mutable domain state and modification timestamp. */
   public void update(
       String title,
       String userStory,
@@ -118,65 +122,80 @@ public class RequirementEntity {
     this.updatedAt = now;
   }
 
+  /** Moves the requirement into its generated or clarification-needed state. */
   public void markGenerated(boolean needsClarification, Instant now) {
     this.status =
         needsClarification ? RequirementStatus.NEEDS_CLARIFICATION : RequirementStatus.GENERATED;
     this.updatedAt = now;
   }
 
+  /** Marks the entity as archived and records its modification time. */
   public void archive(Instant now) {
     this.status = RequirementStatus.ARCHIVED;
     this.updatedAt = now;
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current work item number value. */
   public long getWorkItemNumber() {
     return workItemNumber;
   }
 
+  /** Returns the current project id value. */
   public UUID getProjectId() {
     return projectId;
   }
 
+  /** Returns the current title value. */
   public String getTitle() {
     return title;
   }
 
+  /** Returns the current user story value. */
   public String getUserStory() {
     return userStory;
   }
 
+  /** Returns the current business requirements value. */
   public String getBusinessRequirements() {
     return businessRequirements;
   }
 
+  /** Returns the current assumptions value. */
   public String getAssumptions() {
     return assumptions;
   }
 
+  /** Returns the current source reference value. */
   public String getSourceReference() {
     return sourceReference;
   }
 
+  /** Returns the current status value. */
   public RequirementStatus getStatus() {
     return status;
   }
 
+  /** Returns the current created by value. */
   public UUID getCreatedBy() {
     return createdBy;
   }
 
+  /** Returns the current created at value. */
   public Instant getCreatedAt() {
     return createdAt;
   }
 
+  /** Returns the current updated at value. */
   public Instant getUpdatedAt() {
     return updatedAt;
   }
 
+  /** Returns the current version value. */
   public long getVersion() {
     return version;
   }

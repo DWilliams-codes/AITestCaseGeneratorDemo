@@ -73,8 +73,10 @@ public class TestCaseEntity {
 
   @Version private long version;
 
+  /** Creates an empty TestCaseEntity instance for the persistence framework. */
   protected TestCaseEntity() {}
 
+  /** Initializes TestCaseEntity with its required collaborators and domain state. */
   private TestCaseEntity(
       UUID id,
       long workItemNumber,
@@ -112,6 +114,7 @@ public class TestCaseEntity {
     this.updatedAt = now;
   }
 
+  /** Creates a new TestCaseEntity initialized from the supplied domain values. */
   public static TestCaseEntity create(
       long workItemNumber,
       UUID requirementId,
@@ -147,6 +150,7 @@ public class TestCaseEntity {
         now);
   }
 
+  /** Updates the entity's mutable domain state and modification timestamp. */
   public void update(
       String title,
       String objective,
@@ -169,6 +173,7 @@ public class TestCaseEntity {
     this.updatedAt = now;
   }
 
+  /** Executes the review operation for TestCaseEntity. */
   public void review(ReviewDecision decision, Instant now) {
     this.status =
         switch (decision) {
@@ -179,83 +184,103 @@ public class TestCaseEntity {
     this.updatedAt = now;
   }
 
+  /** Executes the reopen operation for TestCaseEntity. */
   public void reopen(Instant now) {
     this.status = TestCaseStatus.IN_REVIEW;
     this.updatedAt = now;
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current work item number value. */
   public long getWorkItemNumber() {
     return workItemNumber;
   }
 
+  /** Returns the current requirement id value. */
   public UUID getRequirementId() {
     return requirementId;
   }
 
+  /** Returns the current generation run id value. */
   public UUID getGenerationRunId() {
     return generationRunId;
   }
 
+  /** Returns the current test case key value. */
   public String getTestCaseKey() {
     return testCaseKey;
   }
 
+  /** Returns the current title value. */
   public String getTitle() {
     return title;
   }
 
+  /** Returns the current objective value. */
   public String getObjective() {
     return objective;
   }
 
+  /** Returns the current category value. */
   public TestCaseCategory getCategory() {
     return category;
   }
 
+  /** Returns the current priority value. */
   public TestPriority getPriority() {
     return priority;
   }
 
+  /** Returns the current risk level value. */
   public TestPriority getRiskLevel() {
     return riskLevel;
   }
 
+  /** Reports whether automation candidate. */
   public boolean isAutomationCandidate() {
     return automationCandidate;
   }
 
+  /** Returns the current status value. */
   public TestCaseStatus getStatus() {
     return status;
   }
 
+  /** Returns the current coverage intent value. */
   public CoverageIntent getCoverageIntent() {
     return coverageIntent;
   }
 
+  /** Returns the current rationale value. */
   public String getRationale() {
     return rationale;
   }
 
+  /** Returns the current final expected outcome value. */
   public String getFinalExpectedOutcome() {
     return finalExpectedOutcome;
   }
 
+  /** Returns the current created by value. */
   public UUID getCreatedBy() {
     return createdBy;
   }
 
+  /** Returns the current created at value. */
   public Instant getCreatedAt() {
     return createdAt;
   }
 
+  /** Returns the current updated at value. */
   public Instant getUpdatedAt() {
     return updatedAt;
   }
 
+  /** Returns the current version value. */
   public long getVersion() {
     return version;
   }

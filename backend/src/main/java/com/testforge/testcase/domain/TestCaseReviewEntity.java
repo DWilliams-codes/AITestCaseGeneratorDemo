@@ -30,8 +30,10 @@ public class TestCaseReviewEntity {
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
+  /** Creates an empty TestCaseReviewEntity instance for the persistence framework. */
   protected TestCaseReviewEntity() {}
 
+  /** Initializes TestCaseReviewEntity with its required collaborators and domain state. */
   private TestCaseReviewEntity(
       UUID id,
       UUID testCaseId,
@@ -47,32 +49,39 @@ public class TestCaseReviewEntity {
     this.createdAt = now;
   }
 
+  /** Creates a new TestCaseReviewEntity initialized from the supplied domain values. */
   public static TestCaseReviewEntity create(
       UUID testCaseId, UUID reviewerId, ReviewDecision decision, String comments, Instant now) {
     return new TestCaseReviewEntity(
         UUID.randomUUID(), testCaseId, reviewerId, decision, comments, now);
   }
 
+  /** Returns the current decision value. */
   public ReviewDecision getDecision() {
     return decision;
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current test case id value. */
   public UUID getTestCaseId() {
     return testCaseId;
   }
 
+  /** Returns the current reviewer id value. */
   public UUID getReviewerId() {
     return reviewerId;
   }
 
+  /** Returns the current comments value. */
   public String getComments() {
     return comments;
   }
 
+  /** Returns the current created at value. */
   public Instant getCreatedAt() {
     return createdAt;
   }

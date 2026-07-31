@@ -2,6 +2,7 @@ import { Box, CircularProgress } from '@mui/material';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from './useAuth';
 
+/** Gates protected routes until session restoration completes or redirects unauthenticated users. */
 export function ProtectedRoute() {
   const { user, loading } = useAuth();
   const location = useLocation();

@@ -32,8 +32,10 @@ public class TestDataItemEntity {
   @Column(name = "generation_strategy", nullable = false, length = 100)
   private String generationStrategy;
 
+  /** Creates an empty TestDataItemEntity instance for the persistence framework. */
   protected TestDataItemEntity() {}
 
+  /** Initializes TestDataItemEntity with its required collaborators and domain state. */
   private TestDataItemEntity(
       UUID id,
       UUID testCaseId,
@@ -51,6 +53,7 @@ public class TestDataItemEntity {
     this.generationStrategy = generationStrategy;
   }
 
+  /** Creates a new TestDataItemEntity initialized from the supplied domain values. */
   public static TestDataItemEntity create(
       UUID testCaseId,
       String name,
@@ -68,30 +71,37 @@ public class TestDataItemEntity {
         generationStrategy);
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current test case id value. */
   public UUID getTestCaseId() {
     return testCaseId;
   }
 
+  /** Returns the current name value. */
   public String getName() {
     return name;
   }
 
+  /** Returns the current description value. */
   public String getDescription() {
     return description;
   }
 
+  /** Returns the current example value value. */
   public String getExampleValue() {
     return exampleValue;
   }
 
+  /** Returns the current sensitivity value. */
   public DataSensitivity getSensitivity() {
     return sensitivity;
   }
 
+  /** Returns the current generation strategy value. */
   public String getGenerationStrategy() {
     return generationStrategy;
   }

@@ -24,21 +24,25 @@ public class TestCaseController {
   private final TestCaseService testCaseService;
   private final CurrentUser currentUser;
 
+  /** Initializes TestCaseController with its required collaborators and domain state. */
   public TestCaseController(TestCaseService testCaseService, CurrentUser currentUser) {
     this.testCaseService = testCaseService;
     this.currentUser = currentUser;
   }
 
+  /** Handles the authenticated HTTP request to list. */
   @GetMapping("/requirements/{requirementId}/test-cases")
   List<TestCaseResponse> list(Authentication authentication, @PathVariable UUID requirementId) {
     return testCaseService.list(currentUser.id(authentication), requirementId);
   }
 
+  /** Handles the authenticated HTTP request to get. */
   @GetMapping("/test-cases/{testCaseId}")
   TestCaseResponse get(Authentication authentication, @PathVariable UUID testCaseId) {
     return testCaseService.get(currentUser.id(authentication), testCaseId);
   }
 
+  /** Handles the authenticated HTTP request to update. */
   @PatchMapping("/test-cases/{testCaseId}")
   TestCaseResponse update(
       Authentication authentication,
@@ -47,6 +51,7 @@ public class TestCaseController {
     return testCaseService.update(currentUser.id(authentication), testCaseId, request);
   }
 
+  /** Handles the authenticated HTTP request to approve. */
   @PostMapping("/test-cases/{testCaseId}/approve")
   TestCaseResponse approve(
       Authentication authentication,
@@ -55,6 +60,7 @@ public class TestCaseController {
     return review(authentication, testCaseId, request, ReviewDecision.APPROVED);
   }
 
+  /** Handles the authenticated HTTP request to reject. */
   @PostMapping("/test-cases/{testCaseId}/reject")
   TestCaseResponse reject(
       Authentication authentication,
@@ -63,6 +69,7 @@ public class TestCaseController {
     return review(authentication, testCaseId, request, ReviewDecision.REJECTED);
   }
 
+  /** Handles the authenticated HTTP request to request changes. */
   @PostMapping("/test-cases/{testCaseId}/request-changes")
   TestCaseResponse requestChanges(
       Authentication authentication,
@@ -71,6 +78,7 @@ public class TestCaseController {
     return review(authentication, testCaseId, request, ReviewDecision.CHANGES_REQUESTED);
   }
 
+  /** Handles the authenticated HTTP request to review. */
   private TestCaseResponse review(
       Authentication authentication,
       UUID testCaseId,

@@ -28,6 +28,9 @@ class GenerationProviderValidationTest {
   private final GenerationResultValidator validator =
       new GenerationResultValidator(new GenerationProperties("fake", 10, 5));
 
+  /**
+   * Covers the fake provider generates deterministic valid and context sensitive coverage scenario.
+   */
   @Test
   void fakeProviderGeneratesDeterministicValidAndContextSensitiveCoverage() {
     FakeTestGenerationProvider provider = new FakeTestGenerationProvider();
@@ -64,6 +67,10 @@ class GenerationProviderValidationTest {
     validator.validate(explicitRules, explicitResult);
   }
 
+  /**
+   * Covers the fake provider derives case content and synthetic values from each requirement
+   * scenario.
+   */
   @Test
   void fakeProviderDerivesCaseContentAndSyntheticValuesFromEachRequirement() {
     FakeTestGenerationProvider provider = new FakeTestGenerationProvider();
@@ -100,6 +107,7 @@ class GenerationProviderValidationTest {
         .isNotEqualTo(reportResult.testCases().getFirst().testData().getFirst().exampleValue());
   }
 
+  /** Covers the validator rejects missing oversized and duplicate case collections scenario. */
   @Test
   void validatorRejectsMissingOversizedAndDuplicateCaseCollections() {
     TestGenerationRequest request =
@@ -116,6 +124,7 @@ class GenerationProviderValidationTest {
     assertInvalid(request, result(List.of(validCase("Duplicate"), validCase(" duplicate "))));
   }
 
+  /** Covers the validator rejects incomplete enums and step contracts scenario. */
   @Test
   void validatorRejectsIncompleteEnumsAndStepContracts() {
     TestGenerationRequest request =
@@ -264,6 +273,7 @@ class GenerationProviderValidationTest {
     assertInvalid(request, result(List.of(withSteps(List.of(step(1, "Action", " "))))));
   }
 
+  /** Covers the validator rejects invalid mappings unsafe language and incomplete data scenario. */
   @Test
   void validatorRejectsInvalidMappingsUnsafeLanguageAndIncompleteData() {
     TestGenerationRequest request =
@@ -313,6 +323,7 @@ class GenerationProviderValidationTest {
     validator.validate(request, result(List.of(exploratory)));
   }
 
+  /** Executes the request operation for GenerationProviderValidationTest. */
   private TestGenerationRequest request(String story, String rules, String assumptions) {
     return new TestGenerationRequest(
         UUID.randomUUID(),
@@ -324,6 +335,7 @@ class GenerationProviderValidationTest {
         "correlation-id");
   }
 
+  /** Executes the result operation for GenerationProviderValidationTest. */
   private TestGenerationResult result(List<GeneratedTestCase> cases) {
     return new TestGenerationResult(
         new RequirementSummary("tester", "goal", "value", List.of()),
@@ -332,6 +344,7 @@ class GenerationProviderValidationTest {
         new UsageMetadata(10, 20));
   }
 
+  /** Executes the valid case operation for GenerationProviderValidationTest. */
   private GeneratedTestCase validCase(String title) {
     return new GeneratedTestCase(
         title,
@@ -349,6 +362,7 @@ class GenerationProviderValidationTest {
         "Direct evidence for AC-1.");
   }
 
+  /** Executes the copy operation for GenerationProviderValidationTest. */
   private GeneratedTestCase copy(
       GeneratedTestCase ignored,
       String title,
@@ -378,6 +392,7 @@ class GenerationProviderValidationTest {
         rationale);
   }
 
+  /** Executes the with steps operation for GenerationProviderValidationTest. */
   private GeneratedTestCase withSteps(List<GeneratedStep> steps) {
     GeneratedTestCase base = validCase("Step contract");
     return copy(
@@ -395,6 +410,7 @@ class GenerationProviderValidationTest {
         base.testData());
   }
 
+  /** Executes the with mappings operation for GenerationProviderValidationTest. */
   private GeneratedTestCase withMappings(List<String> keys) {
     GeneratedTestCase base = validCase("Mapping contract");
     return copy(
@@ -412,11 +428,13 @@ class GenerationProviderValidationTest {
         base.testData());
   }
 
+  /** Executes the with title operation for GenerationProviderValidationTest. */
   private GeneratedTestCase withTitle(String title) {
     GeneratedTestCase base = validCase(title);
     return base;
   }
 
+  /** Executes the with preconditions operation for GenerationProviderValidationTest. */
   private GeneratedTestCase withPreconditions(List<String> preconditions) {
     GeneratedTestCase base = validCase("Unsafe precondition");
     return new GeneratedTestCase(
@@ -435,6 +453,7 @@ class GenerationProviderValidationTest {
         base.rationale());
   }
 
+  /** Executes the with data operation for GenerationProviderValidationTest. */
   private GeneratedTestCase withData(List<GeneratedTestData> data) {
     GeneratedTestCase base = validCase("Data contract");
     return copy(
@@ -452,23 +471,28 @@ class GenerationProviderValidationTest {
         data);
   }
 
+  /** Executes the valid steps operation for GenerationProviderValidationTest. */
   private List<GeneratedStep> validSteps() {
     return List.of(step(1, "Submit the synthetic request.", "One request is stored."));
   }
 
+  /** Executes the step operation for GenerationProviderValidationTest. */
   private GeneratedStep step(int number, String action, String result) {
     return new GeneratedStep(number, action, result, null);
   }
 
+  /** Executes the valid data operation for GenerationProviderValidationTest. */
   private List<GeneratedTestData> validData() {
     return List.of(data("requestId", "A synthetic identifier.", "TF-001", DataSensitivity.PUBLIC));
   }
 
+  /** Executes the data operation for GenerationProviderValidationTest. */
   private GeneratedTestData data(
       String name, String description, String value, DataSensitivity sensitivity) {
     return new GeneratedTestData(name, description, value, sensitivity, "Generate a unique value.");
   }
 
+  /** Asserts invalid for the current operation. */
   private void assertInvalid(TestGenerationRequest request, TestGenerationResult result) {
     assertThatThrownBy(() -> validator.validate(request, result))
         .isInstanceOf(GenerationValidationException.class);

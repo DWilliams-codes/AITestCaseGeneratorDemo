@@ -68,6 +68,7 @@ public class GenerationService {
   private final AuditService auditService;
   private final Clock clock;
 
+  /** Initializes GenerationService with its required collaborators and domain state. */
   public GenerationService(
       RequirementService requirementService,
       WorkItemNumberService workItemNumbers,
@@ -101,6 +102,7 @@ public class GenerationService {
     this.clock = clock;
   }
 
+  /** Generates structured manual test coverage from the requirement input. */
   @Transactional
   public GenerationRunResponse generate(UUID userId, UUID requirementId, String idempotencyKey) {
     RequirementEntity requirement = requirementService.requireOwned(userId, requirementId);
@@ -170,6 +172,7 @@ public class GenerationService {
     return toResponse(run);
   }
 
+  /** Returns the owned resource identified by the request. */
   @Transactional(readOnly = true)
   public GenerationRunResponse get(UUID userId, UUID runId) {
     return runs.findOwned(runId, userId)
@@ -177,6 +180,7 @@ public class GenerationService {
         .orElseThrow(() -> ApiExceptions.notFound("Generation run not found."));
   }
 
+  /** Executes the generate validated operation for GenerationService. */
   private TestGenerationResult generateValidated(TestGenerationRequest request) {
     GenerationValidationException firstFailure;
     try {
@@ -196,6 +200,7 @@ public class GenerationService {
     }
   }
 
+  /** Executes the persist result operation for GenerationService. */
   private void persistResult(
       RequirementEntity requirement,
       List<AcceptanceCriterionEntity> criterionEntities,
@@ -254,6 +259,7 @@ public class GenerationService {
     }
   }
 
+  /** Executes the persist parts operation for GenerationService. */
   private void persistParts(UUID testCaseId, GeneratedTestCase generated) {
     if (generated.preconditions() != null) {
       for (int index = 0; index < generated.preconditions().size(); index++) {
@@ -285,6 +291,7 @@ public class GenerationService {
     }
   }
 
+  /** Maps the source data to provider request. */
   private TestGenerationRequest toProviderRequest(
       RequirementEntity requirement, List<AcceptanceCriterionEntity> criterionEntities) {
     return new TestGenerationRequest(
@@ -299,6 +306,7 @@ public class GenerationService {
         CorrelationIds.current());
   }
 
+  /** Maps the source data to response. */
   private GenerationRunResponse toResponse(GenerationRunEntity run) {
     return new GenerationRunResponse(
         run.getId(),
@@ -318,6 +326,7 @@ public class GenerationService {
         run.getCorrelationId());
   }
 
+  /** Executes the canonical input operation for GenerationService. */
   private String canonicalInput(TestGenerationRequest request) {
     StringBuilder value =
         new StringBuilder()
@@ -335,6 +344,7 @@ public class GenerationService {
     return value.toString();
   }
 
+  /** Reports whether the result h. */
   private String hash(String value) {
     try {
       return HexFormat.of()
@@ -345,6 +355,7 @@ public class GenerationService {
     }
   }
 
+  /** Executes the safe message operation for GenerationService. */
   private String safeMessage(RuntimeException exception) {
     String message = exception.getMessage();
     if (message == null || message.isBlank()) {

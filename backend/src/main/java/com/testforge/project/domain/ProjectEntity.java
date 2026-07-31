@@ -36,8 +36,10 @@ public class ProjectEntity {
 
   @Version private long version;
 
+  /** Creates an empty ProjectEntity instance for the persistence framework. */
   protected ProjectEntity() {}
 
+  /** Initializes ProjectEntity with its required collaborators and domain state. */
   private ProjectEntity(
       UUID id, UUID ownerId, String name, String description, ProjectStatus status, Instant now) {
     this.id = id;
@@ -49,50 +51,61 @@ public class ProjectEntity {
     this.updatedAt = now;
   }
 
+  /** Creates a new ProjectEntity initialized from the supplied domain values. */
   public static ProjectEntity create(UUID ownerId, String name, String description, Instant now) {
     return new ProjectEntity(
         UUID.randomUUID(), ownerId, name, description, ProjectStatus.ACTIVE, now);
   }
 
+  /** Updates the entity's mutable domain state and modification timestamp. */
   public void update(String name, String description, Instant now) {
     this.name = name;
     this.description = description;
     this.updatedAt = now;
   }
 
+  /** Marks the entity as archived and records its modification time. */
   public void archive(Instant now) {
     this.status = ProjectStatus.ARCHIVED;
     this.updatedAt = now;
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current owner id value. */
   public UUID getOwnerId() {
     return ownerId;
   }
 
+  /** Returns the current name value. */
   public String getName() {
     return name;
   }
 
+  /** Returns the current description value. */
   public String getDescription() {
     return description;
   }
 
+  /** Returns the current status value. */
   public ProjectStatus getStatus() {
     return status;
   }
 
+  /** Returns the current created at value. */
   public Instant getCreatedAt() {
     return createdAt;
   }
 
+  /** Returns the current updated at value. */
   public Instant getUpdatedAt() {
     return updatedAt;
   }
 
+  /** Returns the current version value. */
   public long getVersion() {
     return version;
   }

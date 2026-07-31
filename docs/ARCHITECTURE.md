@@ -10,8 +10,7 @@ flowchart TB
     Browser -->|"HTTPS JSON /api/v1"| API["Spring Boot modular monolith"]
     API -->|"JPA transactions"| PostgreSQL[("PostgreSQL + Flyway")]
     API --> ProviderBoundary["TestGenerationProvider"]
-    ProviderBoundary --> Fake["Requirement-driven local rules"]
-    ProviderBoundary -. "explicit configuration" .-> OpenAI["OpenAI Responses API"]
+    ProviderBoundary --> OpenAI["OpenAI Responses API"]
 ```
 
 ## Deployment containers
@@ -76,7 +75,7 @@ Errors use RFC 7807 with stable `code`, status, safe detail, instance path, time
 
 ## Quality boundaries
 
-Backend verification enforces formatting, SpotBugs, and 80% line / 70% branch coverage. Frontend verification enforces Prettier, TypeScript, ESLint, unit coverage, a production bundle, and an executable high/critical advisory policy. Playwright traverses the seeded analyst workflow and axe checks each major page. CI also builds the Compose topology and waits for health checks.
+Backend verification enforces formatting, SpotBugs, and 80% line / 70% branch coverage. Its deterministic generation provider is test-scoped and excluded from the packaged application. Frontend verification enforces Prettier, TypeScript, ESLint, unit coverage, a production bundle, and an executable high/critical advisory policy. Playwright traverses the seeded source-story workflow and axe checks each major page without depending on a paid external generation request. A separately invoked live-generation suite evaluates provider output structurally when an API key is available. CI also builds the Compose topology and waits for health checks.
 
 ## Decisions
 

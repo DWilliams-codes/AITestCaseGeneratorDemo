@@ -32,8 +32,10 @@ public class TraceabilityLinkEntity {
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
+  /** Creates an empty TraceabilityLinkEntity instance for the persistence framework. */
   protected TraceabilityLinkEntity() {}
 
+  /** Initializes TraceabilityLinkEntity with its required collaborators and domain state. */
   private TraceabilityLinkEntity(
       UUID id,
       UUID acceptanceCriterionId,
@@ -49,6 +51,7 @@ public class TraceabilityLinkEntity {
     this.createdAt = createdAt;
   }
 
+  /** Creates a new TraceabilityLinkEntity initialized from the supplied domain values. */
   public static TraceabilityLinkEntity create(
       UUID acceptanceCriterionId,
       UUID testCaseId,
@@ -59,26 +62,32 @@ public class TraceabilityLinkEntity {
         UUID.randomUUID(), acceptanceCriterionId, testCaseId, coverageType, confidence, now);
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current acceptance criterion id value. */
   public UUID getAcceptanceCriterionId() {
     return acceptanceCriterionId;
   }
 
+  /** Returns the current test case id value. */
   public UUID getTestCaseId() {
     return testCaseId;
   }
 
+  /** Returns the current coverage type value. */
   public CoverageType getCoverageType() {
     return coverageType;
   }
 
+  /** Returns the current confidence value. */
   public BigDecimal getConfidence() {
     return confidence;
   }
 
+  /** Returns the current created at value. */
   public Instant getCreatedAt() {
     return createdAt;
   }

@@ -34,6 +34,7 @@ class OpenAiTestGenerationProviderTest {
   private MockRestServiceServer server;
   private OpenAiTestGenerationProvider provider;
 
+  /** Rebuilds isolated fixtures before each test scenario. */
   @BeforeEach
   void setUp() {
     objectMapper = new ObjectMapper();
@@ -47,6 +48,7 @@ class OpenAiTestGenerationProviderTest {
             builder.build());
   }
 
+  /** Covers the sends a stateless strict schema request and parses usage scenario. */
   @Test
   void sendsAStatelessStrictSchemaRequestAndParsesUsage() throws Exception {
     ObjectNode generated = objectMapper.valueToTree(generatedResult());
@@ -81,6 +83,7 @@ class OpenAiTestGenerationProviderTest {
     server.verify();
   }
 
+  /** Covers the safely rejects incomplete empty refused and transport failures scenario. */
   @Test
   void safelyRejectsIncompleteEmptyRefusedAndTransportFailures() {
     expectResponse("{\"status\":\"incomplete\",\"output\":[]}");
@@ -113,6 +116,7 @@ class OpenAiTestGenerationProviderTest {
     server.verify();
   }
 
+  /** Executes the expect response operation for OpenAiTestGenerationProviderTest. */
   private void expectResponse(String body) {
     server.reset();
     server
@@ -120,6 +124,7 @@ class OpenAiTestGenerationProviderTest {
         .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
   }
 
+  /** Executes the request operation for OpenAiTestGenerationProviderTest. */
   private TestGenerationRequest request() {
     return new TestGenerationRequest(
         UUID.randomUUID(),
@@ -131,6 +136,7 @@ class OpenAiTestGenerationProviderTest {
         "4a91eb76-32fb-4c57-a2d5-458cc98e2d7a");
   }
 
+  /** Executes the generated result operation for OpenAiTestGenerationProviderTest. */
   private TestGenerationResult generatedResult() {
     return new TestGenerationResult(
         new RequirementSummary("customer", "Submit a return", "Recover item value", List.of()),

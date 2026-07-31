@@ -27,6 +27,7 @@ public class GenerationController {
   private final RateLimitService rateLimitService;
   private final SecurityProperties securityProperties;
 
+  /** Initializes GenerationController with its required collaborators and domain state. */
   public GenerationController(
       GenerationService generationService,
       CurrentUser currentUser,
@@ -38,6 +39,7 @@ public class GenerationController {
     this.securityProperties = securityProperties;
   }
 
+  /** Handles the authenticated HTTP request to generate. */
   @PostMapping({
     "/requirements/{requirementId}/generate-test-cases",
     "/requirements/{requirementId}/regenerate"
@@ -53,6 +55,7 @@ public class GenerationController {
     return generationService.generate(userId, requirementId, idempotencyKey);
   }
 
+  /** Handles the authenticated HTTP request to get. */
   @GetMapping("/generation-runs/{runId}")
   GenerationRunResponse get(Authentication authentication, @PathVariable UUID runId) {
     return generationService.get(currentUser.id(authentication), runId);

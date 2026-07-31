@@ -1,6 +1,7 @@
 import { Box, Button, Container, Stack, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 
+/** Provides an accessible recovery destination for routes outside the application map. */
 export function NotFoundPage() {
   return (
     <Box component="main" sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 3 }}>

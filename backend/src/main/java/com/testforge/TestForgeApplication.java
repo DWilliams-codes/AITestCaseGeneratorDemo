@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 @SpringBootApplication
 @EnableAsync
 public class TestForgeApplication {
-
+  /** Starts the TestForge Spring Boot application. */
   public static void main(String[] args) {
     SpringApplication.run(TestForgeApplication.class, args);
   }

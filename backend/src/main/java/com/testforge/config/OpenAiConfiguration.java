@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 @Configuration
 @ConditionalOnProperty(name = "testforge.generation.provider", havingValue = "openai")
 public class OpenAiConfiguration {
+  /** Creates the Spring-managed open ai rest client component. */
   @Bean
   @Qualifier("openAiRestClient") RestClient openAiRestClient(OpenAiProperties properties) {
     if (!StringUtils.hasText(properties.apiKey())) {

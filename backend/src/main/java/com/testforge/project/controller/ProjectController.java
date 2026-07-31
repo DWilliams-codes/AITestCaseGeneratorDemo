@@ -31,11 +31,13 @@ public class ProjectController {
   private final ProjectService projectService;
   private final CurrentUser currentUser;
 
+  /** Initializes ProjectController with its required collaborators and domain state. */
   public ProjectController(ProjectService projectService, CurrentUser currentUser) {
     this.projectService = projectService;
     this.currentUser = currentUser;
   }
 
+  /** Handles the authenticated HTTP request to list. */
   @GetMapping
   PageResponse<ProjectResponse> list(
       Authentication authentication,
@@ -44,6 +46,7 @@ public class ProjectController {
     return projectService.list(currentUser.id(authentication), page, size);
   }
 
+  /** Handles the authenticated HTTP request to create. */
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   ProjectResponse create(
@@ -51,11 +54,13 @@ public class ProjectController {
     return projectService.create(currentUser.id(authentication), request);
   }
 
+  /** Handles the authenticated HTTP request to get. */
   @GetMapping("/{projectId}")
   ProjectResponse get(Authentication authentication, @PathVariable UUID projectId) {
     return projectService.get(currentUser.id(authentication), projectId);
   }
 
+  /** Handles the authenticated HTTP request to update. */
   @PatchMapping("/{projectId}")
   ProjectResponse update(
       Authentication authentication,
@@ -64,6 +69,7 @@ public class ProjectController {
     return projectService.update(currentUser.id(authentication), projectId, request);
   }
 
+  /** Handles the authenticated HTTP request to archive. */
   @DeleteMapping("/{projectId}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   void archive(Authentication authentication, @PathVariable UUID projectId) {

@@ -12,6 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 public class CorrelationIdFilter extends OncePerRequestFilter {
+  /** Propagates a safe correlation identifier through the current HTTP request. */
   @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -27,6 +28,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
     }
   }
 
+  /** Executes the normalize operation for CorrelationIdFilter. */
   private String normalize(String value) {
     if (value != null) {
       try {

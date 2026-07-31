@@ -16,12 +16,14 @@ public class AuditService {
   private final ObjectMapper objectMapper;
   private final Clock clock;
 
+  /** Initializes AuditService with its required collaborators and domain state. */
   public AuditService(AuditEventRepository repository, ObjectMapper objectMapper, Clock clock) {
     this.repository = repository;
     this.objectMapper = objectMapper;
     this.clock = clock;
   }
 
+  /** Executes the record operation for AuditService. */
   public void record(
       UUID actorId,
       UUID projectId,
@@ -41,6 +43,7 @@ public class AuditService {
             CorrelationIds.current()));
   }
 
+  /** Executes the serialize operation for AuditService. */
   private String serialize(Map<String, ?> metadata) {
     try {
       return objectMapper.writeValueAsString(metadata);

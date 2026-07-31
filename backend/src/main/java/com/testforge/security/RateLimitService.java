@@ -12,10 +12,12 @@ public class RateLimitService {
   private final Clock clock;
   private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
 
+  /** Initializes RateLimitService with its required collaborators and domain state. */
   public RateLimitService(Clock clock) {
     this.clock = clock;
   }
 
+  /** Executes the check operation for RateLimitService. */
   public void check(String bucket, String subject, int limit) {
     Instant minute = clock.instant().truncatedTo(ChronoUnit.MINUTES);
     String key = bucket + ':' + subject;
@@ -28,6 +30,7 @@ public class RateLimitService {
     }
   }
 
+  /** Executes the next window operation for RateLimitService. */
   private Window nextWindow(Window prior, Instant minute) {
     if (prior == null || !prior.minute().equals(minute)) {
       return new Window(minute, 1);

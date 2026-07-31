@@ -14,8 +14,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "e2e": "playwright test",
+    "e2e": "playwright test --grep-invert @live-generation",
+    "e2e:live": "playwright test --grep @live-generation",
     "audit:ci": "node scripts/audit.mjs",
+    "comments:check": "node scripts/check-comments.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

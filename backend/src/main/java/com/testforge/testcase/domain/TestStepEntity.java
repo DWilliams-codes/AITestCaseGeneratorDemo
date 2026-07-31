@@ -26,8 +26,10 @@ public class TestStepEntity {
   @Column(name = "test_data_reference", length = 1000)
   private String testDataReference;
 
+  /** Creates an empty TestStepEntity instance for the persistence framework. */
   protected TestStepEntity() {}
 
+  /** Initializes TestStepEntity with its required collaborators and domain state. */
   private TestStepEntity(
       UUID id,
       UUID testCaseId,
@@ -43,6 +45,7 @@ public class TestStepEntity {
     this.testDataReference = testDataReference;
   }
 
+  /** Creates a new TestStepEntity initialized from the supplied domain values. */
   public static TestStepEntity create(
       UUID testCaseId,
       int stepNumber,
@@ -53,26 +56,32 @@ public class TestStepEntity {
         UUID.randomUUID(), testCaseId, stepNumber, action, expectedResult, testDataReference);
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current test case id value. */
   public UUID getTestCaseId() {
     return testCaseId;
   }
 
+  /** Returns the current step number value. */
   public int getStepNumber() {
     return stepNumber;
   }
 
+  /** Returns the current action value. */
   public String getAction() {
     return action;
   }
 
+  /** Returns the current expected result value. */
   public String getExpectedResult() {
     return expectedResult;
   }
 
+  /** Returns the current test data reference value. */
   public String getTestDataReference() {
     return testDataReference;
   }

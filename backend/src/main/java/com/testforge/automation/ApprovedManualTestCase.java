@@ -11,6 +11,7 @@ public record ApprovedManualTestCase(
     List<ApprovedStep> steps,
     String finalExpectedOutcome,
     List<String> acceptanceCriteriaKeys) {
+  /** Initializes ApprovedManualTestCase with its required collaborators and domain state. */
   public ApprovedManualTestCase {
     preconditions = preconditions == null ? List.of() : List.copyOf(preconditions);
     steps = steps == null ? List.of() : List.copyOf(steps);

@@ -36,11 +36,13 @@ public class RequirementController {
   private final RequirementService requirementService;
   private final CurrentUser currentUser;
 
+  /** Initializes RequirementController with its required collaborators and domain state. */
   public RequirementController(RequirementService requirementService, CurrentUser currentUser) {
     this.requirementService = requirementService;
     this.currentUser = currentUser;
   }
 
+  /** Handles the authenticated HTTP request to list. */
   @GetMapping("/projects/{projectId}/requirements")
   PageResponse<RequirementSummaryResponse> list(
       Authentication authentication,
@@ -50,6 +52,7 @@ public class RequirementController {
     return requirementService.list(currentUser.id(authentication), projectId, page, size);
   }
 
+  /** Handles the authenticated HTTP request to create. */
   @PostMapping("/projects/{projectId}/requirements")
   @ResponseStatus(HttpStatus.CREATED)
   RequirementResponse create(
@@ -59,11 +62,13 @@ public class RequirementController {
     return requirementService.create(currentUser.id(authentication), projectId, request);
   }
 
+  /** Handles the authenticated HTTP request to get. */
   @GetMapping("/requirements/{requirementId}")
   RequirementResponse get(Authentication authentication, @PathVariable UUID requirementId) {
     return requirementService.get(currentUser.id(authentication), requirementId);
   }
 
+  /** Handles the authenticated HTTP request to update. */
   @PatchMapping("/requirements/{requirementId}")
   RequirementResponse update(
       Authentication authentication,
@@ -72,6 +77,7 @@ public class RequirementController {
     return requirementService.update(currentUser.id(authentication), requirementId, request);
   }
 
+  /** Handles the authenticated HTTP request to add criterion. */
   @PostMapping("/requirements/{requirementId}/acceptance-criteria")
   @ResponseStatus(HttpStatus.CREATED)
   AcceptanceCriterionResponse addCriterion(
@@ -81,6 +87,7 @@ public class RequirementController {
     return requirementService.addCriterion(currentUser.id(authentication), requirementId, request);
   }
 
+  /** Handles the authenticated HTTP request to update criterion. */
   @PatchMapping("/acceptance-criteria/{criterionId}")
   AcceptanceCriterionResponse updateCriterion(
       Authentication authentication,
@@ -89,12 +96,14 @@ public class RequirementController {
     return requirementService.updateCriterion(currentUser.id(authentication), criterionId, request);
   }
 
+  /** Deletes criterion from persistent storage. */
   @DeleteMapping("/acceptance-criteria/{criterionId}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   void deleteCriterion(Authentication authentication, @PathVariable UUID criterionId) {
     requirementService.deleteCriterion(currentUser.id(authentication), criterionId);
   }
 
+  /** Handles the authenticated HTTP request to resolve ambiguity. */
   @PostMapping("/ambiguities/{ambiguityId}/resolve")
   AmbiguityResponse resolveAmbiguity(
       Authentication authentication,

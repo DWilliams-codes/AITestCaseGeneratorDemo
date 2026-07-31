@@ -23,6 +23,7 @@ public class ProjectService {
   private final AuditService auditService;
   private final Clock clock;
 
+  /** Initializes ProjectService with its required collaborators and domain state. */
   public ProjectService(
       ProjectRepository projects,
       RequirementRepository requirements,
@@ -34,6 +35,7 @@ public class ProjectService {
     this.clock = clock;
   }
 
+  /** Lists resources visible to the current owner using the requested page. */
   @Transactional(readOnly = true)
   public PageResponse<ProjectResponse> list(UUID ownerId, int page, int size) {
     return PageResponse.from(
@@ -42,11 +44,13 @@ public class ProjectService {
             .map(this::toResponse));
   }
 
+  /** Returns the owned resource identified by the request. */
   @Transactional(readOnly = true)
   public ProjectResponse get(UUID ownerId, UUID projectId) {
     return toResponse(requireOwned(ownerId, projectId));
   }
 
+  /** Creates and persists a new domain resource from validated input. */
   @Transactional
   public ProjectResponse create(UUID ownerId, CreateProjectRequest request) {
     ProjectEntity project =
@@ -57,6 +61,7 @@ public class ProjectService {
     return toResponse(project);
   }
 
+  /** Applies a validated update while preserving concurrency guarantees. */
   @Transactional
   public ProjectResponse update(UUID ownerId, UUID projectId, UpdateProjectRequest request) {
     ProjectEntity project = requireOwned(ownerId, projectId);
@@ -66,6 +71,7 @@ public class ProjectService {
     return toResponse(project);
   }
 
+  /** Archives the owned resource and records the state transition. */
   @Transactional
   public void archive(UUID ownerId, UUID projectId) {
     ProjectEntity project = requireOwned(ownerId, projectId);
@@ -73,6 +79,7 @@ public class ProjectService {
     auditService.record(ownerId, projectId, "PROJECT", projectId, "ARCHIVED", Map.of());
   }
 
+  /** Loads the requested resource and verifies that it belongs to the current owner. */
   @Transactional(readOnly = true)
   public ProjectEntity requireOwned(UUID ownerId, UUID projectId) {
     return projects
@@ -80,6 +87,7 @@ public class ProjectService {
         .orElseThrow(() -> ApiExceptions.notFound("Project not found."));
   }
 
+  /** Maps the source data to response. */
   private ProjectResponse toResponse(ProjectEntity project) {
     return new ProjectResponse(
         project.getId(),
@@ -92,10 +100,12 @@ public class ProjectService {
         project.getVersion());
   }
 
+  /** Normalizes optional text before it is compared or persisted. */
   private String clean(String value) {
     return value == null ? "" : value.strip();
   }
 
+  /** Rejects stale updates by comparing the submitted and persisted entity versions. */
   private void assertVersion(long actual, long requested) {
     if (actual != requested) {
       throw ApiExceptions.conflict(

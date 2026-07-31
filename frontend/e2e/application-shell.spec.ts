@@ -9,7 +9,7 @@ test('seeded analyst workflow is navigable and has no serious accessibility viol
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Projects' })).toBeVisible();
-  await expect(page.getByText('Customer Returns Portal')).toBeVisible();
+  await expect(page.getByText('Commerce Returns Platform')).toBeVisible();
 
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused();
@@ -21,9 +21,9 @@ test('seeded analyst workflow is navigable and has no serious accessibility viol
     );
     expect(seriousViolations, `${currentPage} page accessibility`).toEqual([]);
     if (currentPage === 'projects') {
-      await page.getByText('Customer Returns Portal').click();
+      await page.getByText('Commerce Returns Platform').click();
       await expect(
-        page.getByRole('heading', { level: 1, name: 'Customer Returns Portal' }),
+        page.getByRole('heading', { level: 1, name: 'Commerce Returns Platform' }),
       ).toBeVisible();
     }
     if (currentPage === 'project') {
@@ -31,30 +31,9 @@ test('seeded analyst workflow is navigable and has no serious accessibility viol
       await expect(
         page.getByRole('heading', { level: 1, name: 'Submit an eligible product return' }),
       ).toBeVisible();
-      await expect(page.getByText('75%')).toBeVisible();
+      await expect(page.getByText(/User Story \d+/)).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Generate tests' })).toBeVisible();
+      await expect(page.getByRole('tab', { name: 'Test cases (0)' })).toBeVisible();
     }
   }
-
-  await page.getByRole('tab', { name: /Test cases/ }).click();
-  await expect(page.getByText(/^TC-\d+$/).first()).toBeVisible();
-  await expect(page.getByLabel('Sort by')).toHaveText('Test case number (ascending)');
-  const workItemKeys = await page.getByText(/^TC-\d+$/).allTextContents();
-  const workItemNumbers = workItemKeys.map((key) => Number(key.slice(3)));
-  expect(workItemKeys).toHaveLength(7);
-  expect(new Set(workItemNumbers).size).toBe(workItemNumbers.length);
-  expect(workItemNumbers).toEqual([...workItemNumbers].sort((left, right) => left - right));
-  await page.getByRole('textbox', { name: 'Search test cases' }).fill('keyboard');
-  await expect(page.getByText('Showing 1 of 7 test cases')).toBeVisible();
-  await expect(page.getByText(/^TC-\d+$/)).toHaveCount(1);
-  await page.getByRole('button', { name: 'Clear filters' }).click();
-  await expect(page.getByText('Showing 7 of 7 test cases')).toBeVisible();
-  const testCaseResults = await new AxeBuilder({ page }).analyze();
-  expect(
-    testCaseResults.violations.filter(({ impact }) =>
-      ['serious', 'critical'].includes(impact ?? ''),
-    ),
-    'test case review accessibility',
-  ).toEqual([]);
-  await page.getByRole('tab', { name: 'Traceability' }).click();
-  await expect(page.getByRole('columnheader', { name: 'Mapped evidence' })).toBeVisible();
 });

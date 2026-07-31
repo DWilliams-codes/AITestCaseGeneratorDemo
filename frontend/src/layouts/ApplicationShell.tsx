@@ -5,6 +5,7 @@ import { AppBar, Avatar, Box, Button, Container, Stack, Toolbar, Typography } fr
 import { Link, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 
+/** Renders authenticated navigation, identity controls, routed content, and review guidance. */
 export function ApplicationShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();

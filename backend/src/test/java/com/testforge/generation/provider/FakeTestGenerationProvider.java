@@ -19,12 +19,15 @@ import java.util.Locale;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+// This deterministic fixture is deliberately test-scoped so deployed runtimes cannot emit
+// canned manual test cases or steps.
 @Component
 @ConditionalOnProperty(
     name = "testforge.generation.provider",
     havingValue = "fake",
     matchIfMissing = true)
 public class FakeTestGenerationProvider implements TestGenerationProvider {
+  /** Generates structured manual test coverage from the requirement input. */
   @Override
   public TestGenerationResult generate(TestGenerationRequest request) {
     List<GeneratedAmbiguity> ambiguities = detectAmbiguities(request);
@@ -61,16 +64,19 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         new UsageMetadata(inputTokens, outputTokens));
   }
 
+  /** Returns the stable provider identifier stored with generation runs. */
   @Override
   public String providerName() {
     return "requirement-rules";
   }
 
+  /** Returns the model or engine identifier stored with generation runs. */
   @Override
   public String modelName() {
     return "testforge-rules-v2";
   }
 
+  /** Executes the direct case operation for FakeTestGenerationProvider. */
   private GeneratedTestCase directCase(TestGenerationRequest request, CriterionInput criterion) {
     return new GeneratedTestCase(
         "Confirm " + sentenceFragment(criterion.description()),
@@ -105,6 +111,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         "Provides direct evidence for " + criterion.key() + '.');
   }
 
+  /** Executes the validation case operation for FakeTestGenerationProvider. */
   private GeneratedTestCase validationCase(
       TestGenerationRequest request, CriterionInput criterion) {
     return new GeneratedTestCase(
@@ -139,6 +146,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         "Tests input validation and protects data integrity around " + criterion.key() + '.');
   }
 
+  /** Executes the error case operation for FakeTestGenerationProvider. */
   private GeneratedTestCase errorCase(TestGenerationRequest request, CriterionInput criterion) {
     return new GeneratedTestCase(
         "Preserve user input when " + request.title() + " cannot be completed",
@@ -172,6 +180,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         "Adds supporting recovery coverage without inventing a business-specific error rule.");
   }
 
+  /** Executes the accessibility case operation for FakeTestGenerationProvider. */
   private GeneratedTestCase accessibilityCase(
       TestGenerationRequest request, CriterionInput criterion) {
     return new GeneratedTestCase(
@@ -200,6 +209,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         "Provides supporting accessibility coverage for the user-facing workflow.");
   }
 
+  /** Detects ambiguities for the current operation. */
   private List<GeneratedAmbiguity> detectAmbiguities(TestGenerationRequest request) {
     String source =
         (request.userStory() + ' ' + request.businessRequirements()).toLowerCase(Locale.ROOT);
@@ -223,6 +233,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
     return List.copyOf(result);
   }
 
+  /** Executes the synthetic data operation for FakeTestGenerationProvider. */
   private GeneratedTestData syntheticData(TestGenerationRequest request, CriterionInput criterion) {
     return new GeneratedTestData(
         "validScenarioData",
@@ -232,6 +243,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         "Create a unique value for this requirement and acceptance criterion.");
   }
 
+  /** Infers actor for the current operation. */
   private String inferActor(String story) {
     String lower = story.toLowerCase(Locale.ROOT);
     int asIndex = lower.indexOf("as a ");
@@ -242,21 +254,25 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
     return "QA-authorized user";
   }
 
+  /** Executes the mentions ui operation for FakeTestGenerationProvider. */
   private boolean mentionsUi(TestGenerationRequest request) {
     return sourceText(request)
         .matches(".*\\b(page|screen|form|button|dialog|website|application)\\b.*");
   }
 
+  /** Executes the mentions validation operation for FakeTestGenerationProvider. */
   private boolean mentionsValidation(TestGenerationRequest request) {
     return sourceText(request)
         .matches(".*\\b(required|invalid|reject|rejected|missing|blocked|duplicate)\\b.*");
   }
 
+  /** Executes the mentions failure operation for FakeTestGenerationProvider. */
   private boolean mentionsFailure(TestGenerationRequest request) {
     return sourceText(request)
         .matches(".*\\b(error|fail|failed|failure|unavailable|retry|timeout)\\b.*");
   }
 
+  /** Executes the source text operation for FakeTestGenerationProvider. */
   private String sourceText(TestGenerationRequest request) {
     return (request.userStory()
             + ' '
@@ -268,6 +284,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         .toLowerCase(Locale.ROOT);
   }
 
+  /** Estimates output tokens for the current operation. */
   private int estimateOutputTokens(List<GeneratedTestCase> cases) {
     int characters =
         cases.stream()
@@ -297,10 +314,12 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
     return Math.max(1, characters / 4);
   }
 
+  /** Executes the length operation for FakeTestGenerationProvider. */
   private int length(String value) {
     return value == null ? 0 : value.length();
   }
 
+  /** Executes the sentence fragment operation for FakeTestGenerationProvider. */
   private String sentenceFragment(String description) {
     String trimmed = description.strip();
     if (trimmed.endsWith(".")) {

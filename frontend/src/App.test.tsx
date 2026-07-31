@@ -15,6 +15,7 @@ const demoUser = {
   createdAt: '2026-07-30T12:00:00Z',
 };
 
+/** Mounts the full application at a deterministic route for integration-style UI tests. */
 function renderRoute(path: string) {
   const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
   return render(<App router={router} />);
@@ -145,8 +146,12 @@ describe('TestForge application', () => {
   });
 
   it('recovers the projects page after a temporary API outage', async () => {
+    // Fail the initial request and its automatic retry, then allow the user's retry to recover.
     let projectRequests = 0;
     server.use(
+      http.post('/api/v1/auth/refresh', () =>
+        HttpResponse.json({ accessToken: 'restored-token', expiresInSeconds: 600, user: demoUser }),
+      ),
       http.get('/api/v1/projects', () => {
         projectRequests += 1;
         if (projectRequests <= 2) {
@@ -184,7 +189,11 @@ describe('TestForge application', () => {
     renderRoute('/');
 
     expect(
-      await screen.findByText('The project service is temporarily unavailable.'),
+      await screen.findByText(
+        'The project service is temporarily unavailable.',
+        {},
+        { timeout: 3_000 },
+      ),
     ).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
 

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class CurrentUser {
+  /** Executes the id operation for CurrentUser. */
   public UUID id(Authentication authentication) {
     if (!(authentication instanceof JwtAuthenticationToken token)) {
       throw ApiExceptions.unauthorized("Authentication is required.");

@@ -25,6 +25,7 @@ class PostgreSqlMigrationIntegrationTest {
           .withUsername("testforge_app")
           .withPassword("integration-only-password");
 
+  /** Executes the database properties operation for PostgreSqlMigrationIntegrationTest. */
   @DynamicPropertySource
   static void databaseProperties(DynamicPropertyRegistry registry) {
     registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
@@ -51,6 +52,10 @@ class PostgreSqlMigrationIntegrationTest {
 
   @Autowired private JdbcTemplate jdbc;
 
+  /**
+   * Covers the flyway creates the normalized schema with postgre sql constraints and utc types
+   * scenario.
+   */
   @Test
   void flywayCreatesTheNormalizedSchemaWithPostgreSqlConstraintsAndUtcTypes() {
     Integer successfulMigrations =
@@ -76,6 +81,7 @@ class PostgreSqlMigrationIntegrationTest {
         .isInstanceOf(DataIntegrityViolationException.class);
   }
 
+  /** Executes the insert user operation for PostgreSqlMigrationIntegrationTest. */
   private void insertUser(UUID id, String email, String normalizedEmail) {
     jdbc.update(
         "insert into testforge.users (id, email, email_normalized, display_name, password_hash, role, enabled, created_at, updated_at) values (?, ?, ?, 'Integration User', 'not-a-real-hash', 'USER', true, current_timestamp, current_timestamp)",

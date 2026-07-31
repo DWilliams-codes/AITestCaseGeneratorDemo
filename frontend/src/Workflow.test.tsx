@@ -104,6 +104,7 @@ const testCase = {
   version: 0,
 };
 
+/** Returns authenticated API handlers shared by requirement-workflow component tests. */
 function authenticatedHandlers() {
   return [
     http.post('/api/v1/auth/refresh', () =>
@@ -113,6 +114,7 @@ function authenticatedHandlers() {
   ];
 }
 
+/** Mounts the complete application at a workflow route with an in-memory router. */
 function renderRoute(path: string) {
   const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
   return render(<App router={router} />);

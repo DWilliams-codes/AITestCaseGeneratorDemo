@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 public final class RequirementDtos {
+  /** Prevents instantiation because RequirementDtos is a static utility namespace. */
   private RequirementDtos() {}
 
   public record CreateRequirementRequest(
@@ -23,6 +24,7 @@ public final class RequirementDtos {
       @Size(max = 10000) String assumptions,
       @Size(max = 1000) String sourceReference,
       @NotNull @Size(min = 1, max = 50) List<@NotBlank @Size(max = 4000) String> acceptanceCriteria) {
+    /** Initializes CreateRequirementRequest with its required collaborators and domain state. */
     public CreateRequirementRequest {
       acceptanceCriteria = acceptanceCriteria == null ? null : List.copyOf(acceptanceCriteria);
     }
@@ -90,6 +92,7 @@ public final class RequirementDtos {
       Instant createdAt,
       Instant updatedAt,
       long version) {
+    /** Initializes RequirementResponse with its required collaborators and domain state. */
     public RequirementResponse {
       acceptanceCriteria = acceptanceCriteria == null ? null : List.copyOf(acceptanceCriteria);
       ambiguities = ambiguities == null ? null : List.copyOf(ambiguities);

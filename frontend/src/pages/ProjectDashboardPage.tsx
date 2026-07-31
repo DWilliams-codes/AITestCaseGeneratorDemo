@@ -33,10 +33,12 @@ const schema = z.object({
 });
 type Values = z.infer<typeof schema>;
 
+/** Presents the user's project portfolio and owns project creation and load-recovery behavior. */
 export function ProjectDashboardPage() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // Rechecking on focus and exposing refetch below lets the view recover after a brief API outage.
   const projects = useQuery({
     queryKey: ['projects'],
     queryFn: () => apiRequest<PageResponse<Project>>('/api/v1/projects'),
@@ -61,6 +63,11 @@ export function ProjectDashboardPage() {
       navigate(`/projects/${project.id}`);
     },
   });
+
+  /** Retries only the failed project collection request without discarding the current session. */
+  function retryProjects() {
+    void projects.refetch();
+  }
 
   return (
     <Stack spacing={4}>
@@ -98,7 +105,7 @@ export function ProjectDashboardPage() {
             <Button
               color="inherit"
               size="small"
-              onClick={() => void projects.refetch()}
+              onClick={retryProjects}
               disabled={projects.isFetching}
             >
               {projects.isFetching ? 'Retrying…' : 'Retry'}

@@ -26,6 +26,7 @@ public class AuditController {
   private final ProjectService projectService;
   private final CurrentUser currentUser;
 
+  /** Initializes AuditController with its required collaborators and domain state. */
   public AuditController(
       AuditEventRepository events, ProjectService projectService, CurrentUser currentUser) {
     this.events = events;
@@ -33,6 +34,7 @@ public class AuditController {
     this.currentUser = currentUser;
   }
 
+  /** Handles the authenticated HTTP request to list. */
   @GetMapping
   @Transactional(readOnly = true)
   public PageResponse<AuditEventResponse> list(

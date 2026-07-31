@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const password = 'TestForge!E2E2026';
 
+/** Registers an isolated synthetic browser user and waits for the project workspace. */
 async function register(page: Page, label: string) {
   const email = `${label}-${crypto.randomUUID()}@example.test`;
   await page.goto('/');
@@ -19,6 +20,7 @@ async function register(page: Page, label: string) {
   return { email, accessToken: session.accessToken };
 }
 
+/** Creates a project through the public UI and returns its routed identifier. */
 async function createProject(page: Page, name: string) {
   await page.getByRole('button', { name: 'New project' }).click();
   const dialog = page.getByRole('dialog', { name: 'Create a project' });
@@ -31,7 +33,7 @@ async function createProject(page: Page, name: string) {
   return page.url();
 }
 
-test('complete generation workflow validates input, resists injected instructions, reviews, and exports', async ({
+test('@live-generation complete generation workflow validates input, resists injected instructions, reviews, and exports', async ({
   page,
 }) => {
   await register(page, 'analyst');
@@ -131,7 +133,7 @@ test('owner isolation returns not found for another authenticated user', async (
   await outsider.close();
 });
 
-test('provider failure is safe and retry does not retain a partial generation', async ({
+test('@live-generation provider failure is safe and retry does not retain a partial generation', async ({
   page,
 }) => {
   await register(page, 'provider-failure');

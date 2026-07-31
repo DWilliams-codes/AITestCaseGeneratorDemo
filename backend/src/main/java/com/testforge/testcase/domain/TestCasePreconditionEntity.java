@@ -20,8 +20,10 @@ public class TestCasePreconditionEntity {
   @Column(nullable = false, length = 4000)
   private String description;
 
+  /** Creates an empty TestCasePreconditionEntity instance for the persistence framework. */
   protected TestCasePreconditionEntity() {}
 
+  /** Initializes TestCasePreconditionEntity with its required collaborators and domain state. */
   private TestCasePreconditionEntity(UUID id, UUID testCaseId, int sortOrder, String description) {
     this.id = id;
     this.testCaseId = testCaseId;
@@ -29,23 +31,28 @@ public class TestCasePreconditionEntity {
     this.description = description;
   }
 
+  /** Creates a new TestCasePreconditionEntity initialized from the supplied domain values. */
   public static TestCasePreconditionEntity create(
       UUID testCaseId, int sortOrder, String description) {
     return new TestCasePreconditionEntity(UUID.randomUUID(), testCaseId, sortOrder, description);
   }
 
+  /** Returns the current id value. */
   public UUID getId() {
     return id;
   }
 
+  /** Returns the current test case id value. */
   public UUID getTestCaseId() {
     return testCaseId;
   }
 
+  /** Returns the current sort order value. */
   public int getSortOrder() {
     return sortOrder;
   }
 
+  /** Returns the current description value. */
   public String getDescription() {
     return description;
   }

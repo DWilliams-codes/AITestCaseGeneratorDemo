@@ -4,6 +4,7 @@ import { useState, type PropsWithChildren } from 'react';
 import { testForgeTheme } from '../theme/theme';
 import { AuthProvider } from '../auth/AuthContext';
 
+/** Creates isolated query, theme, and authentication state for the application tree. */
 export function AppProviders({ children }: PropsWithChildren) {
   const [queryClient] = useState(
     () =>

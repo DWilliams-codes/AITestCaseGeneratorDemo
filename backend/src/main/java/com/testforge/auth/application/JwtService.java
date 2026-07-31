@@ -18,12 +18,14 @@ public class JwtService {
   private final AuthProperties properties;
   private final Clock clock;
 
+  /** Initializes JwtService with its required collaborators and domain state. */
   public JwtService(JwtEncoder encoder, AuthProperties properties, Clock clock) {
     this.encoder = encoder;
     this.properties = properties;
     this.clock = clock;
   }
 
+  /** Reports whether sue. */
   public String issue(UserEntity user) {
     Instant now = clock.instant();
     JwtClaimsSet claims =

@@ -49,16 +49,19 @@ public class SecurityConfiguration {
   private static final String CONTENT_SECURITY_POLICY =
       "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
+  /** Creates the Spring-managed clock component. */
   @Bean
   Clock clock() {
     return Clock.systemUTC();
   }
 
+  /** Creates the Spring-managed password encoder component. */
   @Bean
   PasswordEncoder passwordEncoder() {
     return Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8();
   }
 
+  /** Creates the Spring-managed access token key component. */
   @Bean
   SecretKey accessTokenKey(AuthProperties properties) {
     byte[] decoded;
@@ -73,11 +76,13 @@ public class SecurityConfiguration {
     return new SecretKeySpec(decoded, "HmacSHA256");
   }
 
+  /** Creates the Spring-managed jwt encoder component. */
   @Bean
   JwtEncoder jwtEncoder(SecretKey accessTokenKey) {
     return new NimbusJwtEncoder(new ImmutableSecret<>(accessTokenKey));
   }
 
+  /** Creates the Spring-managed jwt decoder component. */
   @Bean
   JwtDecoder jwtDecoder(SecretKey accessTokenKey, AuthProperties properties) {
     NimbusJwtDecoder decoder =
@@ -90,6 +95,7 @@ public class SecurityConfiguration {
     return decoder;
   }
 
+  /** Creates the Spring-managed security filter chain component. */
   @Bean
   SecurityFilterChain securityFilterChain(
       HttpSecurity http,
@@ -144,6 +150,7 @@ public class SecurityConfiguration {
         .build();
   }
 
+  /** Creates the Spring-managed cors configuration source component. */
   @Bean
   CorsConfigurationSource corsConfigurationSource(SecurityProperties properties) {
     CorsConfiguration configuration = new CorsConfiguration();

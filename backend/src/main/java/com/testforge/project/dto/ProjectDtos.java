@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 public final class ProjectDtos {
+  /** Prevents instantiation because ProjectDtos is a static utility namespace. */
   private ProjectDtos() {}
 
   public record CreateProjectRequest(

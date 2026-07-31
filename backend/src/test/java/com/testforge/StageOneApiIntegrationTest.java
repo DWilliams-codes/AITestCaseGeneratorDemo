@@ -44,6 +44,7 @@ class StageOneApiIntegrationTest {
   private String requirementId;
   private String testCaseId;
 
+  /** Rebuilds isolated fixtures before each test scenario. */
   @BeforeEach
   void setUpScenario() throws Exception {
     ownerToken = registerOrLogin("owner@testforge.local", "Owner Analyst", "TestForge!Owner2026");
@@ -129,6 +130,7 @@ class StageOneApiIntegrationTest {
                 .isEqualTo("TC-" + testCase.get("workItemNumber").asLong()));
   }
 
+  /** Covers the executes generation review traceability and safe export workflow scenario. */
   @Test
   @Order(1)
   void executesGenerationReviewTraceabilityAndSafeExportWorkflow() throws Exception {
@@ -235,6 +237,9 @@ class StageOneApiIntegrationTest {
         .andExpect(jsonPath("$.code").value("unsupported_export_format"));
   }
 
+  /**
+   * Covers the prevents cross owner access and rejects missing csrf and unknown fields scenario.
+   */
   @Test
   @Order(2)
   void preventsCrossOwnerAccessAndRejectsMissingCsrfAndUnknownFields() throws Exception {
@@ -272,6 +277,7 @@ class StageOneApiIntegrationTest {
         .andExpect(jsonPath("$.code").value("malformed_request"));
   }
 
+  /** Covers the rotates refresh tokens and detects reuse scenario. */
   @Test
   @Order(3)
   void rotatesRefreshTokensAndDetectsReuse() throws Exception {
@@ -300,6 +306,7 @@ class StageOneApiIntegrationTest {
         .andExpect(status().isUnauthorized());
   }
 
+  /** Covers the manages requirement criteria ambiguities and optimistic versions scenario. */
   @Test
   @Order(4)
   void managesRequirementCriteriaAmbiguitiesAndOptimisticVersions() throws Exception {
@@ -435,6 +442,7 @@ class StageOneApiIntegrationTest {
         .andExpect(jsonPath("$.code").value("no_approved_test_cases"));
   }
 
+  /** Executes the register or login operation for StageOneApiIntegrationTest. */
   private String registerOrLogin(String email, String displayName, String password)
       throws Exception {
     MvcResult registration =
@@ -465,10 +473,12 @@ class StageOneApiIntegrationTest {
     return json(login).get("accessToken").asText();
   }
 
+  /** Executes the json operation for StageOneApiIntegrationTest. */
   private JsonNode json(MvcResult result) throws Exception {
     return objectMapper.readTree(result.getResponse().getContentAsByteArray());
   }
 
+  /** Executes the bearer operation for StageOneApiIntegrationTest. */
   private String bearer(String token) {
     return "Bearer " + token;
   }

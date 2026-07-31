@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:h2:file:./data/testforge-demo;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;INIT=CREATE SCHEMA IF NOT EXISTS testforge
+    url: jdbc:h2:file:${DEMO_DB_PATH:./data/testforge-demo-v2};MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;INIT=CREATE SCHEMA IF NOT EXISTS testforge
     username: sa
     password:
     driver-class-name: org.h2.Driver
@@ -18,7 +18,7 @@ testforge:
     secure-cookies: false
     refresh-cookie-name: testforge_refresh
   generation:
-    provider: fake
+    provider: ${TEST_GENERATION_PROVIDER:openai}
     maximum-cases: 25
     maximum-steps-per-case: 30
   demo:

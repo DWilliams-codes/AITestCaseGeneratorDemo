@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class ApiExceptionHandler {
+  /** Handles api exception for the current operation. */
   @ExceptionHandler(ApiException.class)
   ProblemDetail handleApiException(ApiException exception, HttpServletRequest request) {
     return problem(
@@ -27,6 +28,7 @@ public class ApiExceptionHandler {
         request.getRequestURI());
   }
 
+  /** Handles validation for the current operation. */
   @ExceptionHandler(MethodArgumentNotValidException.class)
   ProblemDetail handleValidation(
       MethodArgumentNotValidException exception, HttpServletRequest request) {
@@ -45,6 +47,7 @@ public class ApiExceptionHandler {
     return detail;
   }
 
+  /** Handles unreadable for the current operation. */
   @ExceptionHandler(HttpMessageNotReadableException.class)
   ProblemDetail handleUnreadable(
       HttpMessageNotReadableException exception, HttpServletRequest request) {
@@ -55,6 +58,7 @@ public class ApiExceptionHandler {
         request.getRequestURI());
   }
 
+  /** Handles optimistic lock for the current operation. */
   @ExceptionHandler(OptimisticLockingFailureException.class)
   ProblemDetail handleOptimisticLock(
       OptimisticLockingFailureException exception, HttpServletRequest request) {
@@ -65,6 +69,7 @@ public class ApiExceptionHandler {
         request.getRequestURI());
   }
 
+  /** Executes the problem operation for ApiExceptionHandler. */
   private ProblemDetail problem(HttpStatus status, String code, String detail, String requestPath) {
     ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
     problem.setTitle(status.getReasonPhrase());

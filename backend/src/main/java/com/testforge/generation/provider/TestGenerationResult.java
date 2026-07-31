@@ -13,6 +13,7 @@ public record TestGenerationResult(
     List<GeneratedAmbiguity> ambiguities,
     List<GeneratedTestCase> testCases,
     UsageMetadata usage) {
+  /** Initializes TestGenerationResult with its required collaborators and domain state. */
   public TestGenerationResult {
     ambiguities = ambiguities == null ? null : List.copyOf(ambiguities);
     testCases = testCases == null ? null : List.copyOf(testCases);
@@ -20,6 +21,7 @@ public record TestGenerationResult(
 
   public record RequirementSummary(
       String actor, String goal, String businessValue, List<String> assumptions) {
+    /** Initializes RequirementSummary with its required collaborators and domain state. */
     public RequirementSummary {
       assumptions = assumptions == null ? null : List.copyOf(assumptions);
     }
@@ -45,6 +47,7 @@ public record TestGenerationResult(
       String finalExpectedOutcome,
       List<String> acceptanceCriteriaKeys,
       String rationale) {
+    /** Initializes GeneratedTestCase with its required collaborators and domain state. */
     public GeneratedTestCase {
       preconditions = preconditions == null ? null : List.copyOf(preconditions);
       testData = testData == null ? null : List.copyOf(testData);

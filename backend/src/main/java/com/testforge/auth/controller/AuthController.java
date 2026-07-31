@@ -36,6 +36,7 @@ public class AuthController {
   private final RateLimitService rateLimitService;
   private final CurrentUser currentUser;
 
+  /** Initializes AuthController with its required collaborators and domain state. */
   public AuthController(
       AuthService authService,
       AuthProperties authProperties,
@@ -49,11 +50,13 @@ public class AuthController {
     this.currentUser = currentUser;
   }
 
+  /** Handles the authenticated HTTP request to csrf. */
   @GetMapping("/csrf")
   CsrfResponse csrf(CsrfToken token) {
     return new CsrfResponse(token.getHeaderName(), token.getToken());
   }
 
+  /** Handles the authenticated HTTP request to register. */
   @PostMapping("/register")
   ResponseEntity<TokenResponse> register(
       @Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
@@ -61,6 +64,7 @@ public class AuthController {
     return sessionResponse(authService.register(request), HttpStatus.CREATED);
   }
 
+  /** Handles the authenticated HTTP request to login. */
   @PostMapping("/login")
   ResponseEntity<TokenResponse> login(
       @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
@@ -68,12 +72,14 @@ public class AuthController {
     return sessionResponse(authService.login(request), HttpStatus.OK);
   }
 
+  /** Handles the authenticated HTTP request to refresh. */
   @PostMapping("/refresh")
   ResponseEntity<TokenResponse> refresh(HttpServletRequest request) {
     checkAuthRate(request);
     return sessionResponse(authService.refresh(readRefreshToken(request)), HttpStatus.OK);
   }
 
+  /** Handles the authenticated HTTP request to logout. */
   @PostMapping("/logout")
   ResponseEntity<Void> logout(HttpServletRequest request) {
     authService.logout(readRefreshToken(request));
@@ -82,17 +88,20 @@ public class AuthController {
         .build();
   }
 
+  /** Handles the authenticated HTTP request to me. */
   @GetMapping("/me")
   UserResponse me(Authentication authentication) {
     return authService.me(currentUser.id(authentication));
   }
 
+  /** Handles the authenticated HTTP request to session response. */
   private ResponseEntity<TokenResponse> sessionResponse(Session session, HttpStatus status) {
     return ResponseEntity.status(status)
         .header(HttpHeaders.SET_COOKIE, refreshCookie(session.refreshToken()).toString())
         .body(session.response());
   }
 
+  /** Handles the authenticated HTTP request to refresh cookie. */
   private ResponseCookie refreshCookie(String token) {
     return ResponseCookie.from(authProperties.refreshCookieName(), token)
         .httpOnly(true)
@@ -103,6 +112,7 @@ public class AuthController {
         .build();
   }
 
+  /** Handles the authenticated HTTP request to expired refresh cookie. */
   private ResponseCookie expiredRefreshCookie() {
     return ResponseCookie.from(authProperties.refreshCookieName(), "")
         .httpOnly(true)
@@ -113,6 +123,7 @@ public class AuthController {
         .build();
   }
 
+  /** Handles the authenticated HTTP request to read refresh token. */
   private String readRefreshToken(HttpServletRequest request) {
     if (request.getCookies() == null) {
       return null;
@@ -124,6 +135,7 @@ public class AuthController {
         .orElse(null);
   }
 
+  /** Handles the authenticated HTTP request to check auth rate. */
   private void checkAuthRate(HttpServletRequest request) {
     rateLimitService.check(
         "auth", request.getRemoteAddr(), securityProperties.authAttemptsPerMinute());

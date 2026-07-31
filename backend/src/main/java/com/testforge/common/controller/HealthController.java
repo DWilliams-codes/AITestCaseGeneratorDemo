@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping(path = "/api/v1/health", produces = MediaType.APPLICATION_JSON_VALUE)
 public class HealthController {
-
+  /** Handles the authenticated HTTP request to health. */
   @GetMapping
   public HealthResponse health() {
     return new HealthResponse("UP", "testforge-backend", Instant.now());
