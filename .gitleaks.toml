@@ -1,0 +1,36 @@
+title = "TestForge AI secret-scanning policy"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "CI-only JWT signing key used by the disposable Docker end-to-end environment"
+condition = "AND"
+regexTarget = "line"
+targetRules = ["generic-api-key"]
+paths = ['''^\.github/workflows/ci\.yml$''']
+regexes = ['''JWT_ACCESS_TOKEN_SECRET:\s+Y2ktb25seS10ZXN0Zm9yZ2Utc2lnbmluZy1rZXktMzItYnl0ZS1taW5pbXVtLTIwMjY=''']
+
+[[allowlists]]
+description = "Fixed JWT signing key for the explicitly non-production demo profile"
+condition = "AND"
+regexTarget = "line"
+targetRules = ["generic-api-key"]
+paths = ['''^backend/src/main/resources/application-demo\.yml$''']
+regexes = ['''access-token-secret:\s+VGVzdEZvcmdlLWRlbW8tb25seS1zaWduaW5nLWtleS0zMi1ieXRlcy1taW5pbXVt''']
+
+[[allowlists]]
+description = "Fixed JWT signing key for isolated backend tests"
+condition = "AND"
+regexTarget = "line"
+targetRules = ["generic-api-key"]
+paths = ['''^backend/src/test/resources/application-test\.yml$''']
+regexes = ['''access-token-secret:\s+VGVzdEZvcmdlLXRlc3Qtb25seS1zaWduaW5nLWtleS0zMi1ieXRlcy1taW5pbXVt''']
+
+[[allowlists]]
+description = "Public UUID used only as an API documentation idempotency example"
+condition = "AND"
+regexTarget = "line"
+targetRules = ["generic-api-key"]
+paths = ['''^docs/API\.md$''']
+regexes = ['''Idempotency-Key:\s+3aa87332-84a7-42f4-92e3-cbfad0cf18ed''']

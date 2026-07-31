@@ -55,7 +55,8 @@ class PostgreSqlMigrationIntegrationTest {
   void flywayCreatesTheNormalizedSchemaWithPostgreSqlConstraintsAndUtcTypes() {
     Integer successfulMigrations =
         jdbc.queryForObject(
-            "select count(*) from testforge.flyway_schema_history where success", Integer.class);
+            "select count(*) from testforge.flyway_schema_history where success and version is not null",
+            Integer.class);
     Integer domainTables =
         jdbc.queryForObject(
             "select count(*) from information_schema.tables where table_schema = 'testforge'",
