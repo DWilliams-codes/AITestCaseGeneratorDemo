@@ -3,6 +3,7 @@ package com.testforge.generation.application;
 import com.testforge.audit.application.AuditService;
 import com.testforge.common.correlation.CorrelationIds;
 import com.testforge.common.error.ApiExceptions;
+import com.testforge.common.workitem.WorkItemNumberService;
 import com.testforge.generation.domain.GenerationRunEntity;
 import com.testforge.generation.domain.GenerationStatus;
 import com.testforge.generation.dto.GenerationRunResponse;
@@ -52,6 +53,7 @@ public class GenerationService {
   private static final String PROMPT_VERSION = "manual-test-v1";
 
   private final RequirementService requirementService;
+  private final WorkItemNumberService workItemNumbers;
   private final ProjectService projectService;
   private final AcceptanceCriterionRepository criteria;
   private final RequirementAmbiguityRepository ambiguities;
@@ -68,6 +70,7 @@ public class GenerationService {
 
   public GenerationService(
       RequirementService requirementService,
+      WorkItemNumberService workItemNumbers,
       ProjectService projectService,
       AcceptanceCriterionRepository criteria,
       RequirementAmbiguityRepository ambiguities,
@@ -82,6 +85,7 @@ public class GenerationService {
       AuditService auditService,
       Clock clock) {
     this.requirementService = requirementService;
+    this.workItemNumbers = workItemNumbers;
     this.projectService = projectService;
     this.criteria = criteria;
     this.ambiguities = ambiguities;
@@ -212,13 +216,13 @@ public class GenerationService {
     }
     Map<String, AcceptanceCriterionEntity> byKey = new HashMap<>();
     criterionEntities.forEach(item -> byKey.put(item.getCriterionKey(), item));
-    long existingCount = testCases.countByRequirementId(requirement.getId());
-    int index = 0;
     for (GeneratedTestCase generated : result.testCases()) {
-      String key = "TC-" + (existingCount + index + 1);
+      long workItemNumber = workItemNumbers.next();
+      String key = "TC-" + workItemNumber;
       TestCaseEntity testCase =
           testCases.save(
               TestCaseEntity.create(
+                  workItemNumber,
                   requirement.getId(),
                   run.getId(),
                   key,
@@ -247,7 +251,6 @@ public class GenerationService {
                   criterion.getId(), testCase.getId(), type, new BigDecimal("0.9500"), now));
         }
       }
-      index++;
     }
   }
 

@@ -71,6 +71,7 @@ public final class TestCaseDtos {
 
   public record TestCaseResponse(
       UUID id,
+      long workItemNumber,
       UUID requirementId,
       UUID generationRunId,
       String testCaseKey,

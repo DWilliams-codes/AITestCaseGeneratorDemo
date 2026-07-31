@@ -52,6 +52,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ApiError, apiRequest, downloadExport } from '../api/client';
 import type {
   Coverage,
+  GenerationRun,
   Project,
   Requirement,
   TestCase,
@@ -89,17 +90,12 @@ const priorityRank: Record<TestPriority, number> = {
   MEDIUM: 2,
   LOW: 3,
 };
-const testCaseKeyCollator = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: 'base',
-});
-
 type TestCaseSort =
   'sequence-asc' | 'sequence-desc' | 'priority-desc' | 'status-asc' | 'updated-desc';
 
-function compareByTestCaseKey(left: TestCase, right: TestCase) {
+function compareByTestCaseNumber(left: TestCase, right: TestCase) {
   return (
-    testCaseKeyCollator.compare(left.testCaseKey, right.testCaseKey) ||
+    left.workItemNumber - right.workItemNumber ||
     left.createdAt.localeCompare(right.createdAt) ||
     left.id.localeCompare(right.id)
   );
@@ -162,18 +158,20 @@ export function RequirementPage() {
     return [...filtered].sort((left, right) => {
       switch (caseSort) {
         case 'sequence-desc':
-          return compareByTestCaseKey(right, left);
+          return compareByTestCaseNumber(right, left);
         case 'priority-desc':
           return (
             priorityRank[left.priority] - priorityRank[right.priority] ||
-            compareByTestCaseKey(left, right)
+            compareByTestCaseNumber(left, right)
           );
         case 'status-asc':
-          return left.status.localeCompare(right.status) || compareByTestCaseKey(left, right);
+          return left.status.localeCompare(right.status) || compareByTestCaseNumber(left, right);
         case 'updated-desc':
-          return right.updatedAt.localeCompare(left.updatedAt) || compareByTestCaseKey(left, right);
+          return (
+            right.updatedAt.localeCompare(left.updatedAt) || compareByTestCaseNumber(left, right)
+          );
         default:
-          return compareByTestCaseKey(left, right);
+          return compareByTestCaseNumber(left, right);
       }
     });
   }, [caseCategory, casePriority, caseSearch, caseSort, caseStatus, cases.data]);
@@ -195,12 +193,18 @@ export function RequirementPage() {
   };
   const generate = useMutation({
     mutationFn: () =>
-      apiRequest(
+      apiRequest<GenerationRun>(
         `/api/v1/requirements/${requirementId}/${cases.data?.length ? 'regenerate' : 'generate-test-cases'}`,
         { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } },
       ),
-    onSuccess: async () => {
-      setNotice('Generation completed and passed the server-side quality gate.');
+    onSuccess: async (run) => {
+      const source =
+        run.provider === 'openai-responses'
+          ? `OpenAI model ${run.model}`
+          : `the local requirement-driven engine ${run.model}`;
+      setNotice(
+        `Generation completed and passed the server-side quality gate. ${run.generatedCaseCount} manual test cases were created from this story using ${source}.`,
+      );
       await refreshAll();
       setTab(1);
     },
@@ -287,7 +291,8 @@ export function RequirementPage() {
             />
           </Stack>
           <Typography color="text.secondary" sx={{ mt: 1 }}>
-            Source {req.sourceReference || 'not specified'} • Version {req.version}
+            User Story {req.workItemNumber} • Source {req.sourceReference || 'not specified'} •
+            Version {req.version}
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>

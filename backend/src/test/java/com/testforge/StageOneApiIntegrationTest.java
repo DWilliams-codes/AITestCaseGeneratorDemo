@@ -95,6 +95,8 @@ class StageOneApiIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn());
     requirementId = requirement.get("id").asText();
+    long requirementWorkItemNumber = requirement.get("workItemNumber").asLong();
+    assertThat(requirementWorkItemNumber).isGreaterThanOrEqualTo(1000);
     JsonNode run =
         json(
             mockMvc
@@ -116,6 +118,15 @@ class StageOneApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn());
     testCaseId = testCases.get(0).get("id").asText();
+    List<Long> testCaseWorkItemNumbers =
+        testCases.findValues("workItemNumber").stream().map(JsonNode::asLong).toList();
+    assertThat(testCaseWorkItemNumbers)
+        .doesNotHaveDuplicates()
+        .allMatch(number -> number > requirementWorkItemNumber);
+    testCases.forEach(
+        testCase ->
+            assertThat(testCase.get("testCaseKey").asText())
+                .isEqualTo("TC-" + testCase.get("workItemNumber").asLong()));
   }
 
   @Test

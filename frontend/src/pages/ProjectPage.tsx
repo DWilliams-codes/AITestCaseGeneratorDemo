@@ -150,6 +150,12 @@ export function ProjectPage() {
               <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2.5, p: 2.5 }}>
                 <Box sx={{ flexGrow: 1 }}>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                    <Chip
+                      size="small"
+                      label={`User Story ${requirement.workItemNumber}`}
+                      color="primary"
+                      variant="outlined"
+                    />
                     <Typography component="h3" sx={{ fontWeight: 700 }}>
                       {requirement.title}
                     </Typography>

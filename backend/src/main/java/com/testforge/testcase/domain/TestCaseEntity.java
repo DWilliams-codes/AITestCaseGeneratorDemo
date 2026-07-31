@@ -15,6 +15,9 @@ import java.util.UUID;
 public class TestCaseEntity {
   @Id private UUID id;
 
+  @Column(name = "work_item_number", nullable = false, updatable = false)
+  private long workItemNumber;
+
   @Column(name = "requirement_id", nullable = false)
   private UUID requirementId;
 
@@ -74,6 +77,7 @@ public class TestCaseEntity {
 
   private TestCaseEntity(
       UUID id,
+      long workItemNumber,
       UUID requirementId,
       UUID generationRunId,
       String testCaseKey,
@@ -89,6 +93,7 @@ public class TestCaseEntity {
       UUID createdBy,
       Instant now) {
     this.id = id;
+    this.workItemNumber = workItemNumber;
     this.requirementId = requirementId;
     this.generationRunId = generationRunId;
     this.testCaseKey = testCaseKey;
@@ -108,6 +113,7 @@ public class TestCaseEntity {
   }
 
   public static TestCaseEntity create(
+      long workItemNumber,
       UUID requirementId,
       UUID generationRunId,
       String testCaseKey,
@@ -124,6 +130,7 @@ public class TestCaseEntity {
       Instant now) {
     return new TestCaseEntity(
         UUID.randomUUID(),
+        workItemNumber,
         requirementId,
         generationRunId,
         testCaseKey,
@@ -179,6 +186,10 @@ public class TestCaseEntity {
 
   public UUID getId() {
     return id;
+  }
+
+  public long getWorkItemNumber() {
+    return workItemNumber;
   }
 
   public UUID getRequirementId() {

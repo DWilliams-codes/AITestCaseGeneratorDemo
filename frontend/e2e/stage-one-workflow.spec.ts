@@ -71,12 +71,15 @@ test('complete generation workflow validates input, resists injected instruction
   await expect(
     page.getByText('Generation completed and passed the server-side quality gate.'),
   ).toBeVisible();
-  await expect(page.getByText('TC-1', { exact: true })).toBeVisible();
+  const firstCaseKey = page.getByText(/^TC-\d+$/).first();
+  await expect(firstCaseKey).toBeVisible();
   await expect(page.getByText('OPENAI_API_KEY', { exact: true })).toHaveCount(0);
 
-  await page.getByText('TC-1', { exact: true }).click();
+  const firstCaseNumber = await firstCaseKey.textContent();
+  expect(firstCaseNumber).toMatch(/^TC-\d+$/);
+  await firstCaseKey.click();
   await page.getByRole('button', { name: 'Edit' }).first().click();
-  const editor = page.getByRole('dialog', { name: 'Edit TC-1' });
+  const editor = page.getByRole('dialog', { name: `Edit ${firstCaseNumber}` });
   await editor.getByLabel(/^Title/).fill('Create exactly one order from a valid checkout');
   await editor.getByRole('button', { name: 'Add precondition' }).click();
   await editor

@@ -33,8 +33,12 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
       cases.add(directCase(request, criterion));
     }
     CriterionInput primary = request.acceptanceCriteria().getFirst();
-    cases.add(validationCase(request, primary));
-    cases.add(errorCase(request, primary));
+    if (mentionsValidation(request)) {
+      cases.add(validationCase(request, primary));
+    }
+    if (mentionsFailure(request)) {
+      cases.add(errorCase(request, primary));
+    }
     if (mentionsUi(request)) {
       cases.add(accessibilityCase(request, primary));
     }
@@ -45,7 +49,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
                     + request.userStory().length()
                     + request.businessRequirements().length())
                 / 4);
-    int outputTokens = cases.size() * 145;
+    int outputTokens = estimateOutputTokens(cases);
     return new TestGenerationResult(
         new RequirementSummary(
             inferActor(request.userStory()),
@@ -59,12 +63,12 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
 
   @Override
   public String providerName() {
-    return "deterministic-fake";
+    return "requirement-rules";
   }
 
   @Override
   public String modelName() {
-    return "testforge-rules-v1";
+    return "testforge-rules-v2";
   }
 
   private GeneratedTestCase directCase(TestGenerationRequest request, CriterionInput criterion) {
@@ -79,7 +83,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         List.of(
             "The tester is authenticated in the designated test environment.",
             "Synthetic records required by the scenario are available."),
-        List.of(syntheticData()),
+        List.of(syntheticData(request, criterion)),
         List.of(
             new GeneratedStep(
                 1,
@@ -146,7 +150,7 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         CoverageIntent.SUPPORTING_EXPLORATORY,
         List.of(
             "The test environment can simulate a temporary dependency failure without production data."),
-        List.of(syntheticData()),
+        List.of(syntheticData(request, criterion)),
         List.of(
             new GeneratedStep(
                 1,
@@ -219,13 +223,13 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
     return List.copyOf(result);
   }
 
-  private GeneratedTestData syntheticData() {
+  private GeneratedTestData syntheticData(TestGenerationRequest request, CriterionInput criterion) {
     return new GeneratedTestData(
         "validScenarioData",
-        "Synthetic, non-production values that satisfy the stated input rules.",
-        "TF-DEMO-001",
+        "Synthetic, non-production values derived for " + criterion.key() + '.',
+        request.requirementId() + "-" + criterion.key().toLowerCase(Locale.ROOT),
         DataSensitivity.PUBLIC,
-        "Generate a unique TF-DEMO identifier for each run.");
+        "Create a unique value for this requirement and acceptance criterion.");
   }
 
   private String inferActor(String story) {
@@ -239,9 +243,62 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
   }
 
   private boolean mentionsUi(TestGenerationRequest request) {
-    String source =
-        (request.userStory() + ' ' + request.businessRequirements()).toLowerCase(Locale.ROOT);
-    return source.matches(".*\\b(page|screen|form|button|dialog|website|application)\\b.*");
+    return sourceText(request)
+        .matches(".*\\b(page|screen|form|button|dialog|website|application)\\b.*");
+  }
+
+  private boolean mentionsValidation(TestGenerationRequest request) {
+    return sourceText(request)
+        .matches(".*\\b(required|invalid|reject|rejected|missing|blocked|duplicate)\\b.*");
+  }
+
+  private boolean mentionsFailure(TestGenerationRequest request) {
+    return sourceText(request)
+        .matches(".*\\b(error|fail|failed|failure|unavailable|retry|timeout)\\b.*");
+  }
+
+  private String sourceText(TestGenerationRequest request) {
+    return (request.userStory()
+            + ' '
+            + request.businessRequirements()
+            + ' '
+            + request.acceptanceCriteria().stream()
+                .map(CriterionInput::description)
+                .reduce("", (left, right) -> left + ' ' + right))
+        .toLowerCase(Locale.ROOT);
+  }
+
+  private int estimateOutputTokens(List<GeneratedTestCase> cases) {
+    int characters =
+        cases.stream()
+            .mapToInt(
+                testCase ->
+                    length(testCase.title())
+                        + length(testCase.objective())
+                        + length(testCase.finalExpectedOutcome())
+                        + length(testCase.rationale())
+                        + testCase.preconditions().stream().mapToInt(this::length).sum()
+                        + testCase.steps().stream()
+                            .mapToInt(
+                                step ->
+                                    length(step.action())
+                                        + length(step.expectedResult())
+                                        + length(step.testDataReference()))
+                            .sum()
+                        + testCase.testData().stream()
+                            .mapToInt(
+                                data ->
+                                    length(data.name())
+                                        + length(data.description())
+                                        + length(data.exampleValue())
+                                        + length(data.generationStrategy()))
+                            .sum())
+            .sum();
+    return Math.max(1, characters / 4);
+  }
+
+  private int length(String value) {
+    return value == null ? 0 : value.length();
   }
 
   private String sentenceFragment(String description) {

@@ -15,6 +15,9 @@ import java.util.UUID;
 public class RequirementEntity {
   @Id private UUID id;
 
+  @Column(name = "work_item_number", nullable = false, updatable = false)
+  private long workItemNumber;
+
   @Column(name = "project_id", nullable = false)
   private UUID projectId;
 
@@ -52,6 +55,7 @@ public class RequirementEntity {
 
   private RequirementEntity(
       UUID id,
+      long workItemNumber,
       UUID projectId,
       String title,
       String userStory,
@@ -61,6 +65,7 @@ public class RequirementEntity {
       UUID createdBy,
       Instant now) {
     this.id = id;
+    this.workItemNumber = workItemNumber;
     this.projectId = projectId;
     this.title = title;
     this.userStory = userStory;
@@ -74,6 +79,7 @@ public class RequirementEntity {
   }
 
   public static RequirementEntity create(
+      long workItemNumber,
       UUID projectId,
       String title,
       String userStory,
@@ -84,6 +90,7 @@ public class RequirementEntity {
       Instant now) {
     return new RequirementEntity(
         UUID.randomUUID(),
+        workItemNumber,
         projectId,
         title,
         userStory,
@@ -124,6 +131,10 @@ public class RequirementEntity {
 
   public UUID getId() {
     return id;
+  }
+
+  public long getWorkItemNumber() {
+    return workItemNumber;
   }
 
   public UUID getProjectId() {

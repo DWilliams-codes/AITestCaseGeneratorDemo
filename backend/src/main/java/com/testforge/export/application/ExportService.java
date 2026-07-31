@@ -43,7 +43,7 @@ public class ExportService {
     RequirementEntity requirement = requirementService.requireOwned(ownerId, requirementId);
     List<TestCaseResponse> approved =
         testCases
-            .findAllByRequirementIdAndStatusOrderByTestCaseKey(
+            .findAllByRequirementIdAndStatusOrderByWorkItemNumber(
                 requirementId, TestCaseStatus.APPROVED)
             .stream()
             .map(testCaseService::toResponse)

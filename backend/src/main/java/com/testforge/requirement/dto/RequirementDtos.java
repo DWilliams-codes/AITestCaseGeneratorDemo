@@ -67,6 +67,7 @@ public final class RequirementDtos {
 
   public record RequirementSummaryResponse(
       UUID id,
+      long workItemNumber,
       UUID projectId,
       String title,
       RequirementStatus status,
@@ -76,6 +77,7 @@ public final class RequirementDtos {
 
   public record RequirementResponse(
       UUID id,
+      long workItemNumber,
       UUID projectId,
       String title,
       String userStory,

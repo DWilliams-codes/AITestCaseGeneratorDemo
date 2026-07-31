@@ -16,8 +16,9 @@ Teams often turn the same requirement into disconnected documents, generic AI pr
 
 - Register, sign in, refresh, sign out, and recover a browser session with short-lived JWT access tokens and rotating HttpOnly refresh cookies.
 - Create owner-isolated projects and requirements with measurable acceptance criteria.
+- Track user stories and test cases with immutable, globally unique ADO-style work-item numbers while keeping UUIDs as internal routing identifiers.
 - Generate balanced happy-path, validation, error-handling, and accessibility cases through a provider-neutral boundary.
-- Run without an API key through a deterministic fake provider, or use the OpenAI Responses API with strict Structured Outputs.
+- Run without an API key through the deterministic requirement-rules provider, or use the OpenAI Responses API with strict Structured Outputs.
 - Detect and resolve requirement ambiguity without silently inventing business rules.
 - Edit structured preconditions, synthetic test data, steps, expected results, priority, risk, and automation candidacy.
 - Review cases in natural test-case-number order by default, with text search, status/category/priority filters, and alternate sort modes.
@@ -34,7 +35,7 @@ flowchart LR
     Web -->|"REST /api/v1"| API["Spring Boot 3 modular monolith"]
     API --> DB[("PostgreSQL 18 + Flyway")]
     API --> Boundary["TestGenerationProvider"]
-    Boundary --> Fake["Deterministic provider"]
+    Boundary --> Fake["Requirement-driven local rules"]
     Boundary -. "when configured" .-> OpenAI["OpenAI Responses API"]
 ```
 
@@ -93,7 +94,7 @@ The default Compose environment does not seed a shared demo account. Register th
 
 ## AI provider modes
 
-The default `fake` mode is deterministic, free, and fully exercises the application workflow.
+The default `fake` mode is a deterministic, requirement-driven local rules engine. It derives case titles, mappings, synthetic values, and applicable supporting scenarios from the submitted story, business rules, assumptions, and acceptance criteria. It does not return seeded test records; validation, failure, and accessibility cases are added only when the requirement text signals those concerns. Generation responses identify the provider and model that produced the cases.
 
 To use the production OpenAI adapter, set:
 
@@ -104,6 +105,8 @@ OPENAI_MODEL=gpt-5-mini-2025-08-07
 ```
 
 The adapter uses `POST /v1/responses`, `store: false`, a versioned prompt, strict JSON Schema, bounded connect/read/output limits, minimized requirement data, and no browser-exposed credential. Provider output still passes application-owned semantic validation; one controlled regeneration is allowed before invalid output is rejected. Review your organization's data policy before sending requirement content to any external provider.
+
+Both modes leave identity to the application. A single database sequence assigns every user story and test case an immutable numeric work-item ID, and test-case labels such as `TC-1042` are derived from that ID rather than supplied by a model or reset for each story.
 
 ## Configuration
 
@@ -168,7 +171,7 @@ See [SECURITY.md](SECURITY.md) and [the STRIDE threat model](docs/THREAT_MODEL.m
 - The included rate limiter is process-local; multi-instance production requires a gateway or distributed store.
 - The MVP has user-level ownership but no organization sharing, enterprise SSO, MFA, email verification, password reset, or administrative UI.
 - Generation runs synchronously within a bounded request. A public, high-volume deployment should use a durable queue and worker.
-- The fake provider is deterministic and intentionally conservative; real-provider quality depends on the configured model and must be evaluated with organization-specific requirements.
+- The local rules provider is deterministic and intentionally conservative; real-provider quality depends on the configured model and must be evaluated with organization-specific requirements.
 - Docker Compose is suitable for local evaluation, not a complete cloud landing zone. Public deployment still needs managed secrets, TLS, backups, monitoring, SIEM integration, and artifact signing.
 
 ## Stage 2 Copado roadmap

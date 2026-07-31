@@ -45,8 +45,8 @@ class GenerationProviderValidationTest {
     assertThat(first.testCases())
         .extracting(GeneratedTestCase::category)
         .contains(TestCaseCategory.ACCESSIBILITY);
-    assertThat(provider.providerName()).isEqualTo("deterministic-fake");
-    assertThat(provider.modelName()).isEqualTo("testforge-rules-v1");
+    assertThat(provider.providerName()).isEqualTo("requirement-rules");
+    assertThat(provider.modelName()).isEqualTo("testforge-rules-v2");
     validator.validate(ambiguousUi, first);
 
     TestGenerationRequest explicitRules =
@@ -62,6 +62,42 @@ class GenerationProviderValidationTest {
     assertThat(explicitResult.requirementSummary().actor()).isEqualTo("QA-authorized user");
     assertThat(explicitResult.requirementSummary().assumptions()).isEmpty();
     validator.validate(explicitRules, explicitResult);
+  }
+
+  @Test
+  void fakeProviderDerivesCaseContentAndSyntheticValuesFromEachRequirement() {
+    FakeTestGenerationProvider provider = new FakeTestGenerationProvider();
+    TestGenerationRequest archiveInvoice =
+        new TestGenerationRequest(
+            UUID.randomUUID(),
+            "Archive an invoice",
+            "As an accountant, I want to archive a paid invoice.",
+            "",
+            "A synthetic paid invoice exists.",
+            List.of(new CriterionInput("AC-1", "The selected paid invoice becomes archived.")),
+            "invoice-correlation");
+    TestGenerationRequest scheduleReport =
+        new TestGenerationRequest(
+            UUID.randomUUID(),
+            "Schedule a report",
+            "As a manager, I want to schedule a report from the form.",
+            "",
+            "A synthetic report definition exists.",
+            List.of(new CriterionInput("AC-1", "The selected report is scheduled once.")),
+            "report-correlation");
+
+    TestGenerationResult invoiceResult = provider.generate(archiveInvoice);
+    TestGenerationResult reportResult = provider.generate(scheduleReport);
+
+    assertThat(invoiceResult.testCases()).hasSize(1);
+    assertThat(reportResult.testCases()).hasSize(2);
+    assertThat(invoiceResult.testCases().getFirst().title())
+        .containsIgnoringCase("selected paid invoice becomes archived");
+    assertThat(reportResult.testCases().getFirst().title())
+        .containsIgnoringCase("selected report is scheduled once");
+    assertThat(invoiceResult.testCases().getFirst().testData().getFirst().exampleValue())
+        .contains(archiveInvoice.requirementId().toString())
+        .isNotEqualTo(reportResult.testCases().getFirst().testData().getFirst().exampleValue());
   }
 
   @Test

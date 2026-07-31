@@ -26,6 +26,7 @@ const project = {
 };
 const requirement = {
   id: '30000000-0000-0000-0000-000000000001',
+  workItemNumber: 1000,
   projectId: project.id,
   title: 'Submit an eligible product return',
   userStory: 'As a signed-in customer, I want to return an eligible item.',
@@ -64,9 +65,10 @@ const requirement = {
 };
 const testCase = {
   id: '60000000-0000-0000-0000-000000000001',
+  workItemNumber: 1001,
   requirementId: requirement.id,
   generationRunId: '70000000-0000-0000-0000-000000000001',
-  testCaseKey: 'TC-1',
+  testCaseKey: 'TC-1001',
   title: 'Create one eligible return request',
   objective: 'Verify that the order owner can submit an eligible return.',
   category: 'HAPPY_PATH',
@@ -125,6 +127,7 @@ describe('project and requirement workflow', () => {
           items: [
             {
               id: requirement.id,
+              workItemNumber: requirement.workItemNumber,
               projectId: project.id,
               title: requirement.title,
               status: requirement.status,
@@ -162,7 +165,8 @@ describe('project and requirement workflow', () => {
       {
         ...testCase,
         id: '60000000-0000-0000-0000-000000000010',
-        testCaseKey: 'TC-10',
+        workItemNumber: 1010,
+        testCaseKey: 'TC-1010',
         title: 'Audit restricted return access',
         category: 'SECURITY',
         priority: 'LOW',
@@ -172,7 +176,8 @@ describe('project and requirement workflow', () => {
       {
         ...testCase,
         id: '60000000-0000-0000-0000-000000000002',
-        testCaseKey: 'TC-2',
+        workItemNumber: 1002,
+        testCaseKey: 'TC-1002',
         title: 'Reject a return outside the boundary',
         objective: 'Verify the return-window boundary is enforced.',
         category: 'BOUNDARY',
@@ -206,68 +211,68 @@ describe('project and requirement workflow', () => {
     renderRoute(`/requirements/${requirement.id}`);
 
     await actor.click(await screen.findByRole('tab', { name: 'Test cases (3)' }));
-    await screen.findByText('TC-10');
+    await screen.findByText('TC-1010');
     expect(screen.getAllByText(/^TC-\d+$/).map((item) => item.textContent)).toEqual([
-      'TC-1',
-      'TC-2',
-      'TC-10',
+      'TC-1001',
+      'TC-1002',
+      'TC-1010',
     ]);
     expect(screen.getByText('Showing 3 of 3 test cases')).toBeVisible();
 
     await actor.type(screen.getByRole('textbox', { name: 'Search test cases' }), 'boundary');
     expect(screen.getByText('Showing 1 of 3 test cases')).toBeVisible();
-    expect(screen.getByText('TC-2')).toBeVisible();
-    expect(screen.queryByText('TC-1')).not.toBeInTheDocument();
+    expect(screen.getByText('TC-1002')).toBeVisible();
+    expect(screen.queryByText('TC-1001')).not.toBeInTheDocument();
 
     await actor.click(screen.getByRole('button', { name: 'Clear filters' }));
     await actor.click(screen.getByRole('combobox', { name: 'Status' }));
     await actor.click(screen.getByRole('option', { name: 'APPROVED' }));
     expect(screen.getByText('Showing 1 of 3 test cases')).toBeVisible();
-    expect(screen.getByText('TC-10')).toBeVisible();
+    expect(screen.getByText('TC-1010')).toBeVisible();
 
     await actor.click(screen.getByRole('button', { name: 'Clear filters' }));
     await actor.click(screen.getByRole('combobox', { name: 'Sort by' }));
     await actor.click(screen.getByRole('option', { name: 'Priority (highest first)' }));
     expect(screen.getAllByText(/^TC-\d+$/).map((item) => item.textContent)).toEqual([
-      'TC-2',
-      'TC-1',
-      'TC-10',
+      'TC-1002',
+      'TC-1001',
+      'TC-1010',
     ]);
 
     await actor.click(screen.getByRole('combobox', { name: 'Category' }));
     await actor.click(screen.getByRole('option', { name: 'BOUNDARY' }));
     expect(screen.getByText('Showing 1 of 3 test cases')).toBeVisible();
-    expect(screen.getByText('TC-2')).toBeVisible();
+    expect(screen.getByText('TC-1002')).toBeVisible();
 
     await actor.click(screen.getByRole('button', { name: 'Clear filters' }));
     await actor.click(screen.getByRole('combobox', { name: 'Priority' }));
     await actor.click(screen.getByRole('option', { name: 'CRITICAL' }));
     expect(screen.getByText('Showing 1 of 3 test cases')).toBeVisible();
-    expect(screen.getByText('TC-2')).toBeVisible();
+    expect(screen.getByText('TC-1002')).toBeVisible();
 
     await actor.click(screen.getByRole('button', { name: 'Clear filters' }));
     await actor.click(screen.getByRole('combobox', { name: 'Sort by' }));
     await actor.click(screen.getByRole('option', { name: 'Recently updated' }));
     expect(screen.getAllByText(/^TC-\d+$/).map((item) => item.textContent)).toEqual([
-      'TC-10',
-      'TC-2',
-      'TC-1',
+      'TC-1010',
+      'TC-1002',
+      'TC-1001',
     ]);
 
     await actor.click(screen.getByRole('combobox', { name: 'Sort by' }));
     await actor.click(screen.getByRole('option', { name: 'Status' }));
     expect(screen.getAllByText(/^TC-\d+$/).map((item) => item.textContent)).toEqual([
-      'TC-10',
-      'TC-1',
-      'TC-2',
+      'TC-1010',
+      'TC-1001',
+      'TC-1002',
     ]);
 
     await actor.click(screen.getByRole('combobox', { name: 'Sort by' }));
     await actor.click(screen.getByRole('option', { name: 'Test case number (descending)' }));
     expect(screen.getAllByText(/^TC-\d+$/).map((item) => item.textContent)).toEqual([
-      'TC-10',
-      'TC-2',
-      'TC-1',
+      'TC-1010',
+      'TC-1002',
+      'TC-1001',
     ]);
 
     await actor.type(screen.getByRole('textbox', { name: 'Search test cases' }), 'no match');
@@ -336,7 +341,20 @@ describe('project and requirement workflow', () => {
         return HttpResponse.json(currentCase);
       }),
       http.post(`/api/v1/requirements/${requirement.id}/regenerate`, () =>
-        HttpResponse.json({ id: 'run-2', status: 'COMPLETED' }, { status: 201 }),
+        HttpResponse.json(
+          {
+            id: 'run-2',
+            requirementId: requirement.id,
+            provider: 'requirement-rules',
+            model: 'testforge-rules-v2',
+            promptVersion: 'manual-test-v1',
+            status: 'COMPLETED',
+            generatedCaseCount: 1,
+            failureCode: null,
+            failureMessage: null,
+          },
+          { status: 201 },
+        ),
       ),
     );
     const actor = userEvent.setup();

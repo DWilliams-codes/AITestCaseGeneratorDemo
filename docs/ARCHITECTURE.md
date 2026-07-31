@@ -10,7 +10,7 @@ flowchart TB
     Browser -->|"HTTPS JSON /api/v1"| API["Spring Boot modular monolith"]
     API -->|"JPA transactions"| PostgreSQL[("PostgreSQL + Flyway")]
     API --> ProviderBoundary["TestGenerationProvider"]
-    ProviderBoundary --> Fake["Deterministic fake"]
+    ProviderBoundary --> Fake["Requirement-driven local rules"]
     ProviderBoundary -. "explicit configuration" .-> OpenAI["OpenAI Responses API"]
 ```
 
@@ -62,7 +62,7 @@ Provider failure and invalid output become safe generation-run states; raw provi
 
 ## Data model
 
-The normalized schema includes users, refresh-token families, projects, requirements, acceptance criteria, requirement ambiguities and revisions, generation runs, test cases, preconditions, steps, test data, traceability links, reviews, test-case revisions, and audit events. UUIDs avoid guessable sequential identifiers, but ownership validation remains mandatory. Optimistic versions prevent lost updates. Flyway is the only schema migration mechanism; Hibernate validates rather than creates production tables.
+The normalized schema includes users, refresh-token families, projects, requirements, acceptance criteria, requirement ambiguities and revisions, generation runs, test cases, preconditions, steps, test data, traceability links, reviews, test-case revisions, and audit events. UUIDs remain the non-guessable internal identifiers used for routes and authorization. A separate shared database sequence issues immutable ADO-style work-item numbers for user stories and test cases; those display numbers never replace owner validation. Optimistic versions prevent lost updates. Flyway is the only schema migration mechanism; Hibernate validates rather than creates production tables.
 
 ## Authentication and browser state
 

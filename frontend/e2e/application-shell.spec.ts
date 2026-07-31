@@ -36,20 +36,16 @@ test('seeded analyst workflow is navigable and has no serious accessibility viol
   }
 
   await page.getByRole('tab', { name: /Test cases/ }).click();
-  await expect(page.getByText('TC-1', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^TC-\d+$/).first()).toBeVisible();
   await expect(page.getByLabel('Sort by')).toHaveText('Test case number (ascending)');
-  await expect(page.getByText(/^TC-\d+$/).allTextContents()).resolves.toEqual([
-    'TC-1',
-    'TC-2',
-    'TC-3',
-    'TC-4',
-    'TC-5',
-    'TC-6',
-    'TC-7',
-  ]);
+  const workItemKeys = await page.getByText(/^TC-\d+$/).allTextContents();
+  const workItemNumbers = workItemKeys.map((key) => Number(key.slice(3)));
+  expect(workItemKeys).toHaveLength(7);
+  expect(new Set(workItemNumbers).size).toBe(workItemNumbers.length);
+  expect(workItemNumbers).toEqual([...workItemNumbers].sort((left, right) => left - right));
   await page.getByRole('textbox', { name: 'Search test cases' }).fill('keyboard');
   await expect(page.getByText('Showing 1 of 7 test cases')).toBeVisible();
-  await expect(page.getByText('TC-7', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^TC-\d+$/)).toHaveCount(1);
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(page.getByText('Showing 7 of 7 test cases')).toBeVisible();
   const testCaseResults = await new AxeBuilder({ page }).analyze();

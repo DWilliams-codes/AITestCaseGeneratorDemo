@@ -9,12 +9,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 public interface TestCaseRepository extends JpaRepository<TestCaseEntity, UUID> {
-  List<TestCaseEntity> findAllByRequirementIdOrderByTestCaseKey(UUID requirementId);
+  List<TestCaseEntity> findAllByRequirementIdOrderByWorkItemNumber(UUID requirementId);
 
-  List<TestCaseEntity> findAllByRequirementIdAndStatusOrderByTestCaseKey(
+  List<TestCaseEntity> findAllByRequirementIdAndStatusOrderByWorkItemNumber(
       UUID requirementId, TestCaseStatus status);
-
-  long countByRequirementId(UUID requirementId);
 
   @Query(
       "select testCase from TestCaseEntity testCase join RequirementEntity requirement on requirement.id = testCase.requirementId join ProjectEntity project on project.id = requirement.projectId where testCase.id = :testCaseId and project.ownerId = :ownerId")

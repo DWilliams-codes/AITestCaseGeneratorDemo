@@ -53,6 +53,7 @@ export interface Project {
 
 export interface RequirementSummary {
   id: string;
+  workItemNumber: number;
   projectId: string;
   title: string;
   status: RequirementStatus;
@@ -102,6 +103,7 @@ export interface TestStep {
 
 export interface TestCase {
   id: string;
+  workItemNumber: number;
   requirementId: string;
   generationRunId: string;
   testCaseKey: string;
@@ -144,6 +146,18 @@ export interface Coverage {
   approvedCriteria: number;
   coveragePercent: number;
   approvedCoveragePercent: number;
+}
+
+export interface GenerationRun {
+  id: string;
+  requirementId: string;
+  provider: string;
+  model: string;
+  promptVersion: string;
+  status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'REJECTED_BY_VALIDATION';
+  generatedCaseCount: number;
+  failureCode: string | null;
+  failureMessage: string | null;
 }
 
 export interface Traceability {

@@ -81,7 +81,7 @@ public class TestCaseService {
   @Transactional(readOnly = true)
   public List<TestCaseResponse> list(UUID ownerId, UUID requirementId) {
     requirementService.requireOwned(ownerId, requirementId);
-    return testCases.findAllByRequirementIdOrderByTestCaseKey(requirementId).stream()
+    return testCases.findAllByRequirementIdOrderByWorkItemNumber(requirementId).stream()
         .map(this::toResponse)
         .toList();
   }
@@ -164,6 +164,7 @@ public class TestCaseService {
             .toList();
     return new TestCaseResponse(
         testCase.getId(),
+        testCase.getWorkItemNumber(),
         testCase.getRequirementId(),
         testCase.getGenerationRunId(),
         testCase.getTestCaseKey(),

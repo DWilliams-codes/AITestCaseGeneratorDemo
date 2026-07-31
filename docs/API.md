@@ -74,6 +74,8 @@ Collections are paged with `page` and `size` where applicable. Update bodies inc
 
 Generation requests require a nonblank `Idempotency-Key` header. Reusing a key for the same actor and requirement returns the original run. Generation run statuses include completed, safe provider failure, and validation rejection. Editing a case creates a revision and moves it to review state.
 
+Requirement summaries and details include `workItemNumber`. Test-case responses include the same field and a derived `testCaseKey` such as `TC-1042`. Both resource types draw from one database sequence, so the numeric portion is globally unique and remains stable across edits and regenerations. UUID `id` fields remain the internal API identifiers.
+
 ```bash
 curl --request POST \
   --header "Authorization: Bearer <access-token>" \

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.testforge.audit.application.AuditService;
 import com.testforge.common.dto.PageResponse;
 import com.testforge.common.error.ApiExceptions;
+import com.testforge.common.workitem.WorkItemNumberService;
 import com.testforge.project.application.ProjectService;
 import com.testforge.requirement.domain.AcceptanceCriterionEntity;
 import com.testforge.requirement.domain.RequirementAmbiguityEntity;
@@ -36,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class RequirementService {
   private final RequirementRepository requirements;
+  private final WorkItemNumberService workItemNumbers;
   private final AcceptanceCriterionRepository criteria;
   private final RequirementAmbiguityRepository ambiguities;
   private final RequirementRevisionRepository revisions;
@@ -46,6 +48,7 @@ public class RequirementService {
 
   public RequirementService(
       RequirementRepository requirements,
+      WorkItemNumberService workItemNumbers,
       AcceptanceCriterionRepository criteria,
       RequirementAmbiguityRepository ambiguities,
       RequirementRevisionRepository revisions,
@@ -54,6 +57,7 @@ public class RequirementService {
       ObjectMapper objectMapper,
       Clock clock) {
     this.requirements = requirements;
+    this.workItemNumbers = workItemNumbers;
     this.criteria = criteria;
     this.ambiguities = ambiguities;
     this.revisions = revisions;
@@ -86,6 +90,7 @@ public class RequirementService {
     RequirementEntity requirement =
         requirements.save(
             RequirementEntity.create(
+                workItemNumbers.next(),
                 projectId,
                 request.title().strip(),
                 request.userStory().strip(),
@@ -237,6 +242,7 @@ public class RequirementService {
   private RequirementResponse toResponse(RequirementEntity requirement) {
     return new RequirementResponse(
         requirement.getId(),
+        requirement.getWorkItemNumber(),
         requirement.getProjectId(),
         requirement.getTitle(),
         requirement.getUserStory(),
@@ -258,6 +264,7 @@ public class RequirementService {
   private RequirementSummaryResponse toSummary(RequirementEntity requirement) {
     return new RequirementSummaryResponse(
         requirement.getId(),
+        requirement.getWorkItemNumber(),
         requirement.getProjectId(),
         requirement.getTitle(),
         requirement.getStatus(),

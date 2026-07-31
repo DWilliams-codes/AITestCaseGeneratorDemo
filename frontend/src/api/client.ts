@@ -74,13 +74,17 @@ export async function apiRequest<T>(
   return (await response.json()) as T;
 }
 
-export async function downloadExport(requirementId: string, format: string) {
+export async function downloadExport(requirementId: string, format: string, retry = true) {
   const headers = new Headers();
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
   const response = await fetch(
     `/api/v1/requirements/${requirementId}/export?format=${encodeURIComponent(format)}`,
     { headers, credentials: 'include' },
   );
+  if (response.status === 401 && retry) {
+    const refreshed = await refreshSession();
+    if (refreshed) return downloadExport(requirementId, format, false);
+  }
   if (!response.ok) throw await toApiError(response);
   const blob = await response.blob();
   const disposition = response.headers.get('Content-Disposition') ?? '';

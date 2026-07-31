@@ -41,7 +41,7 @@ public class TraceabilityService {
     var criterionList = criteria.findAllByRequirementIdOrderBySortOrder(requirementId);
     Map<UUID, TestCaseEntity> caseById = new HashMap<>();
     testCases
-        .findAllByRequirementIdOrderByTestCaseKey(requirementId)
+        .findAllByRequirementIdOrderByWorkItemNumber(requirementId)
         .forEach(item -> caseById.put(item.getId(), item));
     var allLinks =
         links.findAllByAcceptanceCriterionIdIn(

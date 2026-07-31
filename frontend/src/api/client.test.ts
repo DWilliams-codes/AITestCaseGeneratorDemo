@@ -97,4 +97,48 @@ describe('API client security and error behavior', () => {
     expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe('approved-cases.csv');
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:test-export');
   });
+
+  it('refreshes an expired session once before downloading an export', async () => {
+    let attempts = 0;
+    const authorizationHeaders: Array<string | null> = [];
+    server.use(
+      http.get('/api/v1/requirements/requirement-id/export', ({ request }) => {
+        attempts += 1;
+        authorizationHeaders.push(request.headers.get('Authorization'));
+        return attempts === 1
+          ? HttpResponse.json({ detail: 'Expired.' }, { status: 401 })
+          : new HttpResponse('[]', {
+              headers: {
+                'Content-Type': 'application/json',
+                'Content-Disposition': 'attachment; filename="approved-cases.json"',
+              },
+            });
+      }),
+      http.post('/api/v1/auth/refresh', () =>
+        HttpResponse.json({
+          accessToken: 'replacement-export-token',
+          expiresInSeconds: 600,
+          user: {
+            id: 'user-id',
+            email: 'demo@testforge.local',
+            displayName: 'Maya Chen',
+            role: 'USER',
+            createdAt: '2026-07-30T12:00:00Z',
+          },
+        }),
+      ),
+    );
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:refreshed-export');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    setAccessToken('expired-export-token');
+
+    await downloadExport('requirement-id', 'json');
+
+    expect(attempts).toBe(2);
+    expect(authorizationHeaders).toEqual([
+      'Bearer expired-export-token',
+      'Bearer replacement-export-token',
+    ]);
+  });
 });
