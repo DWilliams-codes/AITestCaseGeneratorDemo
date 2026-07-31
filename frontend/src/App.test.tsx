@@ -144,6 +144,54 @@ describe('TestForge application', () => {
     ).toBeVisible();
   });
 
+  it('recovers the projects page after a temporary API outage', async () => {
+    let projectRequests = 0;
+    server.use(
+      http.get('/api/v1/projects', () => {
+        projectRequests += 1;
+        if (projectRequests <= 2) {
+          return HttpResponse.json(
+            {
+              title: 'Service Unavailable',
+              detail: 'The project service is temporarily unavailable.',
+              code: 'service_unavailable',
+            },
+            { status: 503 },
+          );
+        }
+        return HttpResponse.json({
+          items: [
+            {
+              id: '20000000-0000-0000-0000-000000000003',
+              name: 'Recovered Project',
+              description: 'Available after retry.',
+              status: 'ACTIVE',
+              requirementCount: 0,
+              createdAt: '2026-07-30T12:00:00Z',
+              updatedAt: '2026-07-30T12:00:00Z',
+              version: 0,
+            },
+          ],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+          hasNext: false,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderRoute('/');
+
+    expect(
+      await screen.findByText('The project service is temporarily unavailable.'),
+    ).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByRole('heading', { name: 'Recovered Project' })).toBeVisible();
+    expect(projectRequests).toBe(3);
+  });
+
   it('registers a new account without persisting an access token in browser storage', async () => {
     server.use(
       http.post('/api/v1/auth/register', () =>

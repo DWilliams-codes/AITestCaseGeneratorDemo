@@ -40,6 +40,7 @@ export function ProjectDashboardPage() {
   const projects = useQuery({
     queryKey: ['projects'],
     queryFn: () => apiRequest<PageResponse<Project>>('/api/v1/projects'),
+    refetchOnWindowFocus: true,
   });
   const {
     register,
@@ -91,7 +92,19 @@ export function ProjectDashboardPage() {
         </Box>
       )}
       {projects.error && (
-        <Alert severity="error">
+        <Alert
+          severity="error"
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => void projects.refetch()}
+              disabled={projects.isFetching}
+            >
+              {projects.isFetching ? 'Retrying…' : 'Retry'}
+            </Button>
+          }
+        >
           {projects.error instanceof ApiError
             ? projects.error.message
             : 'Projects could not be loaded.'}
