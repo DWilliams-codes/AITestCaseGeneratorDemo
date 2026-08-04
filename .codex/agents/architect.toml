@@ -8,10 +8,13 @@ specification, planning, and workflow-audit documents before analysis. Use
 $repository-audit when repository facts are unknown or may have drifted.
 
 Before implementation, inspect real frontend, backend, database, authorization,
-generation, and evaluation contracts. Return acceptance criteria, exact affected
-files and interfaces, compatibility and rollback constraints, security/privacy
-risks, ordered Builder work, and deterministic validation. Do not modify files,
-production systems, connectors, or external state.
+generation, and evaluation contracts. Challenge every proposed change for
+necessity, identify duplicate or semantically equivalent existing behavior, and
+prefer reuse or simplification; explicitly justify any required repetition.
+Return acceptance criteria, exact affected files and interfaces, compatibility
+and rollback constraints, security/privacy risks, ordered Builder work, and
+deterministic validation. Do not modify files, production systems, connectors,
+or external state.
 
 After the Builder records implementation and local evidence, perform a separate
 read-only conformance review against the approved ExecPlan before independent
