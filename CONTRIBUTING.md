@@ -4,10 +4,17 @@ Use small, reviewable changes that preserve the modular-monolith boundaries. Do 
 
 ## Before opening a pull request
 
-1. Run `mvn verify` from `backend` on Java 21.
-2. Run `npm run format:check`, `npm run lint`, `npm run typecheck`, `npm run test:coverage`, `npm run build`, and `npm run audit:ci` from `frontend`.
-3. Run relevant Playwright tests.
-4. Update documentation when behavior or configuration changes.
-5. Confirm that no credentials, tokens, customer data, or production requirement content is present.
+1. For significant work, create and maintain an ExecPlan as described in
+   [docs/PLANS.md](docs/PLANS.md). Use one writer for overlapping implementation.
+2. Run `./scripts/verify.sh` or `.\scripts\verify.ps1` from the repository root.
+   The wrappers do not install missing dependencies or call a live provider.
+3. Run `npm run audit:ci` from `frontend` and relevant deterministic Playwright
+   tests when their prerequisites are available.
+4. Update documentation and sanitized evaluations when behavior or generation
+   expectations change.
+5. Confirm that no credentials, tokens, customer data, or production requirement
+   content is present.
+6. Record verification, Evaluation impact, risks, and deviations in the pull
+   request and ExecPlan.
 
 Java source is formatted by Spotless. Frontend source is formatted by Prettier and checked by ESLint. Persistence entities must never be returned directly from APIs, ownership checks belong in backend services and repositories, and external-provider output must pass the application-owned validator before persistence.

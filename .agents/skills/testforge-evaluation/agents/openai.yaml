@@ -1,0 +1,4 @@
+interface:
+  display_name: "TestForge Evaluation"
+  short_description: "Evaluate structured TestForge AI generation output"
+  default_prompt: "Use $testforge-evaluation to assess TestForge AI generation fixtures with the repository rubric and deterministic harness."

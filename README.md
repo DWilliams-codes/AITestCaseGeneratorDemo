@@ -38,7 +38,7 @@ flowchart LR
     Boundary --> OpenAI["OpenAI Responses API"]
 ```
 
-The API is one deployable with explicit domain packages for `auth`, `project`, `requirement`, `generation`, `testcase`, `traceability`, `export`, and `audit`. Controllers never return persistence entities. Ownership checks live in server-side services and repository queries. See [architecture](docs/ARCHITECTURE.md), [API guide](docs/API.md), [threat model](docs/THREAT_MODEL.md), and [ADRs](docs/decisions).
+The API is one deployable with explicit domain packages for `auth`, `project`, `requirement`, `generation`, `testcase`, `traceability`, `export`, and `audit`. Controllers never return persistence entities. Ownership checks live in server-side services and repository queries. See [product behavior](docs/PRODUCT.md), [architecture](docs/ARCHITECTURE.md), [API guide](docs/API.md), [threat model](docs/THREAT_MODEL.md), and [ADRs](docs/decisions).
 
 ## Technology
 
@@ -125,6 +125,21 @@ The model does not assign identity. A single database sequence assigns every use
 Additional token lifetimes, rate limits, model timeouts, output limits, ports, and cookie names are documented in [.env.example](.env.example) and `backend/src/main/resources/application.yml`.
 
 ## Verification
+
+Run the cross-platform repository verification wrapper from the root. It checks
+prerequisites, backend and frontend quality gates, and the deterministic Codex
+harness without installing dependencies or making a live provider call:
+
+```powershell
+.\scripts\verify.ps1
+```
+
+```bash
+./scripts/verify.sh
+```
+
+See [testing and evaluation](docs/TESTING.md) for the test layers and
+[execution plans](docs/PLANS.md) for the agent-assisted delivery workflow.
 
 Backend:
 

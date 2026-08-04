@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feature Delivery"
+  short_description: "Deliver TestForge AI changes with bounded review"
+  default_prompt: "Use $feature-delivery to deliver a scoped TestForge AI change through planning, implementation, review, and verification."
