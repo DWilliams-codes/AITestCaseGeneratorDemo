@@ -244,6 +244,9 @@
                         <configuration>
                             <nvdDatafeedUrl>https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz</nvdDatafeedUrl>
                             <failBuildOnCVSS>7</failBuildOnCVSS>
+                            <suppressionFiles>
+                                <suppressionFile>${project.basedir}/src/main/resources/owasp-suppressions.xml</suppressionFile>
+                            </suppressionFiles>
                             <formats>
                                 <format>HTML</format>
                                 <format>JSON</format>
