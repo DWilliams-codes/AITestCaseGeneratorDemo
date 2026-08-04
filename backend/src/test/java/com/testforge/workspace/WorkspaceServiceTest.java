@@ -183,8 +183,7 @@ class WorkspaceServiceTest {
     when(malformed.getUserId()).thenReturn(userId);
     when(malformed.getCreatedBy()).thenReturn(userId);
     when(malformed.getRole()).thenReturn(WorkspaceRole.STAKEHOLDER);
-    when(memberships.findByWorkspaceIdAndUserId(userId, userId))
-        .thenReturn(Optional.of(malformed));
+    when(memberships.findByWorkspaceIdAndUserId(userId, userId)).thenReturn(Optional.of(malformed));
 
     assertThatThrownBy(() -> service.requirePersonalWorkspaceId(userId))
         .isInstanceOf(IllegalStateException.class)
