@@ -129,9 +129,9 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: ${{ runner.os }}-dependency-check-12.2.2-nvd-json2-v1-${{ steps.owasp_cache_date.outputs.utc_date }}
+          key: ${{ runner.os }}-dependency-check-12.2.2-nvd-api-v1-${{ steps.owasp_cache_date.outputs.utc_date }}
           restore-keys: |
-            ${{ runner.os }}-dependency-check-12.2.2-nvd-json2-v1-
+            ${{ runner.os }}-dependency-check-12.2.2-nvd-api-v1-
       - name: Backend dependency scan
         id: backend_dependency_scan
         continue-on-error: true
@@ -142,7 +142,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: ${{ runner.os }}-dependency-check-12.2.2-nvd-json2-v1-${{ steps.owasp_cache_date.outputs.utc_date }}
+          key: ${{ runner.os }}-dependency-check-12.2.2-nvd-api-v1-${{ steps.owasp_cache_date.outputs.utc_date }}
       - name: Frontend dependency scan
         working-directory: frontend
         run: npm run audit:ci

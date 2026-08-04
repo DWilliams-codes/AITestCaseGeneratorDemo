@@ -242,7 +242,6 @@
                         <artifactId>dependency-check-maven</artifactId>
                         <version>${dependency-check.version}</version>
                         <configuration>
-                            <nvdDatafeedUrl>https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz</nvdDatafeedUrl>
                             <failBuildOnCVSS>7</failBuildOnCVSS>
                             <formats>
                                 <format>HTML</format>
