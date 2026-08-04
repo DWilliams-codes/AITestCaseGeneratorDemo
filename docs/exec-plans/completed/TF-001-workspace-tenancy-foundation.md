@@ -2,10 +2,10 @@
 
 ## Status
 
-Active — implementation and available frontend/harness verification are
-complete on `codex/architecture-reset-foundation`, but supported backend and
-migration verification has not run. This plan must remain active until Java
-21/Maven verification and the required migration tests actually succeed.
+Completed — implementation, architect/reviewer remediation, and supported
+verification are complete on `codex/tf-001-ci-remediation` at commit
+`f7549590372c438473c944053d8a26a5999fcf90`. All seven required gates passed in
+[GitHub Actions run 30918173119, attempt 2](https://github.com/DWilliams-codes/AITestCaseGeneratorDemo/actions/runs/30918173119/attempts/2).
 
 ## Objective
 
@@ -56,7 +56,8 @@ cases, generation runs, traceability, exports, or audit data in TF-001.
 - No version snapshots/restoration, retention engine, Copado generator, or
   automation execution; documentation may describe these only as target-state
   future slices.
-- No dependency installation, commit, push, or deployment.
+- No local dependency installation or production deployment; Git publication is
+  delivery activity, not TF-001 product scope.
 
 ## Source contracts to inspect before implementation
 
@@ -104,8 +105,7 @@ version operation, backfill verification, and rollback windows are closed.
   `frontend`
 - `git diff --check`
 
-Do not report TF-001 complete or move this plan to `completed/` unless backend
-and migration verification actually runs successfully.
+The completed supported-environment evidence is recorded below.
 
 ## Risks and known failure states
 
@@ -129,8 +129,8 @@ All additive contracts and required documents are implemented, every existing
 owner isolation guarantee remains tested, H2 and PostgreSQL migration behavior
 is evidenced to the extent the repository environment supports, full Java 21 /
 Maven and frontend verification pass, no generation contract changes occur, and
-an independent reviewer has no blocking findings. Until then, this plan remains
-active.
+independent architect/reviewer remediation has no remaining blocking finding.
+The supported CI evidence below satisfies this definition of done.
 
 ## Implementation progress
 
@@ -191,35 +191,25 @@ active.
 - Registration rollback evidence now also asserts audit-event counts are
   unchanged after the forced late refresh-token persistence failure.
 
-## Actual results — 2026-08-03
+## Actual results — 2026-08-04
 
-After architect-review remediation, the harness, frontend format/type/lint, and
-`git diff --check` gates were rerun and passed. Coverage/build evidence below is
-from the same working turn before the backend-only/documentation remediation;
-no frontend runtime source changed afterward.
+The canonical supported-environment evidence is
+[GitHub Actions run 30918173119, attempt 2](https://github.com/DWilliams-codes/AITestCaseGeneratorDemo/actions/runs/30918173119/attempts/2)
+on `codex/tf-001-ci-remediation` at
+`f7549590372c438473c944053d8a26a5999fcf90`. All seven gates passed.
 
-After final lifecycle/concurrency/audit remediation, the harness, frontend
-format/type/lint, `git diff --check`, and cached H2 2.3.232 V1→V4 legacy SQL
-smoke test were rerun and passed. Backend compilation and the new concurrency/
-rollback/Testcontainers tests remain unrun for the toolchain reason below.
-
-| Check | Result |
+| Gate | Result |
 | --- | --- |
-| `python scripts/validate-harness.py` | Passed: 3 agents, 2 skills, 6 blocking manual evaluations, and 3 non-blocking automation roadmap evaluations |
-| `npm run format:check` | Passed |
-| `npm run typecheck` | Passed |
-| `npm run lint` | Passed with zero warnings |
-| `npm run test:coverage` | Passed: 4 files, 15 tests; 89.81% lines and 69.75% branches |
-| `npm run build` | Passed: Vite production bundle built |
-| `git diff --check` | Passed; Git emitted only expected LF-to-CRLF working-copy notices |
-| Cached H2 2.3.232 and 2.4.240 PostgreSQL-mode SQL smoke tests | Passed V1–V4 plus a synthetic V3 user/project; selected OWNER membership and project `workspace_id` both matched the legacy user UUID |
-| `java -version` | Unsupported for this project: Temurin 11.0.29; project requires Java 21 |
-| `mvn -version` | Unavailable: `mvn` is not installed/on PATH |
-| Bundled workspace runtime lookup | Produced no runtime paths after approximately 90 seconds and was terminated |
-| Backend `mvn verify` including H2 migrations | Not run because Java 21/Maven 3.9+ are unavailable |
-| Testcontainers PostgreSQL migration check | Not run because the Maven lifecycle could not start |
+| [Backend verify](https://github.com/DWilliams-codes/AITestCaseGeneratorDemo/actions/runs/30918173119/job/92028391289) | Passed on Java 21 and Maven: 31 of 31 tests passed; H2 fresh and V3→V4 migrations, PostgreSQL fresh and V3→V4 upgrade, pessimistic-lock concurrency, registration rollback, Spotless, SpotBugs, JaCoCo, and the Maven lifecycle succeeded |
+| [Dependency security](https://github.com/DWilliams-codes/AITestCaseGeneratorDemo/actions/runs/30918173119/job/92028342825) | Passed: OWASP Dependency-Check acquired the NIST annual and modified JSON 2.0 feeds, defragmented its database, emitted HTML and JSON reports, and completed the Maven build in 6:07; the complete database cache was saved and the frontend npm audit succeeded |
+| [Frontend verify](https://github.com/DWilliams-codes/AITestCaseGeneratorDemo/actions/runs/30918173119/job/92028344026) | Passed locked install, lint, formatting, type checking, unit coverage, and production build |
+| [Agent and evaluation harness](https://github.com/DWilliams-codes/AITestCaseGeneratorDemo/actions/runs/30918173119/job/92028344097) | Passed deterministic orchestration/evaluation validation, patch whitespace, and PowerShell wrapper parsing |
+| [Repository secret scan](https://github.com/DWilliams-codes/AITestCaseGeneratorDemo/actions/runs/30918173119/job/92028343516) | Passed the full-history Gitleaks scan |
+| [Container vulnerability scan](https://github.com/DWilliams-codes/AITestCaseGeneratorDemo/actions/runs/30918173119/job/92028344142) | Passed release-image builds and backend/frontend Trivy enforcement |
+| [Docker end-to-end and accessibility](https://github.com/DWilliams-codes/AITestCaseGeneratorDemo/actions/runs/30918173119/job/92028344456) | Passed Compose validation, application build/start, deterministic Playwright checks, accessibility checks, and cleanup |
 
-No dependencies were installed and no live generation/provider call was made.
+No dependencies were installed on the local workstation, no live generation or
+provider call was made, and no generation or evaluation contract changed.
 
 ## Publication audit
 
@@ -232,31 +222,27 @@ index audit produced the following evidence:
 - `git ls-files --others --exclude-standard` returned that local-only roadmap as
   the sole untracked file.
 
-TF-001 remains ACTIVE because remote CI verification is pending. This audit does
-not replace the required Java 21/Maven backend and migration evidence.
+Before this plan-only path move, the final closure audit reconfirmed that
+`docs/plans/testforce-ai-mvp-execplan.md` was the sole untracked file. It remains
+excluded from the publishable TF-001 changes.
 
 ## Deviations and residual risks
 
-- Java compilation, Spring context construction, Javadoc coverage, Spotless,
-  SpotBugs, JaCoCo, the H2 fresh/V3 upgrade migrations, registration atomicity,
-  and MockMvc authorization behavior are specified by tests but unverified in
-  this environment. Static review is not a substitute for their execution.
-- The direct cached-H2 SQL smoke test validates migration syntax/backfill but
-  does not exercise Flyway history/target behavior, Spring transactions, JPA
-  mappings, or the repository/API tests.
-- PostgreSQL-specific V4 DDL and constraints remain unexecuted here. The
-  current-schema and V3-upgrade Testcontainers tests must run in an environment
-  with Java 21, Maven 3.9+, and Docker before this plan can complete.
-- The new fail-closed reconciliation and forced-registration-rollback tests are
-  uncompiled/unexecuted locally; a supported backend run is required to confirm
-  Spring proxy/transaction and repository-derived-query behavior.
-- The new pessimistic-lock concurrency test is likewise unexecuted locally;
-  supported H2 and PostgreSQL runs must confirm lock acquisition/serialization
-  and timeout behavior before TF-001 can complete.
-- The deterministic blocked-Future assertion is test evidence only after a
-  supported Maven run; static inspection cannot prove transaction propagation
-  or dialect lock timing.
-- The branch must not be reported complete or the plan moved until `mvn verify`
-  passes and an independent reviewer resolves any blocking finding.
-- The intentionally untracked umbrella roadmap must remain excluded when the
-  publishable TF-001 changes are staged and committed.
+- The local workstation still has Java 11 and lacks Maven and Docker, so it
+  cannot reproduce the supported backend/container lifecycle. The canonical CI
+  run above supplies that Java 21, Maven, PostgreSQL, container, and browser
+  evidence without installing local dependencies.
+- Dependency-security attempt 1 failed closed because the annual NIST feeds were
+  available but `nvdcve-2.0-modified.json.gz` temporarily returned HTTP 404; no
+  partial cache was saved. Attempt 2 succeeded after that exact gzip returned
+  HTTP 200 and saved a complete cache. Future cold-cache scans still depend on
+  NIST feed availability.
+- `projects.workspace_id` intentionally remains nullable as the mixed-version
+  rollback bridge. Reconciliation remains required until a future contract plan
+  closes the rollback window and proves a deterministic non-null transition.
+- Workspace membership remains listing-only in TF-001 and does not grant access
+  to another owner's projects or related content.
+- The intentionally untracked umbrella roadmap must remain excluded from
+  publishable TF-001 changes.
+- No generation prompt, schema, provider, model, or evaluation behavior changed,
+  and no live provider call was made.

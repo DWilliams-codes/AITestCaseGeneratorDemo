@@ -34,3 +34,11 @@ regexTarget = "line"
 targetRules = ["generic-api-key"]
 paths = ['''^docs/API\.md$''']
 regexes = ['''Idempotency-Key:\s+3aa87332-84a7-42f4-92e3-cbfad0cf18ed''']
+
+[[allowlists]]
+description = "ContentLock architecture table prose containing a fencing-token field"
+condition = "AND"
+regexTarget = "line"
+targetRules = ["generic-api-key"]
+paths = ['''^docs/architecture/domain-model\.md$''']
+regexes = ['''\| ContentLock \| Stable UUID, target type/ID, owner, fencing token, acquired/expiry time \| Coordinates long edit/generation/restore operations; never grants authorization and cannot override optimistic versions \|''']

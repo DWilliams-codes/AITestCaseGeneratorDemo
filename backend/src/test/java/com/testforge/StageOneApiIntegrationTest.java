@@ -60,8 +60,7 @@ class StageOneApiIntegrationTest {
     JsonNode ownerWorkspaces =
         json(
             mockMvc
-                .perform(
-                    get("/api/v1/workspaces").header("Authorization", bearer(ownerToken)))
+                .perform(get("/api/v1/workspaces").header("Authorization", bearer(ownerToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].callerRole").value("OWNER"))
                 .andExpect(jsonPath("$[0].status").value("ACTIVE"))
@@ -264,8 +263,7 @@ class StageOneApiIntegrationTest {
     JsonNode outsiderWorkspaces =
         json(
             mockMvc
-                .perform(
-                    get("/api/v1/workspaces").header("Authorization", bearer(outsiderToken)))
+                .perform(get("/api/v1/workspaces").header("Authorization", bearer(outsiderToken)))
                 .andExpect(status().isOk())
                 .andReturn());
     UUID outsiderId = UUID.fromString(outsiderWorkspaces.get(0).get("id").asText());
@@ -279,8 +277,7 @@ class StageOneApiIntegrationTest {
     JsonNode sharedWorkspaceList =
         json(
             mockMvc
-                .perform(
-                    get("/api/v1/workspaces").header("Authorization", bearer(outsiderToken)))
+                .perform(get("/api/v1/workspaces").header("Authorization", bearer(outsiderToken)))
                 .andExpect(status().isOk())
                 .andReturn());
     JsonNode sharedWorkspace = findWorkspace(sharedWorkspaceList, ownerWorkspaceId);

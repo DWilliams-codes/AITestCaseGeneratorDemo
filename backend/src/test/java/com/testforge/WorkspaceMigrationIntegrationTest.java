@@ -2,7 +2,6 @@ package com.testforge;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
@@ -23,9 +22,9 @@ class WorkspaceMigrationIntegrationTest {
     JdbcTemplate jdbc = jdbc(url);
 
     List<String> appliedVersions =
-        Arrays.stream(flyway.info().applied())
-            .map(info -> info.getVersion().toString())
-            .toList();
+        jdbc.queryForList(
+            "select version from testforge.flyway_schema_history where success and version is not null order by installed_rank",
+            String.class);
     assertThat(appliedVersions).containsExactly("1", "2", "3", "4");
     assertThat(
             jdbc.queryForObject(

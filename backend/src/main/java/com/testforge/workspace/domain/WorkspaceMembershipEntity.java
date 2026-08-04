@@ -48,12 +48,7 @@ public class WorkspaceMembershipEntity {
 
   /** Initializes a membership with its role, lifecycle status, and audit fields. */
   private WorkspaceMembershipEntity(
-      UUID id,
-      UUID workspaceId,
-      UUID userId,
-      WorkspaceRole role,
-      UUID createdBy,
-      Instant now) {
+      UUID id, UUID workspaceId, UUID userId, WorkspaceRole role, UUID createdBy, Instant now) {
     this.id = id;
     this.workspaceId = workspaceId;
     this.userId = userId;
@@ -66,17 +61,12 @@ public class WorkspaceMembershipEntity {
 
   /** Creates the deterministic OWNER membership for a user's personal workspace. */
   public static WorkspaceMembershipEntity personalOwner(UUID userId, Instant now) {
-    return new WorkspaceMembershipEntity(
-        userId, userId, userId, WorkspaceRole.OWNER, userId, now);
+    return new WorkspaceMembershipEntity(userId, userId, userId, WorkspaceRole.OWNER, userId, now);
   }
 
   /** Creates an additional active membership for a synthetic or future workflow. */
   public static WorkspaceMembershipEntity create(
-      UUID workspaceId,
-      UUID userId,
-      WorkspaceRole role,
-      UUID createdBy,
-      Instant now) {
+      UUID workspaceId, UUID userId, WorkspaceRole role, UUID createdBy, Instant now) {
     return new WorkspaceMembershipEntity(
         UUID.randomUUID(), workspaceId, userId, role, createdBy, now);
   }

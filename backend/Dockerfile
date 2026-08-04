@@ -5,8 +5,11 @@ RUN mvn -B -DskipTests dependency:go-offline
 COPY src ./src
 RUN mvn -B -DskipTests package
 
-FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S testforge && adduser -S testforge -G testforge && apk add --no-cache curl
+FROM eclipse-temurin:21-jre-alpine-3.23
+RUN apk add --no-cache curl \
+    && apk upgrade --no-cache libexpat p11-kit p11-kit-trust \
+    && addgroup -S testforge \
+    && adduser -S testforge -G testforge
 WORKDIR /app
 COPY --from=build --chown=testforge:testforge /workspace/target/testforge-backend.jar app.jar
 USER testforge

@@ -70,8 +70,7 @@ class WorkspaceServiceTest {
     UUID userId = UUID.randomUUID();
     UserEntity user = mock(UserEntity.class);
     WorkspaceEntity workspace = WorkspaceEntity.personal(userId, "Quality Owner", NOW);
-    WorkspaceMembershipEntity membership =
-        WorkspaceMembershipEntity.personalOwner(userId, NOW);
+    WorkspaceMembershipEntity membership = WorkspaceMembershipEntity.personalOwner(userId, NOW);
     when(user.getId()).thenReturn(userId);
     when(workspaces.findById(userId)).thenReturn(Optional.of(workspace));
     when(memberships.findByWorkspaceIdAndUserId(userId, userId))
@@ -90,14 +89,12 @@ class WorkspaceServiceTest {
     UserEntity user = mock(UserEntity.class);
     when(user.getId()).thenReturn(userId);
     when(user.getDisplayName()).thenReturn("Legacy Owner");
-    when(users.findByIdForPersonalWorkspaceReconciliation(userId))
-        .thenReturn(Optional.of(user));
+    when(users.findByIdForPersonalWorkspaceReconciliation(userId)).thenReturn(Optional.of(user));
 
     assertThat(service.requirePersonalWorkspaceId(userId)).isEqualTo(userId);
 
     verify(workspaces).save(org.mockito.ArgumentMatchers.any(WorkspaceEntity.class));
-    verify(memberships)
-        .save(org.mockito.ArgumentMatchers.any(WorkspaceMembershipEntity.class));
+    verify(memberships).save(org.mockito.ArgumentMatchers.any(WorkspaceMembershipEntity.class));
   }
 
   /** Maps only the caller's supplied membership rows and exposes the caller-specific role. */
@@ -119,8 +116,7 @@ class WorkspaceServiceTest {
     when(workspaces.findById(callerId)).thenReturn(Optional.of(personalWorkspace));
     when(memberships.findByWorkspaceIdAndUserId(callerId, callerId))
         .thenReturn(Optional.of(personalMembership));
-    when(memberships.findAllByUserIdOrderByCreatedAtAsc(callerId))
-        .thenReturn(List.of(membership));
+    when(memberships.findAllByUserIdOrderByCreatedAtAsc(callerId)).thenReturn(List.of(membership));
     when(workspaces.findById(ownerId)).thenReturn(Optional.of(workspace));
 
     List<WorkspaceResponse> response = service.list(callerId);
@@ -137,16 +133,12 @@ class WorkspaceServiceTest {
     UserEntity user = mock(UserEntity.class);
     when(user.getId()).thenReturn(userId);
     when(user.getDisplayName()).thenReturn("Old Binary User");
-    when(users.findByIdForPersonalWorkspaceReconciliation(userId))
-        .thenReturn(Optional.of(user));
+    when(users.findByIdForPersonalWorkspaceReconciliation(userId)).thenReturn(Optional.of(user));
     WorkspaceEntity workspace = WorkspaceEntity.personal(userId, "Old Binary User", NOW);
-    WorkspaceMembershipEntity membership =
-        WorkspaceMembershipEntity.personalOwner(userId, NOW);
+    WorkspaceMembershipEntity membership = WorkspaceMembershipEntity.personalOwner(userId, NOW);
     when(workspaces.findById(userId)).thenReturn(Optional.empty(), Optional.of(workspace));
-    when(memberships.findByWorkspaceIdAndUserId(userId, userId))
-        .thenReturn(Optional.empty());
-    when(memberships.findAllByUserIdOrderByCreatedAtAsc(userId))
-        .thenReturn(List.of(membership));
+    when(memberships.findByWorkspaceIdAndUserId(userId, userId)).thenReturn(Optional.empty());
+    when(memberships.findAllByUserIdOrderByCreatedAtAsc(userId)).thenReturn(List.of(membership));
 
     List<WorkspaceResponse> response = service.list(userId);
 
@@ -154,8 +146,7 @@ class WorkspaceServiceTest {
     assertThat(response.get(0).id()).isEqualTo(userId);
     assertThat(response.get(0).callerRole()).isEqualTo(WorkspaceRole.OWNER);
     verify(workspaces).save(org.mockito.ArgumentMatchers.any(WorkspaceEntity.class));
-    verify(memberships)
-        .save(org.mockito.ArgumentMatchers.any(WorkspaceMembershipEntity.class));
+    verify(memberships).save(org.mockito.ArgumentMatchers.any(WorkspaceMembershipEntity.class));
   }
 
   /** Fails closed when a deterministic workspace row has conflicting ownership metadata. */
@@ -165,8 +156,7 @@ class WorkspaceServiceTest {
     UserEntity user = mock(UserEntity.class);
     WorkspaceEntity malformed = mock(WorkspaceEntity.class);
     when(user.getId()).thenReturn(userId);
-    when(users.findByIdForPersonalWorkspaceReconciliation(userId))
-        .thenReturn(Optional.of(user));
+    when(users.findByIdForPersonalWorkspaceReconciliation(userId)).thenReturn(Optional.of(user));
     when(malformed.getId()).thenReturn(userId);
     when(malformed.getCreatedBy()).thenReturn(UUID.randomUUID());
     when(workspaces.findById(userId)).thenReturn(Optional.of(malformed));
@@ -186,16 +176,14 @@ class WorkspaceServiceTest {
     WorkspaceEntity workspace = WorkspaceEntity.personal(userId, "Quality Owner", NOW);
     WorkspaceMembershipEntity malformed = mock(WorkspaceMembershipEntity.class);
     when(user.getId()).thenReturn(userId);
-    when(users.findByIdForPersonalWorkspaceReconciliation(userId))
-        .thenReturn(Optional.of(user));
+    when(users.findByIdForPersonalWorkspaceReconciliation(userId)).thenReturn(Optional.of(user));
     when(workspaces.findById(userId)).thenReturn(Optional.of(workspace));
     when(malformed.getId()).thenReturn(userId);
     when(malformed.getWorkspaceId()).thenReturn(userId);
     when(malformed.getUserId()).thenReturn(userId);
     when(malformed.getCreatedBy()).thenReturn(userId);
     when(malformed.getRole()).thenReturn(WorkspaceRole.STAKEHOLDER);
-    when(memberships.findByWorkspaceIdAndUserId(userId, userId))
-        .thenReturn(Optional.of(malformed));
+    when(memberships.findByWorkspaceIdAndUserId(userId, userId)).thenReturn(Optional.of(malformed));
 
     assertThatThrownBy(() -> service.requirePersonalWorkspaceId(userId))
         .isInstanceOf(IllegalStateException.class)
@@ -207,11 +195,9 @@ class WorkspaceServiceTest {
   void rejectsPersonalMembershipWhoseWorkspaceIsMissing() {
     UUID userId = UUID.randomUUID();
     UserEntity user = mock(UserEntity.class);
-    WorkspaceMembershipEntity membership =
-        WorkspaceMembershipEntity.personalOwner(userId, NOW);
+    WorkspaceMembershipEntity membership = WorkspaceMembershipEntity.personalOwner(userId, NOW);
     when(user.getId()).thenReturn(userId);
-    when(users.findByIdForPersonalWorkspaceReconciliation(userId))
-        .thenReturn(Optional.of(user));
+    when(users.findByIdForPersonalWorkspaceReconciliation(userId)).thenReturn(Optional.of(user));
     when(workspaces.findById(userId)).thenReturn(Optional.empty());
     when(memberships.findByWorkspaceIdAndUserId(userId, userId))
         .thenReturn(Optional.of(membership));

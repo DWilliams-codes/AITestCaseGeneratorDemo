@@ -58,9 +58,7 @@ class WorkspaceReconciliationConcurrencyIntegrationTest {
         () ->
             transactions.execute(
                 transaction -> {
-                  users
-                      .findByIdForPersonalWorkspaceReconciliation(userId)
-                      .orElseThrow();
+                  users.findByIdForPersonalWorkspaceReconciliation(userId).orElseThrow();
                   UUID reconciled = workspaceService.requirePersonalWorkspaceId(userId);
                   firstProvisionedWhileLocked.countDown();
                   try {

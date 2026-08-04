@@ -121,12 +121,34 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Set OWASP cache date
+        id: owasp_cache_date
+        shell: bash
+        run: date -u +"utc_date=%Y-%m-%d" >> "$GITHUB_OUTPUT"
+      - name: Restore OWASP dependency data
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: ${{ runner.os }}-dependency-check-12.2.2-nvd-json2-v1-${{ steps.owasp_cache_date.outputs.utc_date }}
+          restore-keys: |
+            ${{ runner.os }}-dependency-check-12.2.2-nvd-json2-v1-
       - name: Backend dependency scan
+        id: backend_dependency_scan
+        continue-on-error: true
         working-directory: backend
         run: mvn --batch-mode --no-transfer-progress -Psecurity org.owasp:dependency-check-maven:check
+      - name: Save OWASP dependency data
+        if: steps.backend_dependency_scan.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: ${{ runner.os }}-dependency-check-12.2.2-nvd-json2-v1-${{ steps.owasp_cache_date.outputs.utc_date }}
       - name: Frontend dependency scan
         working-directory: frontend
         run: npm run audit:ci
+      - name: Enforce backend dependency scan result
+        if: always() && steps.backend_dependency_scan.outcome == 'failure'
+        run: exit 1
 
   secret-scan:
     name: Repository secret scan
@@ -180,7 +202,7 @@ jobs:
       TESTFORGE_DEMO_SEED_ENABLED: true
       OPENAI_API_KEY: ci-startup-only-live-generation-is-excluded
       AUTH_ATTEMPTS_PER_MINUTE: 100
-      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+      PLAYWRIGHT_BASE_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
