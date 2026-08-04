@@ -115,8 +115,7 @@ class PostgreSqlWorkspaceUpgradeIntegrationTest {
   }
 
   /** Inserts a project using the V3 owner-only tenancy contract. */
-  private void insertLegacyProject(
-      JdbcTemplate jdbc, UUID projectId, UUID ownerId, String name) {
+  private void insertLegacyProject(JdbcTemplate jdbc, UUID projectId, UUID ownerId, String name) {
     jdbc.update(
         "insert into testforge.projects (id, owner_id, name, description, status, created_at, updated_at, version) values (?, ?, ?, '', 'ACTIVE', current_timestamp, current_timestamp, 0)",
         projectId,

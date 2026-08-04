@@ -66,8 +66,7 @@ public class WorkspaceMembershipEntity {
 
   /** Creates the deterministic OWNER membership for a user's personal workspace. */
   public static WorkspaceMembershipEntity personalOwner(UUID userId, Instant now) {
-    return new WorkspaceMembershipEntity(
-        userId, userId, userId, WorkspaceRole.OWNER, userId, now);
+    return new WorkspaceMembershipEntity(userId, userId, userId, WorkspaceRole.OWNER, userId, now);
   }
 
   /** Creates an additional active membership for a synthetic or future workflow. */
