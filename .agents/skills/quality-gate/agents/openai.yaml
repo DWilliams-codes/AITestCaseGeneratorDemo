@@ -1,0 +1,4 @@
+interface:
+  display_name: "Quality Gate"
+  short_description: "Verify local checks and exact-SHA CI evidence"
+  default_prompt: "Use $quality-gate to produce APPROVE or BLOCK evidence from local checks and exact-SHA publication CI."

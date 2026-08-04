@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Generation Evals"
+  short_description: "Route generation impact and evaluation evidence"
+  default_prompt: "Use $ai-generation-evals to assess a TestForge generation change and route deterministic scoring evidence."

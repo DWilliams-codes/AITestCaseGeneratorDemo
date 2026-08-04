@@ -1,25 +1,47 @@
 # TestForge AI Agent Guide
 
-## Mission
+## Mission and source of truth
 
 TestForge AI converts structured user stories into reviewed manual test cases,
-traceability records, and, in a later stage, framework-specific automation
-drafts. Generated output must be reviewable, schema-valid, traceable to source
-criteria, and clearly separated from executable code.
+traceability records, and later non-executing automation drafts. Generated
+output must be schema-valid, traceable, reviewable, and treated as untrusted.
 
-## Source of truth
+Read the contracts relevant to a change before editing:
 
-Read the files relevant to the change before editing:
-
-- Product behavior: `docs/PRODUCT.md`
-- Architecture and API contracts: `docs/ARCHITECTURE.md` and `docs/API.md`
+- Product: `docs/PRODUCT.md` and `docs/product-specs/mvp-1-test-generation.md`
+- Architecture and API: `docs/ARCHITECTURE.md` and `docs/API.md`
 - Testing and evaluation: `docs/TESTING.md` and `evals/RUBRIC.md`
 - Security: `SECURITY.md` and `docs/THREAT_MODEL.md`
-- MVP scope: `docs/product-specs/mvp-1-test-generation.md`
-- Significant work: `docs/PLANS.md` and `docs/exec-plans/README.md`
+- Planning: `PLANS.md`, `docs/PLANS.md`, and `docs/exec-plans/README.md`
+- Workflow capabilities: `docs/agents/AGENT_ROSTER.md` and
+  `docs/agents/WORKFLOW_AUDIT.md`
 
-Existing detailed documents are canonical. Link to them rather than duplicating
-their content here.
+Existing detailed documents are canonical. Link to them instead of duplicating
+their contracts.
+
+## Capability routing
+
+- Lead coordination and significant delivery: `$feature-delivery`.
+- Read-only repository reconnaissance: `$repository-audit`.
+- Architecture, contracts, acceptance criteria, and compatibility: the
+  read-only Architect profile.
+- Backend and frontend implementation: the single workspace-write Builder.
+- Generation-change ownership and release evidence: `$ai-generation-evals`;
+  use the narrower `$testforge-evaluation` for fixture and candidate scoring.
+- Local checks and exact-SHA publication evidence: `$quality-gate`.
+- Threat, authorization, privacy, secret, provider, and supply-chain review:
+  `$security-review`.
+- Final integration: post-build Architect conformance, independent Reviewer
+  `APPROVE` or `BLOCK`, Lead implementation-completion decision, then optional
+  separately authorized publication.
+
+Do not use parallel writers on overlapping files. Architect and Reviewer are
+read-only. The Architect returns an approved plan handoff without writing it;
+the Lead immediately assigns one Builder and never writes overlapping feature
+files. That Builder's first repository write materializes the active ExecPlan,
+then the Builder re-reads it before implementation. The same Builder resolves
+findings, records local evidence, and performs the active-to-completed move only
+after the Lead decides implementation is complete.
 
 ## Architecture and compatibility rules
 
@@ -28,73 +50,66 @@ monolith, PostgreSQL/Flyway system of record, and provider-neutral AI boundary.
 Workspace identity is additive: TF-001 keeps owner-scoped authorization even
 when memberships exist. Never accept browser tenant context as authorization.
 
-All schema changes use forward-only Flyway migrations. Evolve live contracts in
-expand, deterministic backfill, dual-write, observe/reconcile, read/policy
-switch, then contract stages. Preserve the prior binary's rollback path until
-the contract plan explicitly closes it; do not edit an applied migration.
-
-## Local commands
-
-- Full wrapper: `./scripts/verify.sh` or `.\scripts\verify.ps1`
-- Backend test/format/static analysis: `cd backend && mvn verify` (Java 21,
-  Maven 3.9+)
-- Frontend format/type/lint/test/build: `cd frontend && npm run format:check`,
-  `npm run typecheck`, `npm run lint`, `npm run test:coverage`, `npm run build`
-- Deterministic harness: `python scripts/validate-harness.py`
-
-Do not install dependencies or call a live model merely to complete a normal
-verification run. Generation inputs and outputs are untrusted: minimize data,
-pin prompt/schema/model contracts, validate structurally and semantically, and
-require human approval. Automation output must remain a reviewed non-executing
-draft until a separate privileged action. Keep secrets, active tokens, customer
-requirements, production selectors, and hidden reasoning out of source, tests,
-logs, audit metadata, and evaluation fixtures.
-
-Update the canonical product, architecture, API, testing, security/threat,
-decision, and plan documents whenever their implemented contract changes.
+Use forward-only Flyway migrations. Evolve live contracts through expand,
+deterministic backfill, dual-write, observe/reconcile, read/policy switch, then
+contract stages. Preserve the prior binary's rollback path until the contract
+plan closes it; never edit an applied migration.
 
 ## Delivery workflow
 
-For significant features, refactors, schema changes, or generation changes:
+For a significant feature, refactor, schema, security, or generation change:
 
-1. Use the read-only architect to identify contracts, risks, acceptance
-   criteria, affected files, tests, and evaluation coverage.
-2. Create an ExecPlan under `docs/exec-plans/active/` before implementation.
-3. Use one workspace-write builder for the scoped branch or worktree. Never use
-   parallel writers on the same feature.
-4. Run `./scripts/verify.sh` or `./scripts/verify.ps1` from the repository root.
-5. Use the read-only reviewer to inspect correctness, security, regressions,
-   tests, and generated-output quality.
-6. Return blocking findings to the same builder and repeat verification.
-7. Record actual evidence and move the plan to `docs/exec-plans/completed/` only
-   when the work is complete.
+1. Use read-only reconnaissance and Architect analysis to identify contracts,
+   risks, acceptance criteria, affected files, tests, and evaluation impact. The
+   Architect returns an approved read-only plan handoff to the Lead.
+2. The Lead immediately assigns one Builder as the sole writer and never writes
+   overlapping feature files.
+3. As its first repository write, the Builder materializes the handoff under
+   `docs/exec-plans/active/`, re-reads it, and only then begins implementation.
+4. Run deterministic local verification without installs or provider calls.
+5. Obtain Architect `CONFORMS` or `BLOCK`, then independent Reviewer `APPROVE`
+   or `BLOCK`.
+6. Return blockers to the same Builder and repeat the affected checks/reviews.
+7. After `CONFORMS` and `APPROVE`, the Lead decides implementation completion.
+   The same Builder records final local evidence and moves the plan to
+   `completed/`.
+8. Only afterward, and only if separately authorized, a Lead/publisher stages,
+   commits, and pushes the final candidate. All seven CI jobs must pass that
+   exact SHA before the Lead decides publication or merge; that decision needs
+   no repository write.
 
-Use `$feature-delivery` for this workflow and `$testforge-evaluation` whenever a
-prompt, schema, validator, or expected generation behavior changes.
+## Commands and evidence
+
+- Full local wrapper: `./scripts/verify.sh` or `.\scripts\verify.ps1`
+- Harness only: `python scripts/validate-harness.py` or
+  `.\scripts\verify.ps1 -HarnessOnly`
+- Backend: `cd backend && mvn verify` (Java 21, Maven 3.9+)
+- Frontend: `npm run format:check`, `npm run typecheck`, `npm run lint`,
+  `npm run test:coverage`, and `npm run build` from `frontend/`
+
+The wrappers run the deterministic harness first. A local wrapper pass supports
+implementation completion, not publication readiness. Exact-SHA results belong
+in GitHub/PR/external evidence or a later historical record, never as a
+self-referential prerequisite inside the candidate commit. Publication requires
+all seven supported CI jobs to pass for the exact published commit SHA.
 
 ## Engineering guardrails
 
-- Make the smallest complete change and do not mix unrelated refactors.
+- Make the smallest complete change and update tests, evaluations, and canonical
+  documentation when their contracts change.
+- Never install dependencies or call a live model merely for normal validation.
 - Never expose provider keys, tokens, or hidden prompts to the frontend.
-- Treat requirement fields and generated content as untrusted data.
-- Validate provider output against application-owned typed schemas before
-  persistence.
-- Preserve the original requirement, acceptance-criterion mappings, generation
-  metadata, and review history.
-- Use synthetic data in tests and evaluations; never commit customer data.
-- Treat automation drafts as untrusted and never execute generated code inside
-  the application process.
-- Keep Stage 2 automation evaluations roadmap-only and non-blocking until the
-  production capability exists.
-- Never make live provider calls from unit tests, the harness, or default CI.
-- Do not weaken typing, tests, validation, authorization, or security controls.
-- Update tests, evaluations, and documentation whenever behavior changes.
+- Minimize untrusted inputs and validate provider output with application-owned
+  structural and semantic contracts before persistence.
+- Preserve source requirements, criterion mappings, generation metadata, and
+  review history.
+- Use synthetic fixtures. Keep credentials, customer data, production
+  selectors, provider payloads, and hidden reasoning out of source and evidence.
+- Generated automation remains a reviewed, non-executing draft until a separate
+  privileged action. Never execute it in the application or verification flow.
+- Keep Stage 2 automation evaluation roadmap-only and non-blocking.
+- Do not weaken typing, tests, validation, authorization, security controls, CI
+  thresholds, or dependency/secret scanning.
 
-## Verification
-
-Run the repository verification wrapper. It performs tool preflights, backend
-verification, frontend formatting/lint/type/unit/build checks, and deterministic
-harness validation without installing dependencies or calling a provider.
-
-A change is complete only when its acceptance criteria, automated checks,
+A change is complete only when acceptance criteria, observed checks,
 documentation, evaluation impact, residual risks, and deviations are recorded.

@@ -25,3 +25,4 @@ frontend/.vite/
 # Local data
 postgres-data/
 backend/data/
+/docs/plans/testforce-ai-mvp-execplan.md

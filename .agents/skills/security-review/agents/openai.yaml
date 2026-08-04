@@ -1,0 +1,4 @@
+interface:
+  display_name: "Security Review"
+  short_description: "Review TestForge security and privacy boundaries"
+  default_prompt: "Use $security-review to perform a read-only TestForge threat and security review with actionable findings."

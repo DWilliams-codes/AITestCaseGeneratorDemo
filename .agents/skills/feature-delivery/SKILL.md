@@ -1,42 +1,53 @@
 ---
 name: feature-delivery
-description: Deliver significant TestForge AI features, refactors, schema changes, and generation changes through a bounded architect-builder-reviewer workflow. Use when a repository change needs an ExecPlan, one authorized writer, independent review, deterministic verification, evaluation impact analysis, and completion evidence.
+description: Deliver significant TestForge AI features, refactors, schema changes, and generation changes through a bounded Lead-Architect-Builder-Reviewer workflow. Use when work needs evidence-backed reconnaissance, an ExecPlan, one writer, conformance review, independent approval, and completion evidence.
 ---
 
 # Feature Delivery
 
-## Overview
-
-Use the repository as the system of record for scope, contracts, evidence, and
-decisions. Keep one writer responsible for a feature from implementation through
-review fixes.
-
 ## Workflow
 
-1. Read `AGENTS.md` and the linked source-of-truth documents.
-2. Ask the read-only architect to inspect real contracts and produce a concrete
-   plan. Resolve material ambiguity before implementation.
-3. Create `docs/exec-plans/active/TF-###-short-name.md` with acceptance criteria,
-   exact files, interfaces, tests, evaluation impact, risks, and definition of
-   done.
-4. Assign one workspace-write builder. Do not split overlapping implementation
-   across agents or modify files outside the approved scope.
-5. Add tests with behavior changes. For prompt, schema, validator, or generated
-   behavior changes, also use `$testforge-evaluation` and update the benchmark.
-6. Run `./scripts/verify.sh` or `./scripts/verify.ps1`. Do not install missing
-   tools or dependencies automatically, and never call a live provider.
-7. Ask the read-only reviewer to inspect the plan, diff, contracts, security,
-   tests, and evaluation evidence. Return blocking findings to the same builder.
-8. Repeat verification and review until blockers are resolved.
-9. Record actual commands, results, deviations, and residual risks. Move the
-   plan to `completed/` only when its definition of done is met.
+1. Read `AGENTS.md` and linked sources. Use `$repository-audit` when repository
+   facts are unknown or may have drifted.
+2. The Lead defines the outcome. The read-only Architect inspects real contracts,
+   risks, acceptance criteria, compatibility, rollback, tests, security, and
+   evaluation impact and returns an approved plan handoff without writing it.
+3. The Lead immediately assigns one workspace-write Builder and never writes
+   overlapping feature files.
+4. As its first repository write, the Builder materializes the handoff under
+   `docs/exec-plans/active/TF-###-short-name.md`, re-reads it, and only then
+   begins implementation. That Builder owns all later remediation.
+5. Add tests and canonical documentation with behavior changes. Route generation
+   impact through `$ai-generation-evals` and narrow fixture/candidate scoring
+   through `$testforge-evaluation`.
+6. Run deterministic local verification without installs, provider calls,
+   generated automation execution, or unapproved external writes.
+7. Obtain read-only Architect `CONFORMS` or `BLOCK` against the plan after
+   Builder evidence, then independent Reviewer `APPROVE` or `BLOCK`.
+8. Return blockers to the same Builder and repeat affected checks and reviews.
+9. After Architect `CONFORMS` and Reviewer `APPROVE`, the Lead decides
+   implementation completion. The same Builder records final local evidence and
+   moves the plan from `active/` to `completed/`.
+10. Only afterward, and only if separately authorized, a Lead/publisher stages,
+    commits, and pushes the final candidate. All seven CI jobs must pass that
+    exact SHA before the Lead decides publication or merge; no repository write
+    is required for that decision.
+
+## Output contract
+
+Preserve approved scope, decisions, exact local commands/results, deviations,
+evaluation impact, security/privacy evidence, reviewer verdicts, and residual
+risks in the ExecPlan. Keep exact-SHA publication results in GitHub/PR/external
+evidence or a later historical record, not as a self-referential prerequisite
+inside the candidate commit.
 
 ## Guardrails
 
-- Preserve provider, API, persistence, and frontend contracts unless the plan
-  explicitly changes them.
-- Keep generated content untrusted and require application-owned validation.
-- Use synthetic fixtures; exclude credentials, customer data, and hidden
-  prompts.
-- Keep Stage 2 automation work separate and non-blocking until implemented.
-- Require human review before generated evidence or automation is approved.
+- Keep one writer; never split overlapping edits.
+- Preserve API, persistence, provider, authorization, and frontend contracts
+  unless the plan changes them explicitly.
+- Use synthetic fixtures and application-owned validation; exclude secrets,
+  customer data, production selectors, and hidden prompts/reasoning.
+- Keep Stage 2 automation non-executing, roadmap-only, and non-blocking.
+- Do not stage, commit, push, open a PR, merge, deploy, publish, install
+  dependencies, or mutate external systems without explicit authority.

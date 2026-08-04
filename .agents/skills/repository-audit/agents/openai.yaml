@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repository Audit"
+  short_description: "Audit repository state without writes"
+  default_prompt: "Use $repository-audit to inventory this repository and report evidence-backed gaps without modifying files."
