@@ -22,6 +22,7 @@ public final class ProjectDtos {
 
   public record ProjectResponse(
       UUID id,
+      UUID workspaceId,
       String name,
       String description,
       ProjectStatus status,

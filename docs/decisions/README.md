@@ -13,6 +13,7 @@ accepted record to hide a later change; add a superseding ADR and link both.
 | [0006](0006-react-typescript-frontend.md) | React and TypeScript frontend | Accepted |
 | [0007](0007-structured-ai-output.md) | Structured AI output | Accepted |
 | [0008](0008-postgresql-flyway.md) | PostgreSQL and Flyway | Accepted |
+| [0009](0009-workspace-tenancy-expand-contract.md) | Workspace tenancy through expand/backfill/contract | Accepted for expand/backfill |
 
 Create a zero-padded sequential file for a new cross-cutting decision. Include
 context, decision, consequences, alternatives, and any superseded record.

@@ -16,6 +16,7 @@ Teams often turn the same requirement into disconnected documents, generic AI pr
 
 - Register, sign in, refresh, sign out, and recover a browser session with short-lived JWT access tokens and rotating HttpOnly refresh cookies.
 - Create owner-isolated projects and requirements with measurable acceptance criteria.
+- Receive a personal workspace and OWNER membership at registration; new projects are assigned to that workspace while owner-scoped authorization remains authoritative.
 - Track user stories and test cases with immutable, globally unique ADO-style work-item numbers while keeping UUIDs as internal routing identifiers.
 - Generate requirement-specific happy-path, boundary, validation, security, recovery, concurrency, and accessibility coverage through a provider-neutral boundary.
 - Generate runtime test cases only through the OpenAI Responses API with strict Structured Outputs; deterministic output exists only as a test fixture and is never packaged into the application.
@@ -38,7 +39,7 @@ flowchart LR
     Boundary --> OpenAI["OpenAI Responses API"]
 ```
 
-The API is one deployable with explicit domain packages for `auth`, `project`, `requirement`, `generation`, `testcase`, `traceability`, `export`, and `audit`. Controllers never return persistence entities. Ownership checks live in server-side services and repository queries. See [product behavior](docs/PRODUCT.md), [architecture](docs/ARCHITECTURE.md), [API guide](docs/API.md), [threat model](docs/THREAT_MODEL.md), and [ADRs](docs/decisions).
+The API is one deployable with explicit domain packages for `auth`, `workspace`, `project`, `requirement`, `generation`, `testcase`, `traceability`, `export`, and `audit`. Controllers never return persistence entities. Ownership checks live in server-side services and repository queries. TF-001 adds workspace identity but does not broaden content access. See [product behavior](docs/PRODUCT.md), [architecture](docs/ARCHITECTURE.md), [API guide](docs/API.md), [threat model](docs/THREAT_MODEL.md), and [ADRs](docs/decisions).
 
 ## Technology
 
@@ -182,7 +183,7 @@ See [SECURITY.md](SECURITY.md) and [the STRIDE threat model](docs/THREAT_MODEL.m
 ## Known limitations
 
 - The included rate limiter is process-local; multi-instance production requires a gateway or distributed store.
-- The MVP has user-level ownership but no organization sharing, enterprise SSO, MFA, email verification, password reset, or administrative UI.
+- The MVP has personal workspace identities and membership roles but no shared-content authorization, invitation flow, enterprise SSO, MFA, email verification, password reset, or administrative UI.
 - Generation runs synchronously within a bounded request. A public, high-volume deployment should use a durable queue and worker.
 - Generation quality depends on the configured model and must be evaluated with representative, organization-specific requirements before production rollout.
 - Docker Compose is suitable for local evaluation, not a complete cloud landing zone. Public deployment still needs managed secrets, TLS, backups, monitoring, SIEM integration, and artifact signing.
@@ -192,3 +193,7 @@ See [SECURITY.md](SECURITY.md) and [the STRIDE threat model](docs/THREAT_MODEL.m
 This release delivers Stage 1 manual-test design. It intentionally does not generate or execute Copado Robotic Testing automation. A later `AutomationDraftGenerator` boundary can translate approved cases only after organization-specific selectors, reusable actions, environments, test data, and review rules are available.
 
 The future slice can add suitability scoring, action mapping, selector placeholders, parameterized data, assertions, setup and cleanup actions, draft export, imported execution results, and failure classification. Every generated draft must remain reviewable; TestForge does not assume a manual case can become reliable automation without that organization-specific context.
+
+## Architecture reset references
+
+The evidence-based [current assessment](docs/assessment/current-codebase-assessment.md), [gap analysis](docs/assessment/gap-analysis.md), [migration risks](docs/assessment/migration-risks.md), and [target architecture](docs/architecture/target-architecture.md) describe the staged path beyond Stage 1. Future-state documents are explicitly non-implemented. “TestForce AI” appears in planning material, but TestForge remains the code, UI, schema, and environment namespace until a dedicated naming decision is approved.

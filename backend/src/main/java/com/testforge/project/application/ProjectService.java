@@ -9,6 +9,7 @@ import com.testforge.project.dto.ProjectDtos.ProjectResponse;
 import com.testforge.project.dto.ProjectDtos.UpdateProjectRequest;
 import com.testforge.project.repository.ProjectRepository;
 import com.testforge.requirement.repository.RequirementRepository;
+import com.testforge.workspace.application.WorkspaceService;
 import java.time.Clock;
 import java.util.Map;
 import java.util.UUID;
@@ -22,17 +23,20 @@ public class ProjectService {
   private final RequirementRepository requirements;
   private final AuditService auditService;
   private final Clock clock;
+  private final WorkspaceService workspaceService;
 
   /** Initializes ProjectService with its required collaborators and domain state. */
   public ProjectService(
       ProjectRepository projects,
       RequirementRepository requirements,
       AuditService auditService,
-      Clock clock) {
+      Clock clock,
+      WorkspaceService workspaceService) {
     this.projects = projects;
     this.requirements = requirements;
     this.auditService = auditService;
     this.clock = clock;
+    this.workspaceService = workspaceService;
   }
 
   /** Lists resources visible to the current owner using the requested page. */
@@ -53,10 +57,15 @@ public class ProjectService {
   /** Creates and persists a new domain resource from validated input. */
   @Transactional
   public ProjectResponse create(UUID ownerId, CreateProjectRequest request) {
+    UUID workspaceId = workspaceService.requirePersonalWorkspaceId(ownerId);
     ProjectEntity project =
         projects.save(
             ProjectEntity.create(
-                ownerId, request.name().strip(), clean(request.description()), clock.instant()));
+                ownerId,
+                workspaceId,
+                request.name().strip(),
+                clean(request.description()),
+                clock.instant()));
     auditService.record(ownerId, project.getId(), "PROJECT", project.getId(), "CREATED", Map.of());
     return toResponse(project);
   }
@@ -91,6 +100,7 @@ public class ProjectService {
   private ProjectResponse toResponse(ProjectEntity project) {
     return new ProjectResponse(
         project.getId(),
+        project.getWorkspaceId(),
         project.getName(),
         project.getDescription(),
         project.getStatus(),

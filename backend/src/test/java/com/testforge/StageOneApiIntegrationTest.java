@@ -14,9 +14,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.testforge.workspace.domain.WorkspaceMembershipEntity;
+import com.testforge.workspace.domain.WorkspaceRole;
+import com.testforge.workspace.repository.WorkspaceMembershipRepository;
 import jakarta.servlet.http.Cookie;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -37,10 +42,12 @@ import org.springframework.test.web.servlet.MvcResult;
 class StageOneApiIntegrationTest {
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private WorkspaceMembershipRepository workspaceMemberships;
 
   private String ownerToken;
   private String outsiderToken;
   private String projectId;
+  private String ownerWorkspaceId;
   private String requirementId;
   private String testCaseId;
 
@@ -50,6 +57,16 @@ class StageOneApiIntegrationTest {
     ownerToken = registerOrLogin("owner@testforge.local", "Owner Analyst", "TestForge!Owner2026");
     outsiderToken =
         registerOrLogin("outsider@testforge.local", "Outside Analyst", "TestForge!Outside2026");
+    JsonNode ownerWorkspaces =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/workspaces").header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].callerRole").value("OWNER"))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"))
+                .andReturn());
+    ownerWorkspaceId = ownerWorkspaces.get(0).get("id").asText();
     JsonNode project =
         json(
             mockMvc
@@ -67,6 +84,7 @@ class StageOneApiIntegrationTest {
                                     "A synthetic project used by the API integration tests."))))
                 .andExpect(status().isCreated())
                 .andReturn());
+    assertThat(project.get("workspaceId").asText()).isEqualTo(ownerWorkspaceId);
     projectId = project.get("id").asText();
     JsonNode requirement =
         json(
@@ -243,6 +261,32 @@ class StageOneApiIntegrationTest {
   @Test
   @Order(2)
   void preventsCrossOwnerAccessAndRejectsMissingCsrfAndUnknownFields() throws Exception {
+    JsonNode outsiderWorkspaces =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/workspaces").header("Authorization", bearer(outsiderToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    UUID outsiderId = UUID.fromString(outsiderWorkspaces.get(0).get("id").asText());
+    workspaceMemberships.save(
+        WorkspaceMembershipEntity.create(
+            UUID.fromString(ownerWorkspaceId),
+            outsiderId,
+            WorkspaceRole.STAKEHOLDER,
+            UUID.fromString(ownerWorkspaceId),
+            Instant.now()));
+    JsonNode sharedWorkspaceList =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/workspaces").header("Authorization", bearer(outsiderToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    JsonNode sharedWorkspace = findWorkspace(sharedWorkspaceList, ownerWorkspaceId);
+    assertThat(sharedWorkspace).isNotNull();
+    assertThat(sharedWorkspace.get("callerRole").asText()).isEqualTo("STAKEHOLDER");
+
     mockMvc
         .perform(
             get("/api/v1/projects/{projectId}", projectId)
@@ -476,6 +520,16 @@ class StageOneApiIntegrationTest {
   /** Executes the json operation for StageOneApiIntegrationTest. */
   private JsonNode json(MvcResult result) throws Exception {
     return objectMapper.readTree(result.getResponse().getContentAsByteArray());
+  }
+
+  /** Finds a workspace response by identifier in a workspace-list payload. */
+  private JsonNode findWorkspace(JsonNode workspaces, String workspaceId) {
+    for (JsonNode workspace : workspaces) {
+      if (workspaceId.equals(workspace.get("id").asText())) {
+        return workspace;
+      }
+    }
+    return null;
   }
 
   /** Executes the bearer operation for StageOneApiIntegrationTest. */

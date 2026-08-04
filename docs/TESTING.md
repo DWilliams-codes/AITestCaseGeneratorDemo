@@ -65,3 +65,17 @@ credentials, active tokens, customer requirements, personal data, or production
 selectors in tests or evaluations. Mock provider transport in automated tests.
 A provider failure or rejected output must produce a safe state and must not
 persist partial generated evidence.
+
+## Workspace migration and authorization verification
+
+The workspace slice adds two migration paths to the backend lifecycle: a fresh
+H2 database applies V1–V4, and a synthetic V3 database advances through V4 so
+deterministic user/workspace/membership/project backfill can be inspected.
+Testcontainers PostgreSQL verifies the actual timestamp type, nullable rollback
+bridge, uniqueness and role constraints when Docker is available.
+
+The API workflow asserts registration provisioning, caller-scoped workspace
+listing, project `workspaceId`, and the critical negative case: an outsider who
+is deliberately inserted as a member of the owner's workspace still receives
+`404` for the owner's project, requirement, and test case. This denial must
+remain until a later explicit content-policy release.

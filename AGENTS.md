@@ -21,6 +21,38 @@ Read the files relevant to the change before editing:
 Existing detailed documents are canonical. Link to them rather than duplicating
 their content here.
 
+## Architecture and compatibility rules
+
+The application is a React TypeScript SPA over a Java 21 Spring modular
+monolith, PostgreSQL/Flyway system of record, and provider-neutral AI boundary.
+Workspace identity is additive: TF-001 keeps owner-scoped authorization even
+when memberships exist. Never accept browser tenant context as authorization.
+
+All schema changes use forward-only Flyway migrations. Evolve live contracts in
+expand, deterministic backfill, dual-write, observe/reconcile, read/policy
+switch, then contract stages. Preserve the prior binary's rollback path until
+the contract plan explicitly closes it; do not edit an applied migration.
+
+## Local commands
+
+- Full wrapper: `./scripts/verify.sh` or `.\scripts\verify.ps1`
+- Backend test/format/static analysis: `cd backend && mvn verify` (Java 21,
+  Maven 3.9+)
+- Frontend format/type/lint/test/build: `cd frontend && npm run format:check`,
+  `npm run typecheck`, `npm run lint`, `npm run test:coverage`, `npm run build`
+- Deterministic harness: `python scripts/validate-harness.py`
+
+Do not install dependencies or call a live model merely to complete a normal
+verification run. Generation inputs and outputs are untrusted: minimize data,
+pin prompt/schema/model contracts, validate structurally and semantically, and
+require human approval. Automation output must remain a reviewed non-executing
+draft until a separate privileged action. Keep secrets, active tokens, customer
+requirements, production selectors, and hidden reasoning out of source, tests,
+logs, audit metadata, and evaluation fixtures.
+
+Update the canonical product, architecture, API, testing, security/threat,
+decision, and plan documents whenever their implemented contract changes.
+
 ## Delivery workflow
 
 For significant features, refactors, schema changes, or generation changes:

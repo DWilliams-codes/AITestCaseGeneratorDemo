@@ -124,3 +124,19 @@ Authentication and generation each use a one-minute in-process window. Their def
 ```
 
 OpenAPI is available for exact request/response schemas in an environment started with `OPENAPI_ENABLED=true`.
+## Workspace foundation
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/workspaces` | List only workspaces represented by the authenticated caller's memberships, including `callerRole` and membership status |
+
+Registration atomically provisions a personal workspace and OWNER membership.
+Project responses now include `workspaceId`; it is nullable during the
+expand/backfill compatibility window, although new application-created projects
+populate it. A caller-supplied workspace ID is not accepted when creating a
+project.
+
+Workspace membership does not authorize project-derived data in TF-001. Project,
+requirement, test-case, generation-run, traceability, export, and audit endpoints
+continue to enforce the existing owner predicate and return `404` across owner
+boundaries.

@@ -42,6 +42,7 @@ export interface TokenResponse {
 
 export interface Project {
   id: string;
+  workspaceId: string | null;
   name: string;
   description: string;
   status: ProjectStatus;

@@ -3,6 +3,7 @@ package com.testforge;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,10 +59,10 @@ class PostgreSqlMigrationIntegrationTest {
    */
   @Test
   void flywayCreatesTheNormalizedSchemaWithPostgreSqlConstraintsAndUtcTypes() {
-    Integer successfulMigrations =
-        jdbc.queryForObject(
-            "select count(*) from testforge.flyway_schema_history where success and version is not null",
-            Integer.class);
+    List<String> appliedVersions =
+        jdbc.queryForList(
+            "select version from testforge.flyway_schema_history where success and version is not null order by installed_rank",
+            String.class);
     Integer domainTables =
         jdbc.queryForObject(
             "select count(*) from information_schema.tables where table_schema = 'testforge'",
@@ -70,15 +71,31 @@ class PostgreSqlMigrationIntegrationTest {
         jdbc.queryForObject(
             "select data_type from information_schema.columns where table_schema = 'testforge' and table_name = 'users' and column_name = 'created_at'",
             String.class);
+    String projectWorkspaceNullable =
+        jdbc.queryForObject(
+            "select is_nullable from information_schema.columns where table_schema = 'testforge' and table_name = 'projects' and column_name = 'workspace_id'",
+            String.class);
 
-    assertThat(successfulMigrations).isEqualTo(2);
-    assertThat(domainTables).isGreaterThanOrEqualTo(16);
+    assertThat(appliedVersions).containsExactly("1", "2", "3", "4");
+    assertThat(domainTables).isGreaterThanOrEqualTo(18);
     assertThat(timestampType).isEqualTo("timestamp with time zone");
+    assertThat(projectWorkspaceNullable).isEqualTo("YES");
 
-    insertUser(UUID.randomUUID(), "case@testforge.local", "case@testforge.local");
+    UUID ownerId = UUID.randomUUID();
+    insertUser(ownerId, "case@testforge.local", "case@testforge.local");
     assertThatThrownBy(
             () -> insertUser(UUID.randomUUID(), "CASE@testforge.local", "case@testforge.local"))
         .isInstanceOf(DataIntegrityViolationException.class);
+
+    insertWorkspace(ownerId);
+    insertMembership(ownerId, ownerId, "OWNER");
+    assertThatThrownBy(() -> insertMembership(ownerId, ownerId, "STAKEHOLDER"))
+        .isInstanceOf(DataIntegrityViolationException.class);
+    UUID secondUserId = UUID.randomUUID();
+    insertUser(secondUserId, "role@testforge.local", "role@testforge.local");
+    assertThatThrownBy(() -> insertMembership(ownerId, secondUserId, "UNRECOGNIZED_ROLE"))
+        .isInstanceOf(DataIntegrityViolationException.class);
+    insertProjectWithNullableWorkspace(UUID.randomUUID(), ownerId);
   }
 
   /** Executes the insert user operation for PostgreSqlMigrationIntegrationTest. */
@@ -88,5 +105,34 @@ class PostgreSqlMigrationIntegrationTest {
         id,
         email,
         normalizedEmail);
+  }
+
+  /** Inserts a workspace owned by an existing integration-test user. */
+  private void insertWorkspace(UUID ownerId) {
+    jdbc.update(
+        "insert into testforge.workspaces (id, name, status, created_by, created_at, updated_at, version) values (?, 'Integration Workspace', 'ACTIVE', ?, current_timestamp, current_timestamp, 0)",
+        ownerId,
+        ownerId);
+  }
+
+  /** Inserts a membership to exercise workspace uniqueness and role constraints. */
+  private void insertMembership(UUID workspaceId, UUID userId, String role) {
+    jdbc.update(
+        "insert into testforge.workspace_memberships (id, workspace_id, user_id, role, status, created_by, created_at, updated_at, version) values (?, ?, ?, ?, 'ACTIVE', ?, current_timestamp, current_timestamp, 0)",
+        UUID.randomUUID(),
+        workspaceId,
+        userId,
+        role,
+        workspaceId);
+  }
+
+  /**
+   * Inserts a project without workspace_id to prove the mixed-version rollback bridge remains open.
+   */
+  private void insertProjectWithNullableWorkspace(UUID projectId, UUID ownerId) {
+    jdbc.update(
+        "insert into testforge.projects (id, owner_id, workspace_id, name, description, status, created_at, updated_at, version) values (?, ?, null, 'Rollback Bridge', '', 'ACTIVE', current_timestamp, current_timestamp, 0)",
+        projectId,
+        ownerId);
   }
 }
