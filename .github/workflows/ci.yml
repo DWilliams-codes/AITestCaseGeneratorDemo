@@ -136,6 +136,8 @@ jobs:
         id: backend_dependency_scan
         continue-on-error: true
         working-directory: backend
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: mvn --batch-mode --no-transfer-progress -Psecurity org.owasp:dependency-check-maven:check
       - name: Save OWASP dependency data
         if: steps.backend_dependency_scan.outcome == 'success'
