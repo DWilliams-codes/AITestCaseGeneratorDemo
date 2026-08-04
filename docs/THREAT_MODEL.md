@@ -9,6 +9,7 @@ Protected assets are credentials, refresh-token families, owner-scoped project d
 | User account | Spoofing | Password guessing, credential stuffing, or forged access token | Account takeover and unauthorized quality records | Argon2id, generic auth errors, minute-window rate limit, HS256 with a 32-byte minimum key, issuer/audience/time validation | Add gateway/IP reputation plus MFA or enterprise OIDC |
 | Refresh-token family | Spoofing | Theft and replay of a browser refresh cookie | Persistent account takeover | Random opaque tokens, SHA-256 hashes at rest, HttpOnly SameSite Secure cookies, rotation, family reuse detection and revocation | Monitor reuse events and shorten TTL by risk tier |
 | Owner-scoped records | Tampering / elevation | Substitute another user's project, requirement, case, run, export, or audit identifier | Cross-tenant read or mutation | Owner predicates in services and repositories, inaccessible objects return 404, automated IDOR tests | Add explicit organization membership and role policy before sharing |
+| Workspace membership | Elevation / information disclosure | Treat membership or a caller-supplied workspace ID as implicit access to owner-scoped content | Cross-owner data exposure before role policy exists | Membership only scopes workspace listing; project creation derives personal workspace server-side; a shared-member integration test still requires 404 for project, requirement, and case | Define an explicit role/action policy, invitation lifecycle, inactive-member handling, and last-owner protection before shared reads |
 | Requirement and case revisions | Tampering | Submit a stale edit over a newer version | Lost evidence or reviewer changes | Optimistic versions, `409 stale_version`, immutable case revisions | Add side-by-side diff and merge UX as concurrency grows |
 | Generated evidence | Tampering | Compromised provider emits malicious, structurally valid-looking, or poisoned output | Incorrect tests, unsafe data, or misleading coverage | Strict schema plus enum, size, ordering, mapping, duplicate, vague-language, and executable-content validation; one controlled retry | Maintain provider evals, anomaly metrics, and an emergency provider-disable switch |
 | Audit evidence | Repudiation / tampering | Reviewer disputes a decision or a database operator modifies audit rows | Loss of accountability | Immutable review rows, revisions, correlated audit events, server timestamps, minimal allowlisted metadata | Stream to append-only SIEM or WORM storage; protect database administrator access |
@@ -25,6 +26,7 @@ Protected assets are credentials, refresh-token families, owner-scoped project d
 ## Abuse cases tested
 
 - Cross-owner project, requirement, and test-case identifiers return 404.
+- A user with an explicit membership in the owner's workspace still cannot access owner-scoped content in TF-001.
 - Registration without CSRF is forbidden.
 - Unknown JSON properties are rejected.
 - Refresh rotation invalidates the predecessor and reuse is rejected.

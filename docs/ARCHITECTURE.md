@@ -22,7 +22,8 @@ The frontend image builds immutable static assets and serves them from unprivile
 | Module | Responsibility |
 | --- | --- |
 | `auth`, `user`, `security` | Identity, JWTs, refresh rotation, CSRF/CORS, current actor, limits |
-| `project` | Owner-isolated workspaces and lifecycle |
+| `workspace` | Personal tenancy, memberships, and caller-scoped workspace listing |
+| `project` | Owner-isolated projects and lifecycle; additive workspace assignment |
 | `requirement` | Source story, criteria, ambiguity, optimistic versions, revisions |
 | `generation` | Provider contract, prompt/schema, validation, run metadata, persistence coordination |
 | `testcase` | Structured cases, parts, edits, revisions, and human review |
@@ -87,3 +88,20 @@ Backend verification enforces formatting, SpotBugs, and 80% line / 70% branch co
 - [ADR 0006: React and TypeScript frontend](decisions/0006-react-typescript-frontend.md)
 - [ADR 0007: Structured AI output](decisions/0007-structured-ai-output.md)
 - [ADR 0008: PostgreSQL and Flyway](decisions/0008-postgresql-flyway.md)
+## Workspace-tenancy evolution
+
+TF-001 adds a `workspace` module to the modular monolith. Registration creates
+a deterministic personal workspace and OWNER membership in the same transaction
+as the user/session. Flyway V4 adds nullable `projects.workspace_id`, backfills
+it from `owner_id`, and new project creation dual-writes both fields. The column
+stays nullable for old-binary rollback compatibility.
+
+This release does not replace owner authorization. Membership scopes only
+`GET /api/v1/workspaces`; every project-derived resource continues to use its
+existing owner predicate and cross-owner `404` response. Shared-content policy
+and any contract removal of `owner_id` require separate releases.
+
+Detailed target references: [target architecture](architecture/target-architecture.md),
+[domain model and snapshots](architecture/domain-model.md), [AI pipeline](architecture/ai-generation-pipeline.md),
+[automation/Copado design](architecture/copado-generation-architecture.md), and
+[security model](architecture/security-model.md).

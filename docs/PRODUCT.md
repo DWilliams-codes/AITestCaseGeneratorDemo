@@ -62,3 +62,19 @@ evaluation fixtures are roadmap-only and non-blocking.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [the MVP specification](product-specs/mvp-1-test-generation.md),
 and [the security policy](../SECURITY.md) for implementation and trust details.
+## Workspace foundation and product direction
+
+Each registered user receives a personal workspace and OWNER membership. New
+projects carry both their existing `ownerId` contract and a `workspaceId`.
+Callers can list only workspaces represented by their memberships. This is an
+identity and migration foundation: membership does not grant access to another
+user's projects, requirements, test cases, generation evidence, exports, or
+audit records. Those resources remain owner-isolated and inaccessible IDs
+continue to return `404`.
+
+Workspace invitations, role-based collaboration, immutable artifact snapshots,
+restoration/retention, queued generation, and automation drafts are future
+roadmap capabilities. See the [gap analysis](assessment/gap-analysis.md) and
+[target domain model](architecture/domain-model.md). Planning uses both
+TestForce and TestForge names; the implemented product remains TestForge until
+a separate naming decision is accepted.

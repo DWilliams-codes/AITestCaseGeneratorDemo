@@ -16,6 +16,7 @@ const user = {
 };
 const project = {
   id: '20000000-0000-0000-0000-000000000001',
+  workspaceId: user.id,
   name: 'Customer Returns Portal',
   description: 'Retail returns quality coverage.',
   status: 'ACTIVE',

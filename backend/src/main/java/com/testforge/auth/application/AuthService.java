@@ -11,6 +11,7 @@ import com.testforge.common.error.ApiExceptions;
 import com.testforge.config.AuthProperties;
 import com.testforge.user.domain.UserEntity;
 import com.testforge.user.repository.UserRepository;
+import com.testforge.workspace.application.WorkspaceService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -35,6 +36,7 @@ public class AuthService {
   private final AuthProperties properties;
   private final Clock clock;
   private final AuditService auditService;
+  private final WorkspaceService workspaceService;
 
   /** Initializes AuthService with its required collaborators and domain state. */
   public AuthService(
@@ -44,7 +46,8 @@ public class AuthService {
       JwtService jwtService,
       AuthProperties properties,
       Clock clock,
-      AuditService auditService) {
+      AuditService auditService,
+      WorkspaceService workspaceService) {
     this.users = users;
     this.refreshTokens = refreshTokens;
     this.passwordEncoder = passwordEncoder;
@@ -52,6 +55,7 @@ public class AuthService {
     this.properties = properties;
     this.clock = clock;
     this.auditService = auditService;
+    this.workspaceService = workspaceService;
   }
 
   /** Registers a new user and creates an authenticated session. */
@@ -71,6 +75,7 @@ public class AuthService {
                 request.displayName().strip(),
                 passwordEncoder.encode(request.password()),
                 now));
+    workspaceService.provisionPersonalWorkspace(user, now);
     auditService.record(user.getId(), null, "USER", user.getId(), "REGISTERED", Map.of());
     return newSession(user, UUID.randomUUID(), now);
   }
@@ -85,6 +90,7 @@ public class AuthService {
     if (!user.isEnabled() || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
       throw ApiExceptions.unauthorized("Email or password is incorrect.");
     }
+    workspaceService.requirePersonalWorkspaceId(user.getId());
     Instant now = clock.instant();
     user.recordLogin(now);
     auditService.record(user.getId(), null, "USER", user.getId(), "LOGGED_IN", Map.of());

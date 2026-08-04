@@ -18,6 +18,9 @@ public class ProjectEntity {
   @Column(name = "owner_id", nullable = false)
   private UUID ownerId;
 
+  @Column(name = "workspace_id")
+  private UUID workspaceId;
+
   @Column(nullable = false, length = 120)
   private String name;
 
@@ -41,9 +44,16 @@ public class ProjectEntity {
 
   /** Initializes ProjectEntity with its required collaborators and domain state. */
   private ProjectEntity(
-      UUID id, UUID ownerId, String name, String description, ProjectStatus status, Instant now) {
+      UUID id,
+      UUID ownerId,
+      UUID workspaceId,
+      String name,
+      String description,
+      ProjectStatus status,
+      Instant now) {
     this.id = id;
     this.ownerId = ownerId;
+    this.workspaceId = workspaceId;
     this.name = name;
     this.description = description;
     this.status = status;
@@ -52,9 +62,10 @@ public class ProjectEntity {
   }
 
   /** Creates a new ProjectEntity initialized from the supplied domain values. */
-  public static ProjectEntity create(UUID ownerId, String name, String description, Instant now) {
+  public static ProjectEntity create(
+      UUID ownerId, UUID workspaceId, String name, String description, Instant now) {
     return new ProjectEntity(
-        UUID.randomUUID(), ownerId, name, description, ProjectStatus.ACTIVE, now);
+        UUID.randomUUID(), ownerId, workspaceId, name, description, ProjectStatus.ACTIVE, now);
   }
 
   /** Updates the entity's mutable domain state and modification timestamp. */
@@ -78,6 +89,11 @@ public class ProjectEntity {
   /** Returns the current owner id value. */
   public UUID getOwnerId() {
     return ownerId;
+  }
+
+  /** Returns the workspace assigned during the tenancy compatibility bridge. */
+  public UUID getWorkspaceId() {
+    return workspaceId;
   }
 
   /** Returns the current name value. */
