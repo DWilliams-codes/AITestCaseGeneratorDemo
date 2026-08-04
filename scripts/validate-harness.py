@@ -40,8 +40,26 @@ ENUM_SOURCE_PATHS = {
     "AmbiguityCategory": "backend/src/main/java/com/testforge/requirement/domain/AmbiguityCategory.java",
 }
 
+AGENT_PROFILE_ALLOWLIST = {
+    "architect.toml": ("architect", "read-only"),
+    "builder.toml": ("builder", "workspace-write"),
+    "reviewer.toml": ("reviewer", "read-only"),
+}
+AGENTS_CONFIG_KEYS = {"enabled", "max_concurrent_threads_per_session"}
+SKILL_ALLOWLIST = (
+    "feature-delivery",
+    "testforge-evaluation",
+    "repository-audit",
+    "ai-generation-evals",
+    "quality-gate",
+    "security-review",
+)
+PROTECTED_PLAN_IGNORE = "/docs/plans/testforce-ai-mvp-execplan.md"
+
 REQUIRED_FILES = (
+    ".gitignore",
     "AGENTS.md",
+    "PLANS.md",
     ".codex/config.toml",
     ".codex/agents/architect.toml",
     ".codex/agents/builder.toml",
@@ -50,9 +68,19 @@ REQUIRED_FILES = (
     ".agents/skills/feature-delivery/agents/openai.yaml",
     ".agents/skills/testforge-evaluation/SKILL.md",
     ".agents/skills/testforge-evaluation/agents/openai.yaml",
+    ".agents/skills/repository-audit/SKILL.md",
+    ".agents/skills/repository-audit/agents/openai.yaml",
+    ".agents/skills/ai-generation-evals/SKILL.md",
+    ".agents/skills/ai-generation-evals/agents/openai.yaml",
+    ".agents/skills/quality-gate/SKILL.md",
+    ".agents/skills/quality-gate/agents/openai.yaml",
+    ".agents/skills/security-review/SKILL.md",
+    ".agents/skills/security-review/agents/openai.yaml",
     "docs/PRODUCT.md",
     "docs/TESTING.md",
     "docs/PLANS.md",
+    "docs/agents/AGENT_ROSTER.md",
+    "docs/agents/WORKFLOW_AUDIT.md",
     "docs/product-specs/mvp-1-test-generation.md",
     "docs/decisions/README.md",
     "docs/exec-plans/README.md",
@@ -86,6 +114,79 @@ def require_nonblank_string(value: Any, location: str) -> bool:
     return True
 
 
+def discovery_errors(actual: set[str], expected: set[str], label: str) -> list[str]:
+    errors: list[str] = []
+    missing = sorted(expected - actual)
+    unexpected = sorted(actual - expected)
+    if missing:
+        errors.append(f"missing {label}: {missing}")
+    if unexpected:
+        errors.append(f"unexpected {label}: {unexpected}")
+    return errors
+
+
+def duplicate_value_errors(values: dict[str, str], label: str) -> list[str]:
+    locations_by_value: dict[str, list[str]] = {}
+    for location, value in values.items():
+        locations_by_value.setdefault(value, []).append(location)
+    return [
+        f"duplicate {label} {value!r} in {sorted(locations)}"
+        for value, locations in sorted(locations_by_value.items())
+        if len(locations) > 1
+    ]
+
+
+def validate_discovered_surface(
+    location: str, actual: set[str], expected: set[str], label: str
+) -> None:
+    for message in discovery_errors(actual, expected, label):
+        fail(location, message)
+
+
+def is_external_or_escaping_config_file(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.replace("\\", "/")
+    return (
+        normalized.startswith("/")
+        or re.match(r"^[A-Za-z]:/", normalized) is not None
+        or ".." in normalized.split("/")
+    )
+
+
+def codex_config_structure_errors(config: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if set(config) != {"agents"}:
+        errors.append("must contain only the [agents] table")
+    agents_config = config.get("agents")
+    if not isinstance(agents_config, dict):
+        errors.append("[agents] must be a mapping")
+        return errors
+    actual_keys = set(agents_config)
+    if actual_keys != AGENTS_CONFIG_KEYS:
+        errors.append(
+            "[agents] must contain exactly "
+            f"{sorted(AGENTS_CONFIG_KEYS)}; got {sorted(actual_keys)}"
+        )
+    for key in sorted(actual_keys - AGENTS_CONFIG_KEYS):
+        nested = agents_config.get(key)
+        if isinstance(nested, dict) and "config_file" in nested:
+            errors.append(f"nested agent role {key!r} with config_file is not allowed")
+            if is_external_or_escaping_config_file(nested.get("config_file")):
+                errors.append(
+                    f"external or escaping config_file for nested role {key!r} is not allowed"
+                )
+    return errors
+
+
+def inspect_codex_config_text(text: str) -> list[str]:
+    try:
+        config = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        return [f"cannot parse TOML ({error})"]
+    return codex_config_structure_errors(config)
+
+
 def validate_required_files() -> None:
     for relative_path in REQUIRED_FILES:
         if not (ROOT / relative_path).is_file():
@@ -99,9 +200,10 @@ def validate_required_files() -> None:
 
 def validate_agent_configuration() -> None:
     config = load_toml(".codex/config.toml")
-    if set(config) != {"agents"}:
-        fail(".codex/config.toml", "must contain only the [agents] table")
-    agents_config = config.get("agents", {})
+    for message in codex_config_structure_errors(config):
+        fail(".codex/config.toml", message)
+    raw_agents_config = config.get("agents", {})
+    agents_config = raw_agents_config if isinstance(raw_agents_config, dict) else {}
     if agents_config.get("enabled") is not True:
         fail(".codex/config.toml", "agents.enabled must be true")
     if agents_config.get("max_concurrent_threads_per_session") != 3:
@@ -110,19 +212,26 @@ def validate_agent_configuration() -> None:
             "max_concurrent_threads_per_session must be 3 for the bounded workflow",
         )
 
-    expected_modes = {
-        "architect": "read-only",
-        "builder": "workspace-write",
-        "reviewer": "read-only",
-    }
-    for name, mode in expected_modes.items():
-        relative_path = f".codex/agents/{name}.toml"
+    agents_dir = ROOT / ".codex/agents"
+    discovered_files = {path.name for path in agents_dir.glob("*.toml")}
+    validate_discovered_surface(
+        ".codex/agents",
+        discovered_files,
+        set(AGENT_PROFILE_ALLOWLIST),
+        "agent profiles",
+    )
+
+    discovered_names: dict[str, str] = {}
+    for filename, (name, mode) in AGENT_PROFILE_ALLOWLIST.items():
+        relative_path = f".codex/agents/{filename}"
         agent = load_toml(relative_path)
         allowed_keys = {"name", "description", "sandbox_mode", "developer_instructions"}
         if set(agent) != allowed_keys:
             fail(relative_path, f"must contain exactly {sorted(allowed_keys)}")
         if agent.get("name") != name:
             fail(relative_path, f"name must be {name!r}")
+        if isinstance(agent.get("name"), str):
+            discovered_names[filename] = agent["name"]
         if agent.get("sandbox_mode") != mode:
             fail(relative_path, f"sandbox_mode must be {mode!r}")
         require_nonblank_string(agent.get("description"), f"{relative_path}:description")
@@ -135,6 +244,9 @@ def validate_agent_configuration() -> None:
                 fail(relative_path, "read-only agent must explicitly prohibit modification")
             if name == "builder" and "only" not in lowered:
                 fail(relative_path, "builder instructions must preserve single-writer scope")
+
+    for message in duplicate_value_errors(discovered_names, "agent profile name"):
+        fail(".codex/agents", message)
 
 
 def strip_java_comments(source: str) -> str:
@@ -256,6 +368,79 @@ def run_contract_parser_self_tests() -> None:
             raise ValueError("record removal or rename did not create a contract mismatch")
     except ValueError as error:
         fail("scripts/validate-harness.py:self-test", str(error))
+
+
+def run_workflow_package_self_tests() -> None:
+    location = "scripts/validate-harness.py:workflow-self-test"
+    expected = {"architect.toml", "builder.toml", "reviewer.toml"}
+    missing = discovery_errors(
+        {"architect.toml", "builder.toml"}, expected, "agent profiles"
+    )
+    renamed = discovery_errors(
+        {"architect.toml", "builder.toml", "critic.toml"},
+        expected,
+        "agent profiles",
+    )
+    unexpected = discovery_errors(
+        expected | {"scout.toml"}, expected, "agent profiles"
+    )
+    duplicates = duplicate_value_errors(
+        {"one": "repository-audit", "two": "repository-audit"},
+        "skill frontmatter name",
+    )
+    _, parser_problems = inspect_skill_frontmatter(
+        "---\nname: sample\nname: duplicate\ndescription: sample skill\n---\n"
+    )
+    nested_role_problems = inspect_codex_config_text(
+        "[agents]\n"
+        "enabled = true\n"
+        "max_concurrent_threads_per_session = 3\n"
+        "[agents.scout]\n"
+        "config_file = 'scout.toml'\n"
+    )
+    escaping_config_problems = inspect_codex_config_text(
+        "[agents]\n"
+        "enabled = true\n"
+        "max_concurrent_threads_per_session = 3\n"
+        "[agents.scout]\n"
+        "config_file = '../outside.toml'\n"
+    )
+    posix_absolute_config_problems = inspect_codex_config_text(
+        "[agents]\n"
+        "enabled = true\n"
+        "max_concurrent_threads_per_session = 3\n"
+        "[agents.scout]\n"
+        "config_file = '/outside.toml'\n"
+    )
+    windows_absolute_config_problems = inspect_codex_config_text(
+        "[agents]\n"
+        "enabled = true\n"
+        "max_concurrent_threads_per_session = 3\n"
+        "[agents.scout]\n"
+        "config_file = 'C:/outside.toml'\n"
+    )
+    duplicate_toml_problems = inspect_codex_config_text(
+        "[agents]\n"
+        "enabled = true\n"
+        "enabled = false\n"
+        "max_concurrent_threads_per_session = 3\n"
+    )
+    expectations = (
+        (missing, "missing agent profiles"),
+        (renamed, "missing agent profiles"),
+        (renamed, "unexpected agent profiles"),
+        (unexpected, "unexpected agent profiles"),
+        (duplicates, "duplicate skill frontmatter name"),
+        (parser_problems, "duplicate frontmatter field"),
+        (nested_role_problems, "nested agent role"),
+        (escaping_config_problems, "external or escaping config_file"),
+        (posix_absolute_config_problems, "external or escaping config_file"),
+        (windows_absolute_config_problems, "external or escaping config_file"),
+        (duplicate_toml_problems, "cannot parse TOML"),
+    )
+    for messages, expected_fragment in expectations:
+        if not any(expected_fragment in message for message in messages):
+            fail(location, f"negative case did not detect {expected_fragment!r}")
 
 
 def validate_source_contracts() -> dict[str, Any]:
@@ -412,23 +597,33 @@ def validate_source_contracts() -> dict[str, Any]:
     }
 
 
-def parse_skill_frontmatter(relative_path: str) -> dict[str, str]:
-    text = (ROOT / relative_path).read_text(encoding="utf-8")
+def inspect_skill_frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
+    problems: list[str] = []
     match = re.match(r"\A---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
     if not match:
-        fail(relative_path, "must start with YAML frontmatter")
-        return {}
+        return {}, ["must start with YAML frontmatter"]
     fields: dict[str, str] = {}
     for line in match.group(1).splitlines():
         key, separator, value = line.partition(":")
         if not separator:
-            fail(relative_path, f"invalid frontmatter line {line!r}")
+            problems.append(f"invalid frontmatter line {line!r}")
             continue
-        fields[key.strip()] = value.strip()
+        key = key.strip()
+        if key in fields:
+            problems.append(f"duplicate frontmatter field {key!r}")
+        fields[key] = value.strip()
     if set(fields) != {"name", "description"}:
-        fail(relative_path, "frontmatter must contain only name and description")
+        problems.append("frontmatter must contain only name and description")
     if "TODO" in text:
-        fail(relative_path, "skill contains an unresolved TODO")
+        problems.append("skill contains an unresolved TODO")
+    return fields, problems
+
+
+def parse_skill_frontmatter(relative_path: str) -> dict[str, str]:
+    text = (ROOT / relative_path).read_text(encoding="utf-8")
+    fields, problems = inspect_skill_frontmatter(text)
+    for problem in problems:
+        fail(relative_path, problem)
     return fields
 
 
@@ -453,12 +648,23 @@ def parse_openai_yaml(relative_path: str) -> dict[str, str]:
 
 
 def validate_skills() -> None:
-    for name in ("feature-delivery", "testforge-evaluation"):
+    skills_dir = ROOT / ".agents/skills"
+    discovered_skills = {
+        path.parent.name for path in skills_dir.glob("*/SKILL.md")
+    }
+    validate_discovered_surface(
+        ".agents/skills", discovered_skills, set(SKILL_ALLOWLIST), "skills"
+    )
+
+    discovered_names: dict[str, str] = {}
+    for name in SKILL_ALLOWLIST:
         skill_path = f".agents/skills/{name}/SKILL.md"
         metadata_path = f".agents/skills/{name}/agents/openai.yaml"
         frontmatter = parse_skill_frontmatter(skill_path)
         if frontmatter.get("name") != name:
             fail(skill_path, f"frontmatter name must be {name!r}")
+        if isinstance(frontmatter.get("name"), str):
+            discovered_names[name] = frontmatter["name"]
         require_nonblank_string(frontmatter.get("description"), f"{skill_path}:description")
         interface = parse_openai_yaml(metadata_path)
         display_name = interface.get("display_name")
@@ -472,6 +678,9 @@ def validate_skills() -> None:
         if require_nonblank_string(default_prompt, f"{metadata_path}:default_prompt"):
             if f"${name}" not in default_prompt:
                 fail(metadata_path, f"default_prompt must explicitly mention ${name}")
+
+    for message in duplicate_value_errors(discovered_names, "skill frontmatter name"):
+        fail(".agents/skills", message)
 
 
 def load_jsonl(relative_path: str) -> list[dict[str, Any]]:
@@ -768,12 +977,57 @@ def validate_rubric() -> None:
 
 def validate_documentation() -> None:
     required_terms = {
-        "AGENTS.md": ("TestForge AI", "$feature-delivery", "$testforge-evaluation"),
+        "AGENTS.md": (
+            "TestForge AI",
+            "$feature-delivery",
+            "$repository-audit",
+            "$ai-generation-evals",
+            "$testforge-evaluation",
+            "$quality-gate",
+            "$security-review",
+            "CONFORMS",
+            "APPROVE",
+        ),
+        "PLANS.md": (
+            "docs/PLANS.md",
+            "first repository write",
+            "seven CI jobs",
+            "Lead",
+        ),
         "README.md": ("docs/PRODUCT.md", "scripts/verify"),
         "CONTRIBUTING.md": ("ExecPlan", "scripts/verify"),
         "docs/PRODUCT.md": ("Stage 1", "AutomationDraftGenerator"),
-        "docs/TESTING.md": ("no provider call", "automation-generation.jsonl"),
-        "docs/PLANS.md": ("active/", "completed/"),
+        "docs/TESTING.md": (
+            "no provider call",
+            "automation-generation.jsonl",
+            "harness first",
+            "exact published commit SHA",
+        ),
+        "docs/PLANS.md": (
+            "active/",
+            "completed/",
+            "first repository write",
+            "seven CI jobs",
+            "CONFORMS",
+            "APPROVE",
+        ),
+        "docs/agents/AGENT_ROSTER.md": (
+            "Existing role matrix",
+            "Nine-capability map",
+            "Routing examples",
+            "AI generation and evaluations",
+            "Final integration review",
+        ),
+        "docs/agents/WORKFLOW_AUDIT.md": (
+            "Actual repository and stack",
+            "Existing package inventory",
+            "Contradictions, overlaps, and missing capabilities",
+            "Requested-package comparison",
+            "Files added or changed and why",
+            "seven existing CI jobs",
+            "supply-chain",
+            "Compose database host-port",
+        ),
         "docs/product-specs/mvp-1-test-generation.md": ("manual-test-v1", "Stage 1"),
         ".github/pull_request_template.md": ("ExecPlan", "Evaluation"),
     }
@@ -808,6 +1062,14 @@ def validate_documentation() -> None:
             if not resolved.exists():
                 fail(path.relative_to(ROOT), f"broken local link: {target}")
 
+    ignore_path = ROOT / ".gitignore"
+    ignore_lines = ignore_path.read_text(encoding="utf-8").splitlines()
+    if ignore_lines.count(PROTECTED_PLAN_IGNORE) != 1:
+        fail(
+            ".gitignore",
+            f"must contain exactly one protection entry {PROTECTED_PLAN_IGNORE!r}",
+        )
+
 
 def main() -> int:
     validate_required_files()
@@ -819,6 +1081,7 @@ def main() -> int:
 
     validate_agent_configuration()
     run_contract_parser_self_tests()
+    run_workflow_package_self_tests()
     source_contracts = validate_source_contracts()
     validate_skills()
     validate_manual_evaluations(source_contracts)
@@ -833,8 +1096,8 @@ def main() -> int:
         return 1
 
     print(
-        "TestForge harness validation passed: 3 agents, 2 skills, "
-        "6 blocking manual evals, and 3 non-blocking automation roadmap evals."
+        "TestForge harness validation passed: 3 specialist profiles, 6 skills, "
+        "6 blocking manual fixtures, and 3 non-blocking automation roadmap fixtures."
     )
     return 0
 
