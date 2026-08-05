@@ -1,0 +1,23 @@
+ID: P2-011
+Priority: P2 Medium
+Category: Workflow completeness
+Status: Confirmed missing UI capability
+
+Defect
+The backend exposes a versioned ambiguity-resolution endpoint, but the requirement page only displays
+ambiguity cards and existing resolutions. It has no input or mutation to resolve an open ambiguity.
+
+Evidence
+- docs/API.md:58 and backend RequirementController expose POST /ambiguities/{id}/resolve.
+- frontend/src/pages/RequirementPage.tsx:707-739 renders ambiguity state only.
+- No frontend source references the resolve endpoint.
+- docs/PRODUCT.md:20 includes reviewing detected ambiguities in the core workflow.
+
+Impact
+Users must call the API manually to finish the documented ambiguity workflow. NEEDS_CLARIFICATION
+stories can remain operationally blocked even though the server capability exists.
+
+Remediation
+Add an owner-scoped resolution dialog with required text and expected version, handle stale_version,
+refresh requirement/generation state, and add unit/browser coverage for success and conflict.
+

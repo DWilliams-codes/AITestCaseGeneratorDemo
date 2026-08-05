@@ -1,0 +1,29 @@
+ID: P1-005
+Priority: P1 High
+Category: Frontend correctness / generation state
+Status: Confirmed end-to-end contract mismatch
+
+Defect
+The backend catches provider and validation failures, persists a FAILED or REJECTED_BY_VALIDATION run,
+and returns it with HTTP 201. The frontend mutation treats every 2xx response as success and always
+shows "Generation completed and passed the server-side quality gate."
+
+Evidence
+- backend/src/main/java/com/testforge/generation/application/GenerationService.java:188-201
+  returns failed run state instead of throwing.
+- backend/src/main/java/com/testforge/generation/controller/GenerationController.java:49-74
+  always declares CREATED.
+- frontend/src/pages/RequirementPage.tsx:110-117,257-266
+  constructs the success message without checking run.status.
+- frontend/e2e/stage-one-workflow.spec.ts:141-175
+  mocks a 503, which is not the implemented backend failure contract.
+
+Impact
+Users are explicitly told failed or rejected output passed the quality gate. This can conceal provider
+outages, semantic rejection, and the absence of new test cases.
+
+Remediation
+Handle COMPLETED, REJECTED_BY_VALIDATION, and FAILED explicitly in the UI, with safe failure details
+and no success navigation. Align the HTTP/API contract and browser test with the chosen behavior;
+add tests using real 201 failure-state responses if that contract is retained.
+

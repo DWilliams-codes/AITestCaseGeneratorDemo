@@ -1,0 +1,25 @@
+ID: P2-004
+Priority: P2 Medium
+Category: Deployment topology / network exposure
+Status: Confirmed configuration issue
+
+Defect
+The default Compose file publishes PostgreSQL and the Spring backend on all host interfaces in
+addition to the frontend. This bypasses the intended Nginx boundary and makes the database reachable
+from any network that can reach the developer host.
+
+Evidence
+- docker-compose.yml:12-13 publishes ${POSTGRES_PORT:-5432}:5432.
+- docker-compose.yml:43-44 publishes ${BACKEND_PORT:-8080}:8080.
+- docs/ARCHITECTURE.md:18 says production requires private networking and describes Nginx as the
+  frontend/API proxy boundary.
+
+Impact
+Shared or misconfigured developer hosts expose extra attack surface. Direct backend access also
+interacts with forwarded-header trust and lets callers avoid frontend proxy controls.
+
+Remediation
+Remove host publication for database/backend by default. If developer access is necessary, bind
+explicitly to 127.0.0.1 and place it in a clearly opt-in override profile. Keep only the frontend edge
+published and document that Compose is not production-ready.
+

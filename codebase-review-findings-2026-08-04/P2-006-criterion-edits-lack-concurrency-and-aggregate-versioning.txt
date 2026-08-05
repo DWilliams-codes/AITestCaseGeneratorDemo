@@ -1,0 +1,29 @@
+ID: P2-006
+Priority: P2 Medium
+Category: Optimistic concurrency / aggregate consistency
+Status: Confirmed
+
+Defect
+Acceptance-criterion add/update/delete requests carry no expected version, and the entity has no
+@Version field. These operations also do not touch the owning RequirementEntity or create a
+requirement revision, so the requirement version/updatedAt can remain unchanged while its defining
+criteria change.
+
+Evidence
+- backend/src/main/java/com/testforge/requirement/dto/RequirementDtos.java:64-76
+  criterion request/response contain no version.
+- backend/src/main/java/com/testforge/requirement/domain/AcceptanceCriterionEntity.java
+  has no @Version.
+- backend/src/main/java/com/testforge/requirement/application/RequirementService.java:147-221
+  mutates criteria without assertVersion, requirement update, or saveRevision.
+- docs/ARCHITECTURE.md:65 says optimistic versions prevent lost updates.
+
+Impact
+Concurrent criterion edits can silently overwrite each other. Cached requirement summaries and
+revision/audit views do not expose a coherent aggregate revision for generation inputs.
+
+Remediation
+Choose an aggregate concurrency model: require the owning requirement version for every criterion
+mutation or version criteria independently while also advancing the source aggregate revision.
+Persist immutable source revisions containing criteria. Add concurrent update/delete tests.
+

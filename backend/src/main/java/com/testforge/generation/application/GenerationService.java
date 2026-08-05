@@ -131,7 +131,7 @@ public class GenerationService {
     return generateInternal(userId, requirementId, idempotencyKey, confirmSupersede);
   }
 
-  /** Executes the shared validated generation transaction and subsequent-set guard. */
+  /** Returns an idempotent retry before supersession checks so retries need no new confirmation. */
   private GenerationRunResponse generateInternal(
       UUID userId, UUID requirementId, String idempotencyKey, boolean confirmSupersede) {
     RequirementEntity requirement = requirementService.requireOwned(userId, requirementId);
@@ -235,7 +235,7 @@ public class GenerationService {
         .toList();
   }
 
-  /** Executes the generate validated operation for GenerationService. */
+  /** Validates every provider result and permits exactly one retry after semantic rejection. */
   private TestGenerationResult generateValidated(TestGenerationRequest request) {
     GenerationValidationException firstFailure;
     try {
@@ -255,7 +255,7 @@ public class GenerationService {
     }
   }
 
-  /** Executes the persist result operation for GenerationService. */
+  /** Persists only validated structured output inside the surrounding transaction. */
   private void persistResult(
       RequirementEntity requirement,
       List<AcceptanceCriterionEntity> criterionEntities,
@@ -314,7 +314,10 @@ public class GenerationService {
     }
   }
 
-  /** Executes the persist parts operation for GenerationService. */
+  /**
+   * Resolves every test-data reference before the first case-part write to prevent partial
+   * evidence.
+   */
   private void persistParts(UUID testCaseId, GeneratedTestCase generated) {
     List<String> canonicalReferences =
         testDataReferences.canonicalize(
@@ -396,7 +399,7 @@ public class GenerationService {
             : null);
   }
 
-  /** Executes the canonical input operation for GenerationService. */
+  /** Produces stable hash material from generation inputs without transport metadata. */
   private String canonicalInput(TestGenerationRequest request) {
     StringBuilder value =
         new StringBuilder()
@@ -414,7 +417,7 @@ public class GenerationService {
     return value.toString();
   }
 
-  /** Reports whether the result h. */
+  /** Digests idempotency keys and input provenance instead of retaining their raw values. */
   private String hash(String value) {
     try {
       return HexFormat.of()
@@ -425,7 +428,7 @@ public class GenerationService {
     }
   }
 
-  /** Executes the safe message operation for GenerationService. */
+  /** Bounds validator detail; provider transport failures follow the separate generic path. */
   private String safeMessage(RuntimeException exception) {
     String message = exception.getMessage();
     if (message == null || message.isBlank()) {

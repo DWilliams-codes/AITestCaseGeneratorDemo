@@ -1,0 +1,27 @@
+ID: P1-006
+Priority: P1 High
+Category: Dependency security / CI fail-open
+Status: Reproduced
+
+Defect
+frontend/scripts/audit.mjs checks spawnSync.error but never checks the child exit status or the npm
+audit report's top-level error. When npm audit cannot reach the registry, it can return parseable JSON
+with a nonzero exit code and no vulnerabilities object. The wrapper then prints success and exits 0.
+
+Evidence
+- frontend/scripts/audit.mjs:19-72
+  parses stdout and iterates report.vulnerabilities without validating auditProcess.status or
+  report.error.
+- Reproduction in the restricted review environment: raw npm audit --json reported ENOTFOUND and
+  failed; npm run audit:ci printed "No unaccepted..." and returned success.
+
+Impact
+The supported CI dependency-security job can pass without obtaining an audit result. Registry outage,
+proxy failure, or malformed error responses silently remove a release security gate.
+
+Remediation
+Fail if auditProcess.status is nonzero unless the parsed report is a valid vulnerability report with
+the expected metadata. Explicitly reject report.error, missing vulnerabilities/metadata, empty output,
+and unsupported schema versions. Add subprocess-fixture tests for network error JSON, invalid JSON,
+nonzero vulnerability results, accepted advisories, and clean results.
+

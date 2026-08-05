@@ -7,6 +7,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 
+/** Per-instance abuse brake; horizontally scaled deployments still require a shared limiter. */
 @Service
 public class RateLimitService {
   private final Clock clock;
@@ -17,7 +18,7 @@ public class RateLimitService {
     this.clock = clock;
   }
 
-  /** Executes the check operation for RateLimitService. */
+  /** Isolates counts by bucket and stable subject; this limit is not an authorization control. */
   public void check(String bucket, String subject, int limit) {
     Instant minute = clock.instant().truncatedTo(ChronoUnit.MINUTES);
     String key = bucket + ':' + subject;
@@ -30,7 +31,7 @@ public class RateLimitService {
     }
   }
 
-  /** Executes the next window operation for RateLimitService. */
+  /** Resets only at a minute boundary; map.compute serializes increments for each key. */
   private Window nextWindow(Window prior, Instant minute) {
     if (prior == null || !prior.minute().equals(minute)) {
       return new Window(minute, 1);

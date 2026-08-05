@@ -1,0 +1,62 @@
+TESTFORGE AI FULL CODEBASE REVIEW — FINDING INDEX
+Review date: 2026-08-04
+Review baseline: cd87fccd8f7d62a05075d8ac6440b95508662bc5
+
+Priority definitions
+P0 Critical — immediate security or evidence-integrity failure; fix before any release or shared deployment.
+P1 High     — material security, correctness, or reliability defect; fix before release.
+P2 Medium   — significant control, contract, performance, or workflow gap; schedule remediation.
+P3 Low      — localized usability, verification, or maintainability defect.
+
+Counts
+P0 Critical: 2
+P1 High:     9
+P2 Medium:  15
+P3 Low:      7
+Total:      33
+
+P0 CRITICAL
+P0-001-refresh-reuse-family-revocation-rolls-back.txt
+P0-002-refresh-token-rotation-can-fork.txt
+
+P1 HIGH
+P1-001-provider-call-holds-database-transaction.txt
+P1-002-mutable-criteria-corrupt-historical-traceability.txt
+P1-003-validator-allows-incomplete-direct-coverage.txt
+P1-004-provider-output-lacks-persistence-bounds.txt
+P1-005-failed-generation-is-presented-as-success.txt
+P1-006-npm-audit-fails-open-on-audit-command-error.txt
+P1-007-markdown-export-allows-active-content.txt
+P1-008-forwarded-address-spoofing-bypasses-auth-rate-limit.txt
+P1-009-supporting-links-inflate-direct-approved-coverage.txt
+
+P2 MEDIUM
+P2-001-generated-fields-bypass-executable-content-validation.txt
+P2-002-refresh-failure-desynchronizes-frontend-auth-state.txt
+P2-003-fixed-react-router-advisory-remains-accepted.txt
+P2-004-compose-exposes-backend-and-database.txt
+P2-005-build-dependencies-use-mutable-tags.txt
+P2-006-criterion-edits-lack-concurrency-and-aggregate-versioning.txt
+P2-007-malformed-structured-output-is-not-retried.txt
+P2-008-idempotency-check-has-a-concurrency-race.txt
+P2-009-reopen-reason-is-copied-into-audit-metadata.txt
+P2-010-project-and-story-pages-silently-stop-at-20-items.txt
+P2-011-ambiguities-cannot-be-resolved-in-the-ui.txt
+P2-012-approval-ui-hides-structured-case-evidence.txt
+P2-013-default-browser-suite-skips-generation-review-export.txt
+P2-014-collection-reads-have-query-amplification-and-no-bounds.txt
+P2-015-evidence-query-errors-render-as-zero-or-empty.txt
+
+P3 LOW
+P3-001-problem-details-omit-documented-timestamp.txt
+P3-002-login-prefills-demo-credentials-when-demo-seed-is-off.txt
+P3-003-case-history-ui-silently-stops-at-20-records.txt
+P3-004-login-return-location-drops-query-and-fragment.txt
+P3-005-test-data-reordering-counts-as-a-substantive-edit.txt
+P3-006-frontend-format-gate-fails-in-this-checkout.txt
+P3-007-comment-quality-gate-reports-two-missing-comments.txt
+
+Supporting files
+00-REVIEW-SCOPE.txt
+00-VALIDATION-EVIDENCE.txt
+

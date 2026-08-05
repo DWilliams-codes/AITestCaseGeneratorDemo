@@ -1,0 +1,28 @@
+ID: P2-009
+Priority: P2 Medium
+Category: Audit data minimization
+Status: Confirmed
+
+Defect
+The full user-supplied reopen reason (up to 4,000 characters) is copied into audit-event metadata.
+AuditService accepts and serializes arbitrary maps without a key allowlist, sensitivity rule, or
+metadata-size limit.
+
+Evidence
+- backend/src/main/java/com/testforge/testcase/application/TestCaseService.java:189-206
+  passes the raw reason to Map.of.
+- backend/src/main/java/com/testforge/testcase/dto/TestCaseDtos.java:61-62
+  allows 4,000 characters.
+- backend/src/main/java/com/testforge/audit/application/AuditService.java:24-52
+  serializes arbitrary supplied metadata.
+- docs/ARCHITECTURE.md:84 says audit metadata is intentionally small and non-sensitive.
+
+Impact
+Users can place customer data, secrets, or large free-form content into a long-lived audit channel,
+increasing disclosure and retention risk and duplicating content outside its intended record.
+
+Remediation
+Create typed, allowlisted metadata DTOs per event. Store only a bounded reason classification/hash or
+reference to the controlled revision/review record; keep the full reason in its domain field if needed.
+Add tests rejecting oversize and disallowed metadata keys/values.
+

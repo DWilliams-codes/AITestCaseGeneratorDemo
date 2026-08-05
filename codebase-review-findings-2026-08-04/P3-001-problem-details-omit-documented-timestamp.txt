@@ -1,0 +1,22 @@
+ID: P3-001
+Priority: P3 Low
+Category: API error contract
+Status: Confirmed
+
+Defect
+The application-created RFC 7807 responses do not set the documented timestamp property.
+
+Evidence
+- backend/src/main/java/com/testforge/common/error/ApiExceptionHandler.java:73-80
+  sets title, type, instance, code, and correlationId only.
+- docs/API.md:119-131 includes timestamp in the canonical example.
+- docs/ARCHITECTURE.md:84 explicitly promises timestamp.
+
+Impact
+Clients and operators cannot rely on the documented stable error shape, and incident correlation loses
+an application-supplied event time.
+
+Remediation
+Set an Instant from the application Clock on every application-generated ProblemDetail and add handler
+tests for API, validation, unreadable-body, and optimistic-lock errors.
+

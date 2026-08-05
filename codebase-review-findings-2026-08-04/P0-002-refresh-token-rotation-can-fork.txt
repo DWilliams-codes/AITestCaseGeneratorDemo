@@ -1,0 +1,34 @@
+ID: P0-002
+Priority: P0 Critical
+Category: Authentication / concurrency
+Status: Confirmed race; concurrency regression test absent
+
+Defect
+Refresh rotation reads the token without a row lock or optimistic version. Two concurrent refreshes
+can both observe the same predecessor as unrevoked, each create a different successor, and each mark
+the predecessor revoked. Both successors remain valid.
+
+Evidence
+- backend/src/main/java/com/testforge/auth/application/AuthService.java:101-128
+  performs read/check/create/rotate as separate operations.
+- backend/src/main/java/com/testforge/auth/repository/RefreshTokenRepository.java:14
+  findByTokenHash has no pessimistic lock or conditional consume operation.
+- backend/src/main/java/com/testforge/auth/domain/RefreshTokenEntity.java
+  has no @Version field.
+- backend/src/test/java/com/testforge/StageOneApiIntegrationTest.java:332-360
+  exercises only sequential rotation/reuse.
+
+Impact
+One refresh token can fork into multiple valid descendants. A stolen token racing a legitimate
+client can retain durable refresh authority without immediately triggering family reuse handling.
+
+Reproduction
+Submit two refresh requests with the same valid cookie behind a barrier so both load before either
+commits. Both can return 200 with distinct replacement cookies.
+
+Remediation
+Make token consumption atomic. Suitable designs include SELECT ... FOR UPDATE followed by rotation,
+or a conditional UPDATE where revoked_at IS NULL and exactly one affected row is required. Preserve
+family revocation semantics and add a real PostgreSQL concurrency integration test asserting exactly
+one success and one replay failure.
+

@@ -1,0 +1,30 @@
+ID: P1-002
+Priority: P1 High
+Category: Evidence integrity / historical traceability
+Status: Confirmed schema and service defect
+
+Defect
+Completed generation sets are described as immutable, but traceability links reference the mutable
+current acceptance_criteria rows. Renaming or editing a criterion rewrites the meaning displayed for
+old generation sets; deleting it cascades and permanently deletes historical links.
+
+Evidence
+- backend/src/main/java/com/testforge/requirement/application/RequirementService.java:177-221
+  updates and deletes current criterion rows.
+- backend/src/main/resources/db/migration/V2__stage_one_domain.sql:164
+  traceability_links.acceptance_criterion_id uses ON DELETE CASCADE.
+- backend/src/main/java/com/testforge/traceability/application/TraceabilityService.java:45-88
+  builds historical matrices from current criterion rows and links.
+- docs/PRODUCT.md:39-42 and docs/ARCHITECTURE.md:67-70
+  promise immutable, readable historical generation sets.
+
+Impact
+Review and audit evidence no longer proves what the provider was asked to cover. A routine criterion
+edit can silently change an old matrix, while deletion can erase evidence entirely.
+
+Remediation
+Persist an immutable criterion snapshot (stable key, description, ordering, source revision) per
+generation set and link cases to that snapshot. Do not cascade current-source deletion into
+historical evidence. Add tests that edit/delete current criteria and verify old matrices and exports
+remain byte-for-byte semantically stable.
+

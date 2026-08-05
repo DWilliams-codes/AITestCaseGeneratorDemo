@@ -1,0 +1,26 @@
+ID: P2-007
+Priority: P2 Medium
+Category: Provider reliability / retry contract
+Status: Confirmed exception-path gap
+
+Defect
+GenerationService performs one retry only after GenerationValidationException. The OpenAI adapter
+maps malformed JSON, empty structured output, and incomplete responses to GenerationProviderException,
+so malformed structured output never receives the documented controlled retry.
+
+Evidence
+- backend/src/main/java/com/testforge/generation/application/GenerationService.java:239-252
+  catches only GenerationValidationException around the first call.
+- backend/src/main/java/com/testforge/generation/provider/OpenAiTestGenerationProvider.java:82-114
+  throws GenerationProviderException for incomplete, empty, refusal, or malformed output.
+- SECURITY.md:27 and docs/THREAT_MODEL.md:17 describe one controlled retry for invalid output.
+
+Impact
+Recoverable malformed model responses fail the run immediately, reducing reliability and diverging
+from the declared provider-validation contract.
+
+Remediation
+Distinguish retryable structured-output defects from nonretryable refusal, authentication, and
+transport failures. Retry exactly once for the former under a total timeout/budget. Add adapter/service
+tests for malformed JSON, empty output, refusal, 4xx, 5xx, timeout, and second-failure behavior.
+

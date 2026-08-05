@@ -7,6 +7,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
 
+/** Stores refresh-token lineage and digests; raw bearer tokens never cross into persistence. */
 @Entity
 @Table(name = "refresh_token_sessions")
 public class RefreshTokenEntity {
@@ -56,18 +57,18 @@ public class RefreshTokenEntity {
     return new RefreshTokenEntity(UUID.randomUUID(), userId, familyId, tokenHash, now, expiresAt);
   }
 
-  /** Executes the rotate to operation for RefreshTokenEntity. */
+  /** Revokes the predecessor while retaining its replacement link for replay investigation. */
   public void rotateTo(UUID replacementId, Instant now) {
     this.replacedByTokenId = replacementId;
     this.revokedAt = now;
   }
 
-  /** Executes the revoke operation for RefreshTokenEntity. */
+  /** Makes the token unusable without deleting its family history. */
   public void revoke(Instant now) {
     this.revokedAt = now;
   }
 
-  /** Executes the mark reuse detected operation for RefreshTokenEntity. */
+  /** Records replay evidence before the service revokes the entire token family. */
   public void markReuseDetected(Instant now) {
     this.reuseDetected = true;
     this.revokedAt = now;

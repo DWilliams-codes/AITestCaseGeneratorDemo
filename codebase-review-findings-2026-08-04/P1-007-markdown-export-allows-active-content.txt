@@ -1,0 +1,27 @@
+ID: P1-007
+Priority: P1 High
+Category: Export security / content injection
+Status: Confirmed escaping gap
+
+Defect
+Markdown export escapes HTML control characters and table pipes but does not escape Markdown link,
+image, bracket, parenthesis, or backtick syntax. User/provider text such as
+![tracking](https://attacker.example/pixel) remains active Markdown.
+
+Evidence
+- backend/src/main/java/com/testforge/export/application/ExportService.java:142-174
+  inserts requirement and generated text into Markdown.
+- same file:196-204 escapes only &, <, >, |, CR, and LF.
+- SECURITY.md:27 claims Markdown/HTML control-injection defenses.
+
+Impact
+Opening an exported file in a Markdown renderer can cause remote image requests, deceptive links, or
+format manipulation using untrusted story/generated content. Remote requests may disclose reader IP
+and document-open timing.
+
+Remediation
+Use a conservative plain-text-to-Markdown encoder for every untrusted insertion, or generate a format
+that cannot carry active Markdown destinations. Add tests for images, links, autolinks, backticks,
+reference links, nested brackets, escapes, and Unicode variants. Verify output in representative
+renderers.
+

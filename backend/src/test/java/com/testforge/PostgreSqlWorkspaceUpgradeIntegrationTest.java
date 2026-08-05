@@ -23,7 +23,9 @@ class PostgreSqlWorkspaceUpgradeIntegrationTest {
           .withUsername("testforge_app")
           .withPassword("integration-only-password");
 
-  /** Upgrades a real PostgreSQL V3 fixture and preserves each owner's deterministic mapping. */
+  /**
+   * Proves V3-to-V5 upgrades preserve owner mapping and backfill legacy priority deterministically.
+   */
   @Test
   void upgradesLegacyUsersAndProjectsThroughV4WithoutCrossUserMapping() {
     configuredFlyway(MigrationVersion.fromVersion("3")).migrate();
@@ -96,7 +98,7 @@ class PostgreSqlWorkspaceUpgradeIntegrationTest {
         .isEqualTo(secondUserId);
   }
 
-  /** Configures Flyway against the container and an optional historical target. */
+  /** Uses an optional historical target to model prior-binary rows before upgrading. */
   private Flyway configuredFlyway(MigrationVersion target) {
     FluentConfiguration configuration =
         Flyway.configure()

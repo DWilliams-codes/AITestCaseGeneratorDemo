@@ -1,0 +1,29 @@
+ID: P2-001
+Priority: P2 Medium
+Category: Generated-content safety
+Status: Confirmed validator coverage gap
+
+Defect
+Executable/vague-content filtering is applied to title, objective, final outcome, steps,
+preconditions, and test-data example values, but not to all generated fields that are persisted.
+Rationale is checked only for nonblank text; test-data description and generationStrategy are not
+safety-checked; generated ambiguity description/question fields are not validated at all.
+
+Evidence
+- backend/src/main/java/com/testforge/generation/validation/GenerationResultValidator.java:57-60
+  uses requireText rather than rejectUnsafeOrVague for rationale.
+- same file:97-106 checks only exampleValue for unsafe content.
+- same file:35-51 never validates result.requirementSummary or result.ambiguities.
+- backend/src/main/resources/prompts/test-generation-schema-v1.json:16-30,47-59
+  accepts these strings.
+
+Impact
+Provider output containing code fences, shell/network commands, scripts, or deliberately vague text
+can be persisted in fields the application contract says are safe. Current React rendering is inert,
+which reduces immediate execution risk, but downstream exports/integrations may not be.
+
+Remediation
+Enumerate every persisted provider-controlled string and apply the application-owned safety policy
+before persistence. Add parameterized tests that place each prohibited pattern in every field,
+including ambiguities, rationale, data description, data strategy, and requirement summary.
+

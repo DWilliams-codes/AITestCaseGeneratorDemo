@@ -26,7 +26,7 @@ class PostgreSqlMigrationIntegrationTest {
           .withUsername("testforge_app")
           .withPassword("integration-only-password");
 
-  /** Executes the database properties operation for PostgreSqlMigrationIntegrationTest. */
+  /** Binds Spring to the container so Flyway and JPA exercise PostgreSQL rather than H2. */
   @DynamicPropertySource
   static void databaseProperties(DynamicPropertyRegistry registry) {
     registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
@@ -53,10 +53,7 @@ class PostgreSqlMigrationIntegrationTest {
 
   @Autowired private JdbcTemplate jdbc;
 
-  /**
-   * Covers the flyway creates the normalized schema with postgre sql constraints and utc types
-   * scenario.
-   */
+  /** Proves fresh PostgreSQL applies every migration and retains rollback-safe nullable bridges. */
   @Test
   void flywayCreatesTheNormalizedSchemaWithPostgreSqlConstraintsAndUtcTypes() {
     List<String> appliedVersions =
@@ -103,7 +100,7 @@ class PostgreSqlMigrationIntegrationTest {
     insertProjectWithNullableWorkspace(UUID.randomUUID(), ownerId);
   }
 
-  /** Executes the insert user operation for PostgreSqlMigrationIntegrationTest. */
+  /** Supplies normalized email explicitly so PostgreSQL uniqueness is exercised. */
   private void insertUser(UUID id, String email, String normalizedEmail) {
     jdbc.update(
         "insert into testforge.users (id, email, email_normalized, display_name, password_hash, role, enabled, created_at, updated_at) values (?, ?, ?, 'Integration User', 'not-a-real-hash', 'USER', true, current_timestamp, current_timestamp)",

@@ -1,0 +1,26 @@
+ID: P2-015
+Priority: P2 Medium
+Category: Frontend evidence integrity / error handling
+Status: Confirmed
+
+Defect
+RequirementPage renders coverage with null-coalesced zero values and traceability with an optional map,
+but does not present errors from coverage, traceability, runs, or cases. A failed evidence request is
+therefore visually indistinguishable from real zero coverage or an empty matrix/queue.
+
+Evidence
+- frontend/src/pages/RequirementPage.tsx:417-427 defaults coverage values to zero.
+- same file:663 maps traceability.data optionally without an error state.
+- Query declarations around lines 149-187 have no corresponding visible error handling for these
+  evidence collections.
+
+Impact
+Reviewers may make decisions based on fabricated-looking 0%/empty evidence during an API outage or
+authorization/session problem. The interface conceals the distinction between "no evidence" and
+"evidence unavailable."
+
+Remediation
+Render explicit, nonnumeric error states with retry controls for each evidence query. Do not show
+metrics until successfully loaded; preserve the last known value only if clearly marked stale. Add
+component tests for each rejected query.
+

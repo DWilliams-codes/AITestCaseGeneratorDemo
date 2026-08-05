@@ -1,0 +1,30 @@
+ID: P2-003
+Priority: P2 Medium
+Category: Dependency risk acceptance
+Status: Confirmed against upstream state on 2026-08-04
+
+Defect
+The repository retains react-router/react-router-dom 7.18.2 and an allowlist for high advisory
+GHSA-qwww-vcr4-c8h2. The risk register says acceptance expires immediately when a fixed stable release
+exists, but upstream lists 8.3.0 as patched and npm publishes 8.3.0 as the current stable release.
+
+Evidence
+- frontend/package-lock.json:4690-4717 pins 7.18.2.
+- frontend/scripts/audit.mjs:3-13 accepts the advisory through 2026-08-30.
+- docs/DEPENDENCY_RISK_ACCEPTANCE.md says the exception ends immediately when fixed stable is
+  available.
+- Online npm audit returned two high records for the direct/transitive router path.
+
+Impact
+The practical exploit is reduced because this application does not use React Server Components, but
+the documented exception condition is now false and CI deliberately suppresses a high advisory.
+
+Remediation
+Evaluate and upgrade to the patched stable router release, run unit/build/browser regression checks,
+then remove the allowlist and update the risk register. If the major-version upgrade must be deferred,
+replace the stale statement with a newly approved, time-bounded exception and compensating evidence.
+
+External references
+- Advisory: https://github.com/advisories/GHSA-qwww-vcr4-c8h2
+- Package: https://www.npmjs.com/package/react-router
+

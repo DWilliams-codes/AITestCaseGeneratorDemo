@@ -1,0 +1,30 @@
+ID: P2-005
+Priority: P2 Medium
+Category: Supply chain
+Status: Confirmed hardening gap
+
+Defect
+Most GitHub Actions are referenced by movable major tags, and container base/runtime images use tags
+rather than immutable digests. Two scanner actions are SHA-pinned, showing the repository already
+supports the stronger pattern.
+
+Evidence
+- .github/workflows/ci.yml:20-210 uses actions/checkout@v5, setup-java@v5, setup-node@v6,
+  setup-python@v6, and cache actions @v5.
+- docker-compose.yml:5 uses postgres:18.4-trixie.
+- Backend/frontend Dockerfiles use tagged base images.
+- docs/THREAT_MODEL.md:27 lists pinning all action and image digests as a remaining control.
+
+Impact
+A compromised or retargeted upstream tag can change code executed in privileged CI or the runtime
+image without a repository diff, weakening reproducibility and increasing supply-chain risk.
+
+Remediation
+Pin each action to a reviewed full commit SHA with a version comment. Pin container images by digest
+and use an automated update workflow that presents digest changes for review. Generate/store SBOMs
+for release candidates.
+
+External reference
+GitHub recommends full-length commit SHA pinning as the only immutable action reference:
+https://docs.github.com/en/code-security/tutorials/secure-your-organization/protect-against-threats
+

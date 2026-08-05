@@ -190,7 +190,7 @@ public class RequirementEntity {
     return status;
   }
 
-  /** Returns the priority, treating bridge-era null rows as MEDIUM. */
+  /** Maps bridge-era nulls to MEDIUM so old- and new-binary writes remain mutually readable. */
   public UserStoryPriority getPriority() {
     return priority == null ? UserStoryPriority.MEDIUM : priority;
   }

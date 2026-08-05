@@ -26,7 +26,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
   private final String instructions;
   private final JsonNode schema;
 
-  /** Initializes OpenAiTestGenerationProvider with its required collaborators and domain state. */
+  /** Loads the pinned prompt and schema once so every request uses the same contract. */
   public OpenAiTestGenerationProvider(
       OpenAiProperties properties,
       ObjectMapper objectMapper,
@@ -39,7 +39,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     this.schema = readJson(resourceLoader, SCHEMA_RESOURCE, objectMapper);
   }
 
-  /** Generates structured manual test coverage from the requirement input. */
+  /** Sends minimized untrusted data under a strict schema and disables provider-side storage. */
   @Override
   public TestGenerationResult generate(TestGenerationRequest request) {
     ObjectNode body = objectMapper.createObjectNode();
@@ -79,7 +79,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     return properties.model();
   }
 
-  /** Parses response for the current operation. */
+  /** Accepts only completed structured text and maps it for application semantic validation. */
   private TestGenerationResult parseResponse(JsonNode response) {
     if (response == null || !"completed".equals(response.path("status").asText())) {
       throw new GenerationProviderException("The AI provider returned an incomplete response.");
@@ -114,7 +114,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     }
   }
 
-  /** Serializes input for the current operation. */
+  /** Excludes identifiers and explicitly delimits requirement fields as untrusted data. */
   private String serializeInput(TestGenerationRequest request) {
     try {
       ObjectNode minimized = objectMapper.createObjectNode();
@@ -131,7 +131,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     }
   }
 
-  /** Reads text for the current operation. */
+  /** Fails startup when the pinned prompt is unavailable instead of using a fallback. */
   private static String readText(ResourceLoader resources, String location) {
     try (var input = resources.getResource(location).getInputStream()) {
       return new String(input.readAllBytes(), StandardCharsets.UTF_8);
@@ -140,7 +140,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     }
   }
 
-  /** Reads json for the current operation. */
+  /** Fails startup when the pinned schema is unavailable instead of relaxing validation. */
   private static JsonNode readJson(
       ResourceLoader resources, String location, ObjectMapper objectMapper) {
     try (var input = resources.getResource(location).getInputStream()) {

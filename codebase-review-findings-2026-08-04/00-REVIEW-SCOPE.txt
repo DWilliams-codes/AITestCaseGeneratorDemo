@@ -1,0 +1,35 @@
+TESTFORGE AI FULL CODEBASE REVIEW — SCOPE AND METHOD
+
+Baseline
+- Branch: main
+- Commit observed at review start and end: cd87fccd8f7d62a05075d8ac6440b95508662bc5
+- Tracked inventory considered: 259 files.
+- The review covered application source, tests, migrations, prompts/schema, evaluations, scripts,
+  CI, containers, manifests/locks, security configuration, and canonical product/API/architecture/
+  testing/security documents.
+
+Method
+- Enumerated the complete tracked tree and searched it for authorization, transaction, persistence,
+  provider, validation, export, audit, pagination, error-handling, dependency, and supply-chain paths.
+- Deep-read all executable production paths and the tests/contracts relevant to each reported issue.
+- Ran deterministic local checks listed in 00-VALIDATION-EVIDENCE.txt.
+- Verified current dependency facts against the upstream GitHub advisory, npm package publication,
+  Spring forwarded-header documentation, and GitHub Actions hardening guidance on 2026-08-04.
+- Did not call a live model, install dependencies, alter tracked source, stage, commit, or push.
+
+Workspace concurrency note
+The worktree was clean at review start. During the review, a separate process added comment-only
+edits to 14 backend/test files and created an active TF-004 plan, then moved that plan to:
+  docs/exec-plans/completed/TF-004-critical-implementation-comments.md
+The diff was inspected and contains documentation/comment changes only; executable semantics used
+by these findings did not change. Those edits were preserved and are not part of this report.
+
+Local untracked/ignored discovery
+Two ignored files named gh-personal-auth.stdout.log and gh-personal-auth.stderr.log were present at
+the repository root. Their contents were deliberately not opened or copied. The tracked-history
+secret scan passed, but ignored working files are outside that scan; review or remove them privately
+if they are no longer needed.
+
+Confidence convention
+Every numbered report is based on a concrete code path and includes a reproduction or proof sketch.
+Where runtime execution was unavailable, the report says so and proposes a focused regression test.

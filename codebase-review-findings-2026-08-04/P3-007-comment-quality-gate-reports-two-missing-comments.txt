@@ -1,0 +1,23 @@
+ID: P3-007
+Priority: P3 Low
+Category: Documentation quality gate
+Status: Reproduced
+
+Defect
+The repository's frontend declared-function comment checker fails for two local functions.
+
+Evidence
+- Command: cd frontend; npm run comments:check
+- frontend/src/pages/RequirementPage.tsx:237 — local function request.
+- frontend/src/pages/RequirementPage.tsx:1266 — local function normalizedDataName.
+- The comments check is not part of the supported frontend CI command set in .github/workflows/ci.yml.
+
+Impact
+The standalone quality command is red, and contributors can miss the repository's declared-function
+documentation convention because CI does not enforce it.
+
+Remediation
+Add concise intent-focused comments to both functions, then decide explicitly whether comments:check
+is a supported blocking CI command. If it is, add it to the documented wrapper/CI without weakening
+its matching rules.
+

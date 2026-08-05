@@ -1,0 +1,35 @@
+TESTFORGE AI FULL CODEBASE REVIEW — VALIDATION EVIDENCE
+
+Passed
+- .\scripts\verify.ps1 -HarnessOnly
+  Result: 3 workflow profiles, 6 skills, 6 blocking fixtures, and 3 roadmap fixtures passed.
+- frontend: npm run typecheck
+- frontend: npm run lint
+- frontend: npm run test:coverage
+  Result: 21 tests passed; 86.28% statements, 69.29% branches, 81.37% functions,
+  87.37% lines.
+- frontend: npm run build
+- git diff --check
+- gitleaks git . --config .gitleaks.toml --redact --no-banner
+  Result: 21 commits and approximately 1.28 MB scanned; no leaks found.
+
+Failed with reportable findings
+- frontend: npm run format:check
+  Result: 15 tracked files reported formatting differences; see P3-006.
+- frontend: npm run comments:check
+  Result: two missing declared-function comments; see P3-007.
+- frontend: npm audit --json (online)
+  Result: two high records representing GHSA-qwww-vcr4-c8h2 through react-router and
+  react-router-dom. The repository wrapper accepts the react-router advisory; see P2-003.
+- frontend: npm run audit:ci under blocked registry access
+  Result: incorrectly returned success; see P1-006.
+
+Unavailable / residual uncertainty
+- The full PowerShell wrapper completed its harness and then stopped because Maven was not on the
+  review shell PATH. The default Java was 11, below the required Java 21. No install was performed.
+- Docker and Bash were unavailable, so Testcontainers, Compose health, container scans, and the
+  browser suite were not rerun in this review environment.
+- Backend dependency scanning therefore remains a residual uncertainty; no backend dependency
+  vulnerability claim is made in this report.
+- Live-provider evaluation was intentionally not run, consistent with repository policy.
+

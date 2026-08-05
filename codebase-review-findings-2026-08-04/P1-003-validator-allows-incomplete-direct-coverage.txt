@@ -1,0 +1,26 @@
+ID: P1-003
+Priority: P1 High
+Category: Generation semantics / traceability
+Status: Confirmed validator omission
+
+Defect
+The semantic validator ensures a direct case has at least one allowed criterion key, but never proves
+that every supplied acceptance criterion has at least one DIRECT case. A response covering AC-1 and
+omitting AC-2 passes.
+
+Evidence
+- backend/src/main/java/com/testforge/generation/validation/GenerationResultValidator.java:44-51
+  computes allowedKeys but does not accumulate covered keys.
+- same file:86-94 validates only each case's local mapping.
+- docs/product-specs/mvp-1-test-generation.md:70 requires direct coverage for every criterion.
+- evals/RUBRIC.md:20 makes every supplied criterion with direct evidence a core score.
+
+Impact
+Incomplete provider output can be marked COMPLETED, persisted, reviewed, and exported despite failing
+the MVP's defining traceability requirement.
+
+Remediation
+Accumulate normalized keys from ACCEPTANCE_CRITERIA/DIRECT cases, reject duplicates as appropriate,
+and require equality with the supplied criterion-key set. Add unit fixtures for one omitted key,
+supporting-only coverage, duplicate mappings, and complete multi-criterion coverage.
+

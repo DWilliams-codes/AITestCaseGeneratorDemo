@@ -1,0 +1,26 @@
+ID: P1-009
+Priority: P1 High
+Category: Traceability metrics / review evidence
+Status: Confirmed calculation defect
+
+Defect
+CoverageService treats any linked test case as covered and any approved linked case as approved
+coverage, regardless of CoverageType. A SUPPORTING or PARTIAL case can therefore satisfy the same
+metric as DIRECT acceptance-criterion evidence.
+
+Evidence
+- backend/src/main/java/com/testforge/traceability/application/TraceabilityService.java:91-109
+  counts nonempty rows and APPROVED status but never inspects coverageType.
+- backend/src/main/java/com/testforge/testcase/domain/CoverageType.java
+  explicitly distinguishes DIRECT, PARTIAL, and SUPPORTING.
+- evals/RUBRIC.md:20 requires direct evidence for every criterion.
+
+Impact
+Dashboards can show 100% covered and 100% approved when criteria have only exploratory/supporting
+evidence. This gives reviewers and exports a materially false completion signal.
+
+Remediation
+Define and expose separate direct, partial, and supporting metrics. The primary acceptance coverage
+and approved coverage percentages should require DIRECT links. Add tests covering approved supporting-
+only, partial-only, mixed, and direct evidence.
+

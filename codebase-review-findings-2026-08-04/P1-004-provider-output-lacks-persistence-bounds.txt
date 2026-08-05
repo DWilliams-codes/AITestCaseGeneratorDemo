@@ -1,0 +1,31 @@
+ID: P1-004
+Priority: P1 High
+Category: Provider validation / persistence reliability
+Status: Confirmed contract mismatch
+
+Defect
+The provider JSON schema has no maxLength/maxItems bounds for most strings and nested collections.
+The semantic validator bounds only case count and steps per case. Provider output can pass validation
+and exceed entity/database limits for title, objective, rationale, preconditions, test data, mapping
+counts, ambiguity text, and related fields.
+
+Evidence
+- backend/src/main/resources/prompts/test-generation-schema-v1.json:1-84
+  defines types but almost no length/count limits.
+- backend/src/main/java/com/testforge/generation/validation/GenerationResultValidator.java:41-43,71-75
+  enforces maximum cases and steps only.
+- backend/src/main/java/com/testforge/testcase/dto/TestCaseDtos.java:26-48
+  documents application limits that generated output bypasses.
+- backend/src/main/resources/db/migration/V2__stage_one_domain.sql
+  enforces finite VARCHAR lengths.
+
+Impact
+Oversized structurally valid output can fail during flush/commit rather than become a controlled
+REJECTED_BY_VALIDATION run. Because commit happens after the service method returns, the failure can
+surface as a generic 500 and roll back the attempted evidence record.
+
+Remediation
+Express all application-owned bounds in the strict schema and independently enforce them in the
+semantic validator before any write. Add boundary tests at and over every persisted length/count,
+including ambiguity and test-data collections.
+

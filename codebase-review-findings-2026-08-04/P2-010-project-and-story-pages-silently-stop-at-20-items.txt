@@ -1,0 +1,24 @@
+ID: P2-010
+Priority: P2 Medium
+Category: Frontend pagination / data accessibility
+Status: Confirmed
+
+Defect
+The project dashboard and project user-story page call paged endpoints without page/size parameters,
+then render only items. They ignore hasNext/totalPages and provide no pagination or load-more control.
+
+Evidence
+- frontend/src/pages/ProjectDashboardPage.tsx:38-43,105 onward
+  requests /api/v1/projects and maps items only.
+- frontend/src/pages/ProjectPage.tsx:113-119,218 onward
+  requests /user-stories and maps items only.
+- Backend controller defaults these collections to size 20.
+
+Impact
+Users with more than 20 projects or more than 20 stories in a project cannot reach later records
+through the normal UI. The omission is silent and resembles data loss.
+
+Remediation
+Add server-driven pagination or an accessible incremental loader, display totals, retain filters/page
+in the URL, and test boundary counts 20, 21, and multiple pages.
+

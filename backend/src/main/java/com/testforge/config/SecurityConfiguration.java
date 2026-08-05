@@ -61,7 +61,7 @@ public class SecurityConfiguration {
     return Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8();
   }
 
-  /** Creates the Spring-managed access token key component. */
+  /** Rejects configured HMAC keys below the 32-byte minimum required for HS256. */
   @Bean
   SecretKey accessTokenKey(AuthProperties properties) {
     byte[] decoded;
@@ -82,7 +82,7 @@ public class SecurityConfiguration {
     return new NimbusJwtEncoder(new ImmutableSecret<>(accessTokenKey));
   }
 
-  /** Creates the Spring-managed jwt decoder component. */
+  /** Requires signature, timestamp, issuer, and API audience before accepting a bearer token. */
   @Bean
   JwtDecoder jwtDecoder(SecretKey accessTokenKey, AuthProperties properties) {
     NimbusJwtDecoder decoder =
@@ -95,7 +95,9 @@ public class SecurityConfiguration {
     return decoder;
   }
 
-  /** Creates the Spring-managed security filter chain component. */
+  /**
+   * Keeps auth entry points public while CSRF, exact CORS, and stateless JWT checks stay active.
+   */
   @Bean
   SecurityFilterChain securityFilterChain(
       HttpSecurity http,
@@ -150,7 +152,7 @@ public class SecurityConfiguration {
         .build();
   }
 
-  /** Creates the Spring-managed cors configuration source component. */
+  /** Restricts credentialed browser calls to configured origins and a fixed explicit header set. */
   @Bean
   CorsConfigurationSource corsConfigurationSource(SecurityProperties properties) {
     CorsConfiguration configuration = new CorsConfiguration();

@@ -1,0 +1,39 @@
+ID: P0-001
+Priority: P0 Critical
+Category: Authentication / refresh-token replay
+Status: Confirmed by transaction-flow inspection
+
+Defect
+Refresh-token reuse detection changes the reused token and revokes its family, then throws an
+ApiException from the same @Transactional method. ApiException extends RuntimeException, so Spring
+rolls the transaction back by default. The replacement token remains usable and the replay evidence
+is discarded.
+
+Evidence
+- backend/src/main/java/com/testforge/auth/application/AuthService.java:101-114
+  marks reuse, calls revokeFamily, then throws unauthorized.
+- backend/src/main/java/com/testforge/common/error/ApiException.java:5
+  ApiException extends RuntimeException.
+- backend/src/test/java/com/testforge/StageOneApiIntegrationTest.java:332-360
+  checks only that replaying the predecessor returns 401; it never tries the replacement afterward.
+
+Impact
+An attacker holding a rotated refresh token can trigger the advertised reuse response without the
+server actually invalidating the active token family. The legitimate or stolen successor continues
+to mint access tokens, defeating the central replay-containment control.
+
+Reproduction
+1. Register/login and capture refresh token A.
+2. Refresh A to receive B.
+3. Replay A and observe 401.
+4. Refresh B. It will still succeed because step 3 rolled back the family revocation.
+
+Remediation
+Commit replay evidence and family revocation in a separate transaction before returning/throwing the
+401, or use a transaction strategy that intentionally commits those security mutations. Add an
+integration test proving B is rejected after A is replayed and that reuse_detected persists.
+
+Contract references
+- SECURITY.md: rotating refresh cookies and reuse detection are authentication controls.
+- docs/THREAT_MODEL.md: authentication state must contain replay safely.
+

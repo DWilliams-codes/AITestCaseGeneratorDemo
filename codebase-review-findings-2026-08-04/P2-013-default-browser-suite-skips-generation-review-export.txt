@@ -1,0 +1,26 @@
+ID: P2-013
+Priority: P2 Medium
+Category: Browser regression coverage
+Status: Confirmed test-routing gap
+
+Defect
+The default browser command excludes every @live-generation test. The only complete UI flow covering
+generation, editing, approval, export, and traceability is tagged live and therefore absent from
+ordinary CI. Its failure test also mocks HTTP 503 rather than the implemented 201 FAILED run.
+
+Evidence
+- frontend/package.json:17 sets e2e to --grep-invert @live-generation.
+- frontend/e2e/stage-one-workflow.spec.ts:36 tags the complete workflow live.
+- same file:141-175 tags provider failure live and mocks 503.
+- frontend/e2e/application-shell.spec.ts covers seeded navigation/accessibility but stops before
+  generation.
+
+Impact
+Core workflow regressions, including P1-005, can pass the default browser gate. The suite labeled live
+mixes deterministic application behavior with paid-provider behavior, preventing routine coverage.
+
+Remediation
+Run the end-to-end workflow by default against an application-owned deterministic fake provider.
+Keep a separate optional live-provider evaluation. Align failure mocks with the actual API contract
+and assert failed/rejected/success UI states.
+

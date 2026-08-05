@@ -1,0 +1,28 @@
+ID: P2-014
+Priority: P2 Medium
+Category: Performance / database access
+Status: Confirmed by repository call graph
+
+Defect
+Several collection reads perform per-item repository queries, and key collections are unpaged.
+Test-case list mapping issues separate queries for criteria, links, preconditions, steps, test data,
+and reviews per case. Generation-run list is unpaged and toResponse resolves the active set for every
+row. Project/requirement page mapping also performs per-row counts.
+
+Evidence
+- backend/src/main/java/com/testforge/testcase/application/TestCaseService.java:96-107,238-298
+  maps an unpaged list and performs at least six repository reads per case.
+- backend/src/main/java/com/testforge/generation/application/GenerationService.java:230-234,375-390
+  maps all runs and resolves active state per row.
+- backend/src/main/java/com/testforge/project/application/ProjectService.java:44-48,100-102
+  counts stories per project.
+- RequirementService summary mapping counts criteria per row.
+
+Impact
+Latency and database load grow multiplicatively with user data. Repeated generation history is
+unbounded, so one story can create progressively slower reads and larger responses.
+
+Remediation
+Page every externally visible collection, batch-fetch child rows, use projections/aggregate queries,
+and resolve active-set metadata once per request. Add SQL-count assertions and volume benchmarks.
+

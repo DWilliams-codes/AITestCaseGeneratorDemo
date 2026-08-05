@@ -25,7 +25,7 @@ public class JwtService {
     this.clock = clock;
   }
 
-  /** Reports whether sue. */
+  /** Issues a short-lived, audience-bound bearer token without embedding refresh authority. */
   public String issue(UserEntity user) {
     Instant now = clock.instant();
     JwtClaimsSet claims =

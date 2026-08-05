@@ -1,0 +1,24 @@
+ID: P2-012
+Priority: P2 Medium
+Category: Human review quality
+Status: Confirmed presentation omission
+
+Defect
+The primary TestCasePanel exposes title, objective, priority/risk, mapped keys, preconditions, steps,
+and final outcome, but not test data, test-data references, rationale, automation-candidate flag, or
+coverage intent. Approval actions are available on that incomplete view.
+
+Evidence
+- frontend/src/pages/RequirementPage.tsx:940-1073 contains the panel and review buttons.
+- The hidden fields are present in frontend/src/types/api.ts and editable later in the same page at
+  approximately lines 1319-1594.
+
+Impact
+Reviewers can approve a case without seeing data sensitivity/strategy, broken step data references,
+the provider rationale, or other structured evidence that affects safety and traceability.
+
+Remediation
+Render the complete normalized case in the review surface, including named data references and
+sensitivity. Consider requiring the case accordion/evidence sections to be visited before approval.
+Add a component test asserting every review-relevant field is visible before the approve action.
+

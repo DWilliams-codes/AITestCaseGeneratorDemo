@@ -1,0 +1,25 @@
+ID: P3-006
+Priority: P3 Low
+Category: Local verification / line endings
+Status: Reproduced in current Windows checkout
+
+Defect
+npm run format:check reports formatting differences in 15 tracked frontend files even though the
+files were not modified by this review. The pattern is consistent with checkout line-ending
+normalization (core.autocrlf=true) rather than semantic code changes.
+
+Evidence
+- Command: cd frontend; npm run format:check
+- Result: Prettier warnings for e2e specs, api client/test, App/Auth tests, LoginPage, project and
+  requirement pages, route files, API types, and Workflow.test.tsx.
+- git diff --check passed.
+
+Impact
+The documented full local verification wrapper cannot pass reliably in this supported checkout,
+creating noisy failures and weakening developer trust in the gate.
+
+Remediation
+Define repository line endings in .gitattributes (for example, text eol=lf for source/config),
+renormalize intentionally in a separate change, and verify Prettier locally and in CI on the same
+commit. Do not weaken the formatting gate.
+

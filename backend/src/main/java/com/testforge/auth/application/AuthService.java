@@ -97,7 +97,7 @@ public class AuthService {
     return newSession(user, UUID.randomUUID(), now);
   }
 
-  /** Rotates a valid refresh token and returns a renewed session. */
+  /** Creates the replacement before revoking its predecessor in the same transaction. */
   @Transactional
   public Session refresh(String rawToken) {
     if (rawToken == null || rawToken.isBlank()) {
@@ -128,7 +128,7 @@ public class AuthService {
     return replacement;
   }
 
-  /** Revokes the active refresh token and clears the browser session. */
+  /** Idempotently revokes the presented token without revealing whether it existed. */
   @Transactional
   public void logout(String rawToken) {
     if (rawToken == null || rawToken.isBlank()) {
@@ -156,7 +156,7 @@ public class AuthService {
         .orElseThrow(() -> ApiExceptions.unauthorized("The account is unavailable."));
   }
 
-  /** Executes the new session operation for AuthService. */
+  /** Persists only a digest; the raw refresh bearer leaves this service only in the session. */
   private Session newSession(UserEntity user, UUID familyId, Instant now) {
     byte[] bytes = new byte[48];
     SECURE_RANDOM.nextBytes(bytes);
@@ -191,7 +191,7 @@ public class AuthService {
     return email.strip().toLowerCase(java.util.Locale.ROOT);
   }
 
-  /** Reports whether the result h. */
+  /** Hashes opaque refresh tokens before lookup or persistence so rows hold no bearer secret. */
   private String hash(String rawToken) {
     try {
       byte[] digest =

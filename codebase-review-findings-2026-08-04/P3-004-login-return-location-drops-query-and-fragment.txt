@@ -1,0 +1,21 @@
+ID: P3-004
+Priority: P3 Low
+Category: Routing / usability
+Status: Confirmed
+
+Defect
+ProtectedRoute stores only location.pathname before redirecting to login. Search parameters and URL
+fragment are discarded.
+
+Evidence
+- frontend/src/auth/ProtectedRoute.tsx:16 uses state={{ from: location.pathname }}.
+- frontend/src/pages/LoginPage.tsx restores only that stored string.
+
+Impact
+Deep links that select a historical generation set, filter, page, or anchored section lose their
+state after authentication.
+
+Remediation
+Store pathname + search + hash as one validated internal route, reject external/protocol-relative
+destinations, and add routing tests for query and fragment preservation.
+

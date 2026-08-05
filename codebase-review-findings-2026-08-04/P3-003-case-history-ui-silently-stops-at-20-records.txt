@@ -1,0 +1,21 @@
+ID: P3-003
+Priority: P3 Low
+Category: Frontend audit/history pagination
+Status: Confirmed
+
+Defect
+The test-case history drawer requests only 20 revisions and 20 matching audit events, then renders
+items without next/previous controls or a truncation notice.
+
+Evidence
+- frontend/src/pages/RequirementPage.tsx:1136-1149 sends size=20 for both requests.
+- same file:1159-1232 maps items and never reads hasNext/totalPages.
+
+Impact
+Older review evidence silently disappears from the UI, which can mislead users investigating a long-
+lived case even though the records still exist server-side.
+
+Remediation
+Add pagination/load-more controls with totals for both collections and preserve the selected revision
+while loading additional pages. Test histories of 20 and 21 records.
+

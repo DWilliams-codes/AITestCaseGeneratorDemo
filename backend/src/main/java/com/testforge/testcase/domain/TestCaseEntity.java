@@ -10,6 +10,7 @@ import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.UUID;
 
+/** Owns review transitions so every API path enforces the same persisted lifecycle. */
 @Entity
 @Table(name = "test_cases")
 public class TestCaseEntity {
@@ -150,7 +151,7 @@ public class TestCaseEntity {
         now);
   }
 
-  /** Updates the entity's mutable domain state and modification timestamp. */
+  /** Requires a real edit before NEEDS_REVISION can return to the review queue. */
   public void update(
       String title,
       String objective,
@@ -181,7 +182,9 @@ public class TestCaseEntity {
     this.updatedAt = now;
   }
 
-  /** Executes the review operation for TestCaseEntity. */
+  /**
+   * Maps review intent from reviewable states; rejection or requested changes require rationale.
+   */
   public void review(ReviewDecision decision, String comments, Instant now) {
     if (status != TestCaseStatus.GENERATED && status != TestCaseStatus.IN_REVIEW) {
       throw new InvalidTransition("The current test-case status cannot be reviewed.");
@@ -198,7 +201,7 @@ public class TestCaseEntity {
     this.updatedAt = now;
   }
 
-  /** Executes the reopen operation for TestCaseEntity. */
+  /** Keeps terminal decisions immutable until a reasoned reopen returns the case to review. */
   public void reopen(String reason, Instant now) {
     if (status != TestCaseStatus.APPROVED && status != TestCaseStatus.REJECTED) {
       throw new InvalidTransition("Only approved or rejected test cases can be reopened.");

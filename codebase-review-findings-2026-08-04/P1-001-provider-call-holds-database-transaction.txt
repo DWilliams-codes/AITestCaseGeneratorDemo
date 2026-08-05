@@ -1,0 +1,29 @@
+ID: P1-001
+Priority: P1 High
+Category: Availability / transaction boundary
+Status: Confirmed by call graph and configuration
+
+Defect
+GenerationService.generate/regenerate are @Transactional and synchronously call the external model
+provider before completing the transaction. A database connection and transactional state can be
+held for the entire provider request and retry.
+
+Evidence
+- backend/src/main/java/com/testforge/generation/application/GenerationService.java:122-201
+  transaction begins before ownership/idempotency checks and includes generateValidated.
+- backend/src/main/java/com/testforge/generation/application/GenerationService.java:239-252
+  can make two provider calls.
+- backend/src/main/resources/application.yml:8-11,94
+  pool maximum is 10; provider read timeout is 90 seconds.
+
+Impact
+Ten slow concurrent generations can consume the default database pool for up to 90 seconds per call
+(and longer across retry), denying login, review, audit, and read/write traffic. Long transactions
+also increase lock duration and failure complexity.
+
+Remediation
+Split the operation into short transactions: authorize and create a pending run; commit; call the
+provider without a database transaction; then reopen a transaction to validate/persist/finalize with
+an explicit state transition. Add saturation and timeout tests proving ordinary API traffic remains
+available while provider calls are stalled.
+

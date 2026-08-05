@@ -1,0 +1,34 @@
+ID: P1-008
+Priority: P1 High
+Category: Abuse prevention / proxy trust
+Status: Confirmed configuration chain
+
+Defect
+Authentication rate limiting keys on request.getRemoteAddr while Spring trusts forwarded headers.
+Nginx appends any incoming X-Forwarded-For value instead of replacing it, and Compose also exposes the
+backend directly. An attacker can vary the forwarded address and obtain a fresh rate-limit bucket.
+
+Evidence
+- backend/src/main/java/com/testforge/auth/controller/AuthController.java:139-142
+  uses getRemoteAddr as the subject.
+- backend/src/main/resources/application.yml:36
+  sets server.forward-headers-strategy=framework.
+- frontend/nginx.conf:24
+  uses $proxy_add_x_forwarded_for.
+- docker-compose.yml:43-44
+  publishes the backend port.
+
+Impact
+The 10-per-minute login/register brake can be bypassed, increasing credential-stuffing, password
+guessing, and account-creation abuse risk.
+
+Remediation
+Define a trusted-proxy boundary: do not publish the backend, strip/replace inbound forwarding headers
+at the edge, and process them only from trusted proxy peers. Rate limit on a normalized trusted client
+identity plus account/email dimensions. Add proxy integration tests with spoofed X-Forwarded-For.
+
+External reference
+Spring's ForwardedHeaderFilter documentation warns that forwarded headers may be malicious and the
+boundary proxy must remove untrusted values:
+https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/web/filter/ForwardedHeaderFilter.html
+

@@ -1,0 +1,24 @@
+ID: P3-005
+Priority: P3 Low
+Category: Review state / change detection
+Status: Confirmed API-level edge case
+
+Defect
+Persisted test data is loaded sorted by name, but hasActualChange compares it positionally with the
+request list. Reordering otherwise identical test-data items counts as an actual edit even though
+storage order is not preserved.
+
+Evidence
+- backend/src/main/java/com/testforge/testcase/application/TestCaseService.java:278
+  loads test data OrderByName.
+- same file:389-404 compares current and request items by index.
+- TestDataItem storage has no sort-order field.
+
+Impact
+An API client can move a NEEDS_REVISION case back toward review with no substantive persisted content
+change, weakening the "requires a real edit" lifecycle rule.
+
+Remediation
+Compare test data by canonical normalized name/content maps, or make order an explicit persisted
+domain field. Add a test proving pure request reordering is not an actual change.
+

@@ -1,0 +1,27 @@
+ID: P2-002
+Priority: P2 Medium
+Category: Frontend authentication state
+Status: Confirmed state-management defect
+
+Defect
+When an authenticated API request gets 401 and refresh fails, api/client.ts clears tokens and advances
+the auth epoch, but AuthProvider is not notified. Its user state remains non-null, so ProtectedRoute
+continues rendering the authenticated application shell.
+
+Evidence
+- frontend/src/api/client.ts:73-98
+  resetApiClient is called on refresh failure.
+- frontend/src/auth/AuthContext.tsx:8-67
+  user state changes only during initial restore, login/register, or explicit logout.
+- frontend/src/auth/ProtectedRoute.tsx:16
+  route access depends on user, not actual token state.
+
+Impact
+An expired/revoked session leaves the UI in a stuck pseudo-authenticated state. Subsequent calls fail
+and the user is not redirected to login unless they explicitly log out or reload.
+
+Remediation
+Centralize auth/session state or publish a session-invalidated event consumed by AuthProvider. On a
+current refresh failure, atomically clear credentials and user state, then redirect while preserving
+the return URL. Add an integration test starting from a rendered protected route.
+

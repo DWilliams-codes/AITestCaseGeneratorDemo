@@ -1,0 +1,26 @@
+ID: P2-008
+Priority: P2 Medium
+Category: Generation idempotency / concurrency
+Status: Confirmed check-then-act race
+
+Defect
+Generation checks for an existing idempotency hash and later inserts a pending run. The unique
+database constraint prevents duplicate rows, but there is no lock/upsert/recovery path. Concurrent
+same-key calls can both miss and both invoke the paid provider before one transaction loses at commit.
+
+Evidence
+- backend/src/main/java/com/testforge/generation/application/GenerationService.java:135-173
+  performs find-then-save-then-provider call.
+- backend/src/main/resources/db/migration/V2__stage_one_domain.sql:104
+  has a unique requirement/requester/key constraint only.
+- docs/API.md:78 promises reusing a key returns the original run.
+
+Impact
+The API can perform duplicate expensive generation and return a database conflict/500 instead of the
+original run. Evidence and billing behavior become timing-dependent.
+
+Remediation
+Atomically claim the idempotency key before provider work using an insert-on-conflict or serialized
+claim record. On conflict, load and return/wait for the claimed run. Add a PostgreSQL concurrency test
+that asserts one provider invocation and identical run identity for all callers.
+
