@@ -418,6 +418,34 @@ Architect handoff before any implementation edit.
   findings. The Lead then declared implementation complete. No staging, commit,
   push, PR, merge, deployment, branch-protection change, or publication occurred
   during Builder closeout.
+- Publication CI run `30967916064` on exact SHA
+  `efb8b05000ef51b90b69be9843ef44b769da3d8e` reached PostgreSQL 18.4 and
+  applied V5 successfully, but Backend verify failed because the fresh-migration
+  test still expected Flyway versions V1-V4 instead of V1-V5. The other 38
+  backend tests passed, including the V4-to-V5 workspace upgrade integration
+  test; the two downstream gates were skipped. That run therefore left
+  publication remediation and independent re-review pending.
+- Publication-remediation Builder evidence on 2026-08-04: the fresh PostgreSQL
+  migration test now expects V1-V5 and narrowly verifies that the V5 priority
+  bridge remains nullable with no database default; the existing upgrade test
+  remains the sole PostgreSQL backfill check. Focused
+  `mvn test -Dtest=PostgreSqlMigrationIntegrationTest` compiled and completed
+  with one test discovered, zero failures/errors, and one honest local skip
+  because Docker is unavailable. The first full wrapper run passed all 39
+  backend tests with two Docker skips before Spotless identified line-ending
+  normalization in the edited test; `mvn spotless:apply` corrected it. The final
+  `.\scripts\verify.ps1` rerun passed the harness (3 profiles, 6 skills, 6
+  blocking manual fixtures, and 3 roadmap fixtures); all 39 backend tests with
+  zero failures/errors and two Docker skips; packaging, Spotless, SpotBugs, and
+  JaCoCo thresholds; frontend formatting, lint, typecheck, 21/21 coverage tests
+  (86.28% statements, 69.29% branches, 81.37% functions, 87.37% lines), and the
+  production build.
+- Final publication-remediation read-only gates passed: Architect `CONFORMS`,
+  finding the two-file test/documentation delta non-redundant and retaining
+  PostgreSQL exact-SHA CI as the residual evidence requirement; independent
+  Reviewer `APPROVE` with no findings. The remediation is locally complete. A
+  new exact-SHA run of all seven supported CI gates remains pending, so this
+  local completion does not yet establish publication readiness.
 
 ## Deviations
 
