@@ -55,4 +55,34 @@ public class TestCaseRevisionEntity {
     return new TestCaseRevisionEntity(
         testCaseId, revisionNumber, snapshotJson, changedBy, changedAt);
   }
+
+  /** Returns the revision identifier. */
+  public UUID getId() {
+    return id;
+  }
+
+  /** Returns the revised test-case identifier. */
+  public UUID getTestCaseId() {
+    return testCaseId;
+  }
+
+  /** Returns the stable one-based revision number. */
+  public long getRevisionNumber() {
+    return revisionNumber;
+  }
+
+  /** Returns the persisted structured snapshot JSON. */
+  public String getSnapshotJson() {
+    return snapshotJson;
+  }
+
+  /** Returns the actor who created the revision. */
+  public UUID getChangedBy() {
+    return changedBy;
+  }
+
+  /** Returns the server timestamp for the revision. */
+  public Instant getChangedAt() {
+    return changedAt;
+  }
 }

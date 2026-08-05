@@ -17,7 +17,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/requirements/{requirementId}/export")
+@RequestMapping({
+  "/api/v1/user-stories/{requirementId}/export",
+  "/api/v1/requirements/{requirementId}/export"
+})
 public class ExportController {
   private final ExportService exportService;
   private final CurrentUser currentUser;
@@ -33,8 +36,11 @@ public class ExportController {
   ResponseEntity<String> export(
       Authentication authentication,
       @PathVariable UUID requirementId,
+      @RequestParam(required = false) UUID generationRunId,
       @RequestParam String format) {
-    ExportFile file = exportService.export(currentUser.id(authentication), requirementId, format);
+    ExportFile file =
+        exportService.export(
+            currentUser.id(authentication), requirementId, generationRunId, format);
     ContentDisposition disposition =
         ContentDisposition.attachment()
             .filename("testforge-" + requirementId + '.' + file.extension(), StandardCharsets.UTF_8)

@@ -29,7 +29,7 @@ checks, and exact-SHA CI evidence distinct.
 | Backend unit and integration | `backend/src/test` | Service rules, authorization, validation, persistence, migrations, provider protocol, and safe failures |
 | Frontend unit and workflow | `frontend/src/**/*.test.*` | Auth state, API behavior, rendering, interaction, and accessibility assertions |
 | Browser | `frontend/e2e` | Seeded Stage 1 workflow, application shell, keyboard focus, and axe checks |
-| Manual-generation benchmark | `evals/manual-test-generation.jsonl` | Sanitized requirements covering traceability, ambiguity, boundaries, security, recovery, accessibility, and injection resistance |
+| Manual-generation benchmark | `evals/manual-test-generation.jsonl` | Sanitized User Stories covering traceability, ambiguity, boundaries, data references, security, recovery, accessibility, and injection resistance |
 | Automation roadmap benchmark | `evals/automation-generation.jsonl` | Non-blocking design fixtures for the unimplemented Stage 2 boundary |
 | Harness | `scripts/validate-harness.py` | Exact agent/skill allowlists and metadata, fixture shape and enums, rubric invariants, workflow protection, and required documentation |
 
@@ -75,9 +75,14 @@ persist partial generated evidence.
 
 ## Workspace migration and authorization verification
 
-The workspace slice adds two migration paths to the backend lifecycle: a fresh
-H2 database applies V1–V4, and a synthetic V3 database advances through V4 so
+The workspace and User Story slices add migration paths to the backend lifecycle: a fresh
+H2 database applies V1–V5, a synthetic V3 database advances through V4 so
 deterministic user/workspace/membership/project backfill can be inspected.
+An explicit V4→V5 fixture verifies deterministic `MEDIUM` priority backfill and
+the nullable rollback bridge. Active-set ordering, failed-run behavior,
+supersession confirmation, test-data references, review/reopen transitions,
+revision normalization, audit filters, and auth reset races require targeted
+unit or integration coverage.
 Testcontainers PostgreSQL verifies the actual timestamp type, nullable rollback
 bridge, uniqueness and role constraints when Docker is available.
 

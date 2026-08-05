@@ -14,11 +14,12 @@ a QA analyst or test lead:
 
 1. Register or sign in.
 2. Create and manage an owned project.
-3. Create a requirement with a user story, business requirements, assumptions,
+3. Create a prioritized User Story with business requirements, assumptions,
    source reference, and one or more keyed acceptance criteria.
 4. Request manual-test generation with an idempotency key.
 5. Review detected ambiguities and structured generated cases.
-6. Edit a case, inspect revisions, and approve, reject, or request changes.
+6. Edit an active-set case, inspect structured history, and approve, reject,
+   request changes, or explicitly reopen a terminal decision.
 7. Inspect criterion coverage and traceability.
 8. Export approved cases as CSV, JSON, or Markdown and inspect audit events.
 
@@ -35,16 +36,22 @@ acceptance criteria. A direct case maps to supplied `AC-#` keys; supporting
 exploratory cases may cover relevant boundaries, negative paths, security,
 recovery, concurrency, or accessibility.
 
+Each successful generation run is an immutable generation set. The most recent
+successful completion (completion time then UUID) is active; failed attempts do
+not supersede it. Default cases, coverage, traceability, review, and export use
+only that set, while explicitly selected historical sets remain read-only.
+
 Provider output is not accepted merely because it is valid JSON. It must satisfy
 the application-owned JSON schema and semantic validator: supported enums,
 unique case titles, bounded and contiguous steps, concrete text, valid criterion
-mappings, synthetic test data, and no prohibited executable content. Invalid
+mappings, stripped case-insensitive unique synthetic test-data names, resolvable
+step data references, and no prohibited executable content. Invalid
 output receives one controlled regeneration attempt and otherwise becomes a safe
 run failure without partial persistence.
 
 ## Product quality principles
 
-- Preserve the source requirement, generation metadata, and review history.
+- Preserve the source User Story, every generation set, and review history.
 - Make every action and expected result independently observable.
 - Expose ambiguities instead of inventing decision-critical policy.
 - Keep generated cases editable and require a human decision before export.

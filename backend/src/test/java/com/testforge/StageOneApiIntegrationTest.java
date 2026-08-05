@@ -14,6 +14,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.testforge.audit.domain.AuditEventEntity;
+import com.testforge.audit.repository.AuditEventRepository;
+import com.testforge.generation.domain.GenerationRunEntity;
+import com.testforge.generation.domain.GenerationStatus;
+import com.testforge.generation.repository.GenerationRunRepository;
+import com.testforge.user.repository.UserRepository;
 import com.testforge.workspace.domain.WorkspaceMembershipEntity;
 import com.testforge.workspace.domain.WorkspaceRole;
 import com.testforge.workspace.repository.WorkspaceMembershipRepository;
@@ -42,6 +48,9 @@ import org.springframework.test.web.servlet.MvcResult;
 class StageOneApiIntegrationTest {
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private AuditEventRepository auditEvents;
+  @Autowired private GenerationRunRepository generationRuns;
+  @Autowired private UserRepository users;
   @Autowired private WorkspaceMembershipRepository workspaceMemberships;
 
   private String ownerToken;
@@ -125,6 +134,8 @@ class StageOneApiIntegrationTest {
                         .header("Idempotency-Key", "integration-generation-" + projectId))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.setNumber").value(1))
+                .andExpect(jsonPath("$.setState").value("ACTIVE"))
                 .andReturn());
     assertThat(run.get("generatedCaseCount").asInt()).isGreaterThanOrEqualTo(4);
     JsonNode testCases =
@@ -194,7 +205,7 @@ class StageOneApiIntegrationTest {
                 .with(csrf())
                 .header("Authorization", bearer(ownerToken))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"comments\":\"Approved in the integration workflow.\"}"))
+                .content("{\"comments\":\"Approved in the integration workflow.\",\"version\":1}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("APPROVED"));
 
@@ -483,6 +494,512 @@ class StageOneApiIntegrationTest {
         .andExpect(jsonPath("$.code").value("no_approved_test_cases"));
   }
 
+  /** Verifies canonical user-story routes retain legacy DTO and authorization parity. */
+  @Test
+  @Order(5)
+  void exposesCanonicalUserStoryRoutesWithThinLegacyParity() throws Exception {
+    JsonNode canonicalStory =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/user-stories/{requirementId}", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.priority").value("MEDIUM"))
+                .andReturn());
+    JsonNode legacyStory =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/requirements/{requirementId}", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    assertThat(canonicalStory).isEqualTo(legacyStory);
+
+    JsonNode canonicalCases =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/user-stories/{requirementId}/test-cases", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    JsonNode legacyCases =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/requirements/{requirementId}/test-cases", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    assertThat(canonicalCases).isEqualTo(legacyCases);
+
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/generation-runs", requirementId)
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].setNumber").value(1))
+        .andExpect(jsonPath("$[0].setState").value("ACTIVE"));
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}", requirementId)
+                .header("Authorization", bearer(outsiderToken)))
+        .andExpect(status().isNotFound());
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}", projectId)
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.userStoryCount").value(1))
+        .andExpect(jsonPath("$.requirementCount").value(1));
+  }
+
+  /** Verifies reviewed/revised active sets require confirmation and history stays read-only. */
+  @Test
+  @Order(6)
+  void preservesImmutableGenerationSetsAndRequiresSupersedeConfirmation() throws Exception {
+    JsonNode oldRuns =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/user-stories/{requirementId}/generation-runs", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    String oldRunId = oldRuns.get(0).get("id").asText();
+    JsonNode existing =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/test-cases/{testCaseId}", testCaseId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    ObjectNode update = objectMapper.createObjectNode();
+    update.put("title", existing.get("title").asText() + " revised");
+    update.put("objective", existing.get("objective").asText());
+    update.put("category", existing.get("category").asText());
+    update.put("priority", existing.get("priority").asText());
+    update.put("riskLevel", existing.get("riskLevel").asText());
+    update.put("automationCandidate", existing.get("automationCandidate").asBoolean());
+    update.put("rationale", existing.get("rationale").asText());
+    update.put("finalExpectedOutcome", existing.get("finalExpectedOutcome").asText());
+    ArrayNode preconditions = update.putArray("preconditions");
+    existing
+        .get("preconditions")
+        .forEach(item -> preconditions.add(item.get("description").asText()));
+    update.set("steps", existing.get("steps"));
+    update.set("testData", existing.get("testData"));
+    update.put("version", existing.get("version").asLong());
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(update)))
+        .andExpect(status().isOk());
+
+    UUID ownerId = users.findByEmailNormalized("owner@testforge.local").orElseThrow().getId();
+    Instant failedAt = Instant.now().plusSeconds(30);
+    GenerationRunEntity failedRun =
+        GenerationRunEntity.pending(
+            UUID.fromString(requirementId),
+            ownerId,
+            "requirement-rules",
+            "testforge-rules-v2",
+            "manual-test-v1",
+            "a".repeat(64),
+            "b".repeat(64),
+            "failed-run-fixture",
+            failedAt);
+    failedRun.fail(
+        GenerationStatus.FAILED,
+        "provider_failure",
+        "Synthetic provider failure.",
+        failedAt.plusMillis(1));
+    generationRuns.saveAndFlush(failedRun);
+
+    JsonNode runHistory =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/user-stories/{requirementId}/generation-runs", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    JsonNode failedResponse = null;
+    JsonNode activeResponse = null;
+    for (JsonNode candidate : runHistory) {
+      if (failedRun.getId().toString().equals(candidate.get("id").asText())) {
+        failedResponse = candidate;
+      }
+      if (oldRunId.equals(candidate.get("id").asText())) {
+        activeResponse = candidate;
+      }
+    }
+    assertThat(failedResponse).isNotNull();
+    assertThat(failedResponse.get("status").asText()).isEqualTo("FAILED");
+    assertThat(failedResponse.get("setNumber").asInt()).isZero();
+    assertThat(
+            failedResponse.path("setState").isMissingNode()
+                || failedResponse.path("setState").isNull())
+        .isTrue();
+    assertThat(activeResponse).isNotNull();
+    assertThat(activeResponse.get("setState").asText()).isEqualTo("ACTIVE");
+
+    mockMvc
+        .perform(
+            post("/api/v1/requirements/{requirementId}/generate-test-cases", requirementId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .header("Idempotency-Key", "integration-generation-" + projectId))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value(oldRunId))
+        .andExpect(jsonPath("$.setState").value("ACTIVE"));
+
+    assertSupersessionConfirmationRequired(
+        "/api/v1/user-stories/{requirementId}/generate-test-cases",
+        "guarded-generate-canonical-" + projectId);
+    assertSupersessionConfirmationRequired(
+        "/api/v1/requirements/{requirementId}/generate-test-cases",
+        "guarded-generate-legacy-" + projectId);
+    assertSupersessionConfirmationRequired(
+        "/api/v1/user-stories/{requirementId}/regenerate",
+        "guarded-regeneration-canonical-" + projectId);
+    assertSupersessionConfirmationRequired(
+        "/api/v1/requirements/{requirementId}/regenerate",
+        "guarded-regeneration-legacy-" + projectId);
+
+    JsonNode newRun =
+        json(
+            mockMvc
+                .perform(
+                    post("/api/v1/user-stories/{requirementId}/regenerate", requirementId)
+                        .with(csrf())
+                        .queryParam("confirmSupersede", "true")
+                        .header("Authorization", bearer(ownerToken))
+                        .header("Idempotency-Key", "confirmed-regeneration-" + projectId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.setNumber").value(2))
+                .andExpect(jsonPath("$.setState").value("ACTIVE"))
+                .andReturn());
+
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/test-cases", requirementId)
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].generationRunId").value(newRun.get("id").asText()));
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/test-cases", requirementId)
+                .queryParam("generationRunId", oldRunId)
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].generationRunId").value(oldRunId));
+    update.put("version", 1);
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(update)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("superseded_generation_set"));
+  }
+
+  /** Verifies bounded audit filters and inert normalization of legacy metadata. */
+  @Test
+  @Order(7)
+  void filtersAndNormalizesOwnedAuditHistory() throws Exception {
+    Instant now = Instant.now();
+    UUID projectUuid = UUID.fromString(projectId);
+    auditEvents.saveAllAndFlush(
+        List.of(
+            AuditEventEntity.create(
+                null,
+                projectUuid,
+                "LEGACY",
+                projectUuid,
+                "INVALID_JSON",
+                "not-json",
+                now.minusSeconds(1),
+                "audit-test-invalid"),
+            AuditEventEntity.create(
+                null,
+                projectUuid,
+                "LEGACY",
+                projectUuid,
+                "NULL_JSON",
+                "null",
+                now,
+                "audit-test-null")));
+
+    JsonNode projectAudit =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/projects/{projectId}/audit-events", projectId)
+                        .queryParam("entityType", " PROJECT ")
+                        .queryParam("entityId", projectId)
+                        .queryParam("action", " CREATED ")
+                        .queryParam("from", now.minusSeconds(86_400).toString())
+                        .queryParam("to", now.plusSeconds(86_400).toString())
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].entityType").value("PROJECT"))
+                .andExpect(jsonPath("$.items[0].metadata").isMap())
+                .andReturn());
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}/audit-events", projectId)
+                .queryParam("entityType", "PROJECT")
+                .queryParam("entityId", projectId)
+                .queryParam("actorId", projectAudit.get("items").get(0).get("actorId").asText())
+                .queryParam("action", "CREATED")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(1));
+
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}/audit-events", projectId)
+                .queryParam("entityType", "LEGACY")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].metadata").doesNotExist())
+        .andExpect(jsonPath("$.items[1].metadata.legacy").value("not-json"));
+
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}/audit-events", projectId)
+                .queryParam("entityType", " ")
+                .queryParam("action", " ")
+                .queryParam("from", now.minusSeconds(60).toString())
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}/audit-events", projectId)
+                .queryParam("to", now.plusSeconds(60).toString())
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}/audit-events", projectId)
+                .queryParam("from", now.plusSeconds(60).toString())
+                .queryParam("to", now.minusSeconds(60).toString())
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("invalid_audit_range"));
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}/audit-events", projectId)
+                .queryParam("from", now.minusSeconds(367L * 86_400L).toString())
+                .queryParam("to", now.toString())
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("audit_range_too_large"));
+  }
+
+  /** Verifies guarded review transitions, canonical data references, and revision history. */
+  @Test
+  @Order(8)
+  void enforcesActiveCaseWorkflowAndRevisionRules() throws Exception {
+    JsonNode generated =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/test-cases/{testCaseId}", testCaseId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+
+    mockMvc
+        .perform(
+            post("/api/v1/test-cases/{testCaseId}/request-changes", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"comments\":\" \",\"version\":0}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("invalid_test_case_transition"));
+    JsonNode needsRevision =
+        json(
+            mockMvc
+                .perform(
+                    post("/api/v1/test-cases/{testCaseId}/request-changes", testCaseId)
+                        .with(csrf())
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comments\":\"Clarify the expected result.\",\"version\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NEEDS_REVISION"))
+                .andReturn());
+
+    ObjectNode unchanged = editableUpdate(needsRevision);
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(unchanged)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("invalid_test_case_transition"));
+
+    ObjectNode stale = unchanged.deepCopy();
+    stale.put("version", generated.get("version").asLong());
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(stale)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("stale_version"));
+
+    ObjectNode invalidOrder = unchanged.deepCopy();
+    ((ObjectNode) invalidOrder.withArray("steps").get(0)).put("stepNumber", 2);
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(invalidOrder)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("invalid_step_order"));
+
+    ObjectNode danglingReference = unchanged.deepCopy();
+    ((ObjectNode) danglingReference.withArray("steps").get(0))
+        .put("testDataReference", "missing-data-item");
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(danglingReference)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("invalid_test_data_reference"));
+
+    ObjectNode corrected = unchanged.deepCopy();
+    corrected.put("title", corrected.get("title").asText() + " clarified");
+    JsonNode firstData = corrected.withArray("testData").get(0);
+    if (firstData != null) {
+      String canonicalName = firstData.get("name").asText();
+      ((ObjectNode) firstData).put("name", " " + canonicalName + " ");
+      corrected
+          .withArray("steps")
+          .forEach(
+              step -> {
+                if (step.get("testDataReference") != null
+                    && !step.get("testDataReference").isNull()) {
+                  ((ObjectNode) step)
+                      .put("testDataReference", canonicalName.toUpperCase(java.util.Locale.ROOT));
+                }
+              });
+    }
+    JsonNode inReview =
+        json(
+            mockMvc
+                .perform(
+                    patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                        .with(csrf())
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(corrected)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_REVIEW"))
+                .andReturn());
+
+    mockMvc
+        .perform(
+            get("/api/v1/test-cases/{testCaseId}/revisions", testCaseId)
+                .queryParam("size", "1")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].revisionNumber").value(1))
+        .andExpect(jsonPath("$.items[0].snapshot.schemaVersion").value(1));
+
+    long reviewVersion = inReview.get("version").asLong();
+    mockMvc
+        .perform(
+            post("/api/v1/test-cases/{testCaseId}/approve", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        Map.of("comments", "Stale approval", "version", reviewVersion - 1))))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("stale_version"));
+    JsonNode approved =
+        json(
+            mockMvc
+                .perform(
+                    post("/api/v1/test-cases/{testCaseId}/approve", testCaseId)
+                        .with(csrf())
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                Map.of("comments", "Ready", "version", reviewVersion))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andReturn());
+    JsonNode reopened =
+        json(
+            mockMvc
+                .perform(
+                    post("/api/v1/test-cases/{testCaseId}/reopen", testCaseId)
+                        .with(csrf())
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                Map.of(
+                                    "reason",
+                                    "New evidence",
+                                    "version",
+                                    approved.get("version").asLong()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_REVIEW"))
+                .andReturn());
+    mockMvc
+        .perform(
+            post("/api/v1/test-cases/{testCaseId}/reject", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        Map.of(
+                            "comments",
+                            "Evidence is insufficient",
+                            "version",
+                            reopened.get("version").asLong()))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("REJECTED"));
+  }
+
+  /** Asserts that an unconfirmed generation alias cannot supersede protected evidence. */
+  private void assertSupersessionConfirmationRequired(String path, String idempotencyKey)
+      throws Exception {
+    mockMvc
+        .perform(
+            post(path, requirementId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .header("Idempotency-Key", idempotencyKey))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("supersede_confirmation_required"));
+  }
+
   /** Executes the register or login operation for StageOneApiIntegrationTest. */
   private String registerOrLogin(String email, String displayName, String password)
       throws Exception {
@@ -517,6 +1034,27 @@ class StageOneApiIntegrationTest {
   /** Executes the json operation for StageOneApiIntegrationTest. */
   private JsonNode json(MvcResult result) throws Exception {
     return objectMapper.readTree(result.getResponse().getContentAsByteArray());
+  }
+
+  /** Copies the mutable fields of a test-case response into an update request. */
+  private ObjectNode editableUpdate(JsonNode existing) {
+    ObjectNode update = objectMapper.createObjectNode();
+    update.put("title", existing.get("title").asText());
+    update.put("objective", existing.get("objective").asText());
+    update.put("category", existing.get("category").asText());
+    update.put("priority", existing.get("priority").asText());
+    update.put("riskLevel", existing.get("riskLevel").asText());
+    update.put("automationCandidate", existing.get("automationCandidate").asBoolean());
+    update.put("rationale", existing.get("rationale").asText());
+    update.put("finalExpectedOutcome", existing.get("finalExpectedOutcome").asText());
+    ArrayNode preconditions = update.putArray("preconditions");
+    existing
+        .get("preconditions")
+        .forEach(item -> preconditions.add(item.get("description").asText()));
+    update.set("steps", existing.get("steps").deepCopy());
+    update.set("testData", existing.get("testData").deepCopy());
+    update.put("version", existing.get("version").asLong());
+    return update;
   }
 
   /** Finds a workspace response by identifier in a workspace-list payload. */

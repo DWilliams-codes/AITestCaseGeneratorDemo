@@ -6,6 +6,7 @@ import { ProjectDashboardPage } from '../pages/ProjectDashboardPage';
 import { ProtectedRoute } from '../auth/ProtectedRoute';
 import { ProjectPage } from '../pages/ProjectPage';
 import { RequirementPage } from '../pages/RequirementPage';
+import { LegacyRequirementRedirect } from './LegacyRequirementRedirect';
 
 export const appRoutes: RouteObject[] = [
   {
@@ -21,7 +22,8 @@ export const appRoutes: RouteObject[] = [
         children: [
           { index: true, element: <ProjectDashboardPage /> },
           { path: 'projects/:projectId', element: <ProjectPage /> },
-          { path: 'requirements/:requirementId', element: <RequirementPage /> },
+          { path: 'user-stories/:userStoryId', element: <RequirementPage /> },
+          { path: 'requirements/:requirementId', element: <LegacyRequirementRedirect /> },
         ],
       },
     ],

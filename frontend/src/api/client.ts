@@ -2,7 +2,14 @@ import type { TokenResponse } from '../types/api';
 
 let accessToken: string | null = null;
 let csrfToken: string | null = null;
-let refreshPromise: Promise<TokenResponse | null> | null = null;
+interface SessionRefreshOutcome {
+  session: TokenResponse | null;
+  current: boolean;
+}
+
+let refreshPromise: Promise<SessionRefreshOutcome> | null = null;
+let csrfPromise: Promise<string> | null = null;
+let authEpoch = 0;
 
 export class ApiError extends Error {
   /** Preserves normalized HTTP status, problem code, and field errors for the UI. */
@@ -21,20 +28,53 @@ export function setAccessToken(value: string | null) {
   accessToken = value;
 }
 
+/** Clears every session-scoped cache and returns the new authentication epoch. */
+export function resetApiClient() {
+  authEpoch += 1;
+  accessToken = null;
+  csrfToken = null;
+  refreshPromise = null;
+  csrfPromise = null;
+  return authEpoch;
+}
+
+/** Installs a token only when its authentication attempt is still current. */
+export function setAccessTokenForEpoch(value: string, expectedEpoch: number) {
+  if (expectedEpoch !== authEpoch) return false;
+  setAccessToken(value);
+  return true;
+}
+
 /** Lazily obtains and caches the CSRF token required for state-changing requests. */
 async function ensureCsrf(): Promise<string> {
   if (csrfToken) return csrfToken;
-  const response = await fetch('/api/v1/auth/csrf', { credentials: 'include' });
-  if (!response.ok) throw new ApiError(response.status, 'Could not initialize request security.');
-  const data = (await response.json()) as { token: string };
-  csrfToken = data.token;
-  return data.token;
+  if (csrfPromise) return csrfPromise;
+  const requestEpoch = authEpoch;
+  const pending = (async () => {
+    const response = await fetch('/api/v1/auth/csrf', { credentials: 'include' });
+    if (!response.ok) {
+      throw new ApiError(response.status, 'Could not initialize request security.');
+    }
+    const data = (await response.json()) as { token: string };
+    if (requestEpoch !== authEpoch) {
+      throw new ApiError(401, 'The authentication session was reset.');
+    }
+    csrfToken = data.token;
+    return data.token;
+  })();
+  csrfPromise = pending;
+  try {
+    return await pending;
+  } finally {
+    if (csrfPromise === pending) csrfPromise = null;
+  }
 }
 
-/** Coalesces concurrent refresh attempts and restores the short-lived in-memory access token. */
-export async function refreshSession(): Promise<TokenResponse | null> {
+/** Coalesces refresh work while distinguishing a current result from a stale completion. */
+async function refreshSessionOutcome(): Promise<SessionRefreshOutcome> {
   if (refreshPromise) return refreshPromise;
-  refreshPromise = (async () => {
+  const requestEpoch = authEpoch;
+  const pending = (async () => {
     try {
       const csrf = await ensureCsrf();
       const response = await fetch('/api/v1/auth/refresh', {
@@ -43,17 +83,37 @@ export async function refreshSession(): Promise<TokenResponse | null> {
         credentials: 'include',
       });
       if (!response.ok) {
-        setAccessToken(null);
-        return null;
+        if (requestEpoch !== authEpoch) return { session: null, current: false };
+        resetApiClient();
+        return { session: null, current: true };
       }
       const session = (await response.json()) as TokenResponse;
+      if (requestEpoch !== authEpoch) return { session: null, current: false };
       setAccessToken(session.accessToken);
-      return session;
-    } finally {
-      refreshPromise = null;
+      return { session, current: true };
+    } catch {
+      if (requestEpoch !== authEpoch) return { session: null, current: false };
+      resetApiClient();
+      return { session: null, current: true };
     }
   })();
-  return refreshPromise;
+  refreshPromise = pending;
+  try {
+    return await pending;
+  } finally {
+    if (refreshPromise === pending) refreshPromise = null;
+  }
+}
+
+/** Restores a session and reports whether its completion still owns the auth epoch. */
+export async function restoreSession(): Promise<SessionRefreshOutcome> {
+  return refreshSessionOutcome();
+}
+
+/** Refreshes the access token, mapping stale completions to the existing null contract. */
+export async function refreshSession(): Promise<TokenResponse | null> {
+  const outcome = await refreshSessionOutcome();
+  return outcome.current ? outcome.session : null;
 }
 
 /** Sends an authenticated API request and retries once after a successful token rotation. */
@@ -80,16 +140,23 @@ export async function apiRequest<T>(
 }
 
 /** Downloads a generated artifact and transparently recovers from one expired access token. */
-export async function downloadExport(requirementId: string, format: string, retry = true) {
+export async function downloadExport(
+  userStoryId: string,
+  format: string,
+  retry = true,
+  generationRunId?: string,
+) {
   const headers = new Headers();
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-  const response = await fetch(
-    `/api/v1/requirements/${requirementId}/export?format=${encodeURIComponent(format)}`,
-    { headers, credentials: 'include' },
-  );
+  const query = new URLSearchParams({ format });
+  if (generationRunId) query.set('generationRunId', generationRunId);
+  const response = await fetch(`/api/v1/user-stories/${userStoryId}/export?${query.toString()}`, {
+    headers,
+    credentials: 'include',
+  });
   if (response.status === 401 && retry) {
     const refreshed = await refreshSession();
-    if (refreshed) return downloadExport(requirementId, format, false);
+    if (refreshed) return downloadExport(userStoryId, format, false, generationRunId);
   }
   if (!response.ok) throw await toApiError(response);
   const blob = await response.blob();

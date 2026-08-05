@@ -1,5 +1,6 @@
 package com.testforge.audit.dto;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -10,6 +11,6 @@ public record AuditEventResponse(
     String entityType,
     UUID entityId,
     String action,
-    String metadata,
+    JsonNode metadata,
     Instant timestamp,
     String correlationId) {}

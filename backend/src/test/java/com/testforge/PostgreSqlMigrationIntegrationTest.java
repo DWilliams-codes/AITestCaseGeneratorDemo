@@ -75,11 +75,16 @@ class PostgreSqlMigrationIntegrationTest {
         jdbc.queryForObject(
             "select is_nullable from information_schema.columns where table_schema = 'testforge' and table_name = 'projects' and column_name = 'workspace_id'",
             String.class);
+    Integer priorityRollbackBridgeColumns =
+        jdbc.queryForObject(
+            "select count(*) from information_schema.columns where table_schema = 'testforge' and table_name = 'requirements' and column_name = 'priority' and is_nullable = 'YES' and column_default is null",
+            Integer.class);
 
-    assertThat(appliedVersions).containsExactly("1", "2", "3", "4");
+    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5");
     assertThat(domainTables).isGreaterThanOrEqualTo(18);
     assertThat(timestampType).isEqualTo("timestamp with time zone");
     assertThat(projectWorkspaceNullable).isEqualTo("YES");
+    assertThat(priorityRollbackBridgeColumns).isEqualTo(1);
 
     UUID ownerId = UUID.randomUUID();
     insertUser(ownerId, "case@testforge.local", "case@testforge.local");

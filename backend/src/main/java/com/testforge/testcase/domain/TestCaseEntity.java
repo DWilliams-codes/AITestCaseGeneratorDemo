@@ -160,7 +160,15 @@ public class TestCaseEntity {
       boolean automationCandidate,
       String rationale,
       String finalExpectedOutcome,
+      boolean actualChange,
       Instant now) {
+    if (status == TestCaseStatus.APPROVED || status == TestCaseStatus.REJECTED) {
+      throw new InvalidTransition("Terminal test cases must be reopened before editing.");
+    }
+    if (status == TestCaseStatus.NEEDS_REVISION && !actualChange) {
+      throw new InvalidTransition(
+          "A test case needing revision returns to review only after an actual edit.");
+    }
     this.title = title;
     this.objective = objective;
     this.category = category;
@@ -174,7 +182,13 @@ public class TestCaseEntity {
   }
 
   /** Executes the review operation for TestCaseEntity. */
-  public void review(ReviewDecision decision, Instant now) {
+  public void review(ReviewDecision decision, String comments, Instant now) {
+    if (status != TestCaseStatus.GENERATED && status != TestCaseStatus.IN_REVIEW) {
+      throw new InvalidTransition("The current test-case status cannot be reviewed.");
+    }
+    if (decision != ReviewDecision.APPROVED && (comments == null || comments.isBlank())) {
+      throw new InvalidTransition("Rejecting or requesting changes requires a comment.");
+    }
     this.status =
         switch (decision) {
           case APPROVED -> TestCaseStatus.APPROVED;
@@ -185,9 +199,23 @@ public class TestCaseEntity {
   }
 
   /** Executes the reopen operation for TestCaseEntity. */
-  public void reopen(Instant now) {
+  public void reopen(String reason, Instant now) {
+    if (status != TestCaseStatus.APPROVED && status != TestCaseStatus.REJECTED) {
+      throw new InvalidTransition("Only approved or rejected test cases can be reopened.");
+    }
+    if (reason == null || reason.isBlank()) {
+      throw new InvalidTransition("Reopening a terminal test case requires a reason.");
+    }
     this.status = TestCaseStatus.IN_REVIEW;
     this.updatedAt = now;
+  }
+
+  /** Raised when a requested edit/review action violates the workflow state machine. */
+  public static final class InvalidTransition extends IllegalStateException {
+    /** Creates a workflow exception with a safe client-facing explanation. */
+    public InvalidTransition(String message) {
+      super(message);
+    }
   }
 
   /** Returns the current id value. */

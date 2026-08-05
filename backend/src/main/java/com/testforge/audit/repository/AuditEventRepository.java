@@ -5,8 +5,10 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-public interface AuditEventRepository extends JpaRepository<AuditEventEntity, UUID> {
+public interface AuditEventRepository
+    extends JpaRepository<AuditEventEntity, UUID>, JpaSpecificationExecutor<AuditEventEntity> {
   /** Finds all by project id order by timestamp desc for the supplied criteria. */
   Page<AuditEventEntity> findAllByProjectIdOrderByTimestampDesc(UUID projectId, Pageable pageable);
 }

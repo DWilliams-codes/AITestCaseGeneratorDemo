@@ -1,5 +1,6 @@
 package com.testforge.testcase.dto;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.testforge.testcase.domain.CoverageIntent;
 import com.testforge.testcase.domain.DataSensitivity;
 import com.testforge.testcase.domain.ReviewDecision;
@@ -54,7 +55,11 @@ public final class TestCaseDtos {
     }
   }
 
-  public record ReviewRequest(@Size(max = 4000) String comments) {}
+  public record ReviewRequest(
+      @Size(max = 4000) String comments, @NotNull @PositiveOrZero Long version) {}
+
+  public record ReopenRequest(
+      @NotBlank @Size(max = 4000) String reason, @NotNull @PositiveOrZero Long version) {}
 
   public record PreconditionResponse(int sortOrder, String description) {}
 
@@ -70,6 +75,9 @@ public final class TestCaseDtos {
 
   public record ReviewResponse(
       UUID id, UUID reviewerId, ReviewDecision decision, String comments, Instant createdAt) {}
+
+  public record RevisionResponse(
+      UUID id, long revisionNumber, JsonNode snapshot, UUID changedBy, Instant changedAt) {}
 
   public record TestCaseResponse(
       UUID id,

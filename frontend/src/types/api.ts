@@ -3,6 +3,7 @@ export type RequirementStatus =
   'DRAFT' | 'READY_FOR_GENERATION' | 'GENERATED' | 'NEEDS_CLARIFICATION' | 'ARCHIVED';
 export type TestCaseStatus = 'GENERATED' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED' | 'NEEDS_REVISION';
 export type TestPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+export type UserStoryPriority = TestPriority;
 export type TestCaseCategory =
   | 'HAPPY_PATH'
   | 'NEGATIVE'
@@ -46,6 +47,8 @@ export interface Project {
   name: string;
   description: string;
   status: ProjectStatus;
+  userStoryCount: number;
+  /** @deprecated Use userStoryCount. */
   requirementCount: number;
   createdAt: string;
   updatedAt: string;
@@ -58,6 +61,7 @@ export interface RequirementSummary {
   projectId: string;
   title: string;
   status: RequirementStatus;
+  priority: UserStoryPriority;
   acceptanceCriteriaCount: number;
   updatedAt: string;
   version: number;
@@ -94,6 +98,9 @@ export interface Requirement extends RequirementSummary {
   ambiguities: Ambiguity[];
   createdAt: string;
 }
+
+export type UserStorySummary = RequirementSummary;
+export type UserStory = Requirement;
 
 export interface TestStep {
   stepNumber: number;
@@ -159,6 +166,30 @@ export interface GenerationRun {
   generatedCaseCount: number;
   failureCode: string | null;
   failureMessage: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  setNumber: number;
+  setState: 'ACTIVE' | 'SUPERSEDED' | null;
+}
+
+export interface TestCaseRevision {
+  id: string;
+  revisionNumber: number;
+  snapshot: Record<string, unknown>;
+  changedBy: string;
+  changedAt: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  actorId: string | null;
+  projectId: string;
+  entityType: string;
+  entityId: string | null;
+  action: string;
+  metadata: Record<string, unknown>;
+  timestamp: string;
+  correlationId: string;
 }
 
 export interface Traceability {

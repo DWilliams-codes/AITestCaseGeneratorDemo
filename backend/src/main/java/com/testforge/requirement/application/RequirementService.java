@@ -101,6 +101,7 @@ public class RequirementService {
                 clean(request.businessRequirements()),
                 clean(request.assumptions()),
                 clean(request.sourceReference()),
+                request.priority(),
                 ownerId,
                 now));
     int order = 0;
@@ -130,6 +131,7 @@ public class RequirementService {
         clean(request.assumptions()),
         clean(request.sourceReference()),
         request.status(),
+        request.priority(),
         clock.instant());
     auditService.record(
         ownerId,
@@ -261,6 +263,7 @@ public class RequirementService {
         requirement.getAssumptions(),
         requirement.getSourceReference(),
         requirement.getStatus(),
+        requirement.getPriority(),
         criteria.findAllByRequirementIdOrderBySortOrder(requirement.getId()).stream()
             .map(this::toCriterion)
             .toList(),
@@ -280,6 +283,7 @@ public class RequirementService {
         requirement.getProjectId(),
         requirement.getTitle(),
         requirement.getStatus(),
+        requirement.getPriority(),
         Math.toIntExact(criteria.countByRequirementId(requirement.getId())),
         requirement.getUpdatedAt(),
         requirement.getVersion());
@@ -340,6 +344,7 @@ public class RequirementService {
             "assumptions", requirement.getAssumptions(),
             "sourceReference", requirement.getSourceReference(),
             "status", requirement.getStatus().name(),
+            "priority", requirement.getPriority().name(),
             "version", requirement.getVersion());
     try {
       revisions.save(

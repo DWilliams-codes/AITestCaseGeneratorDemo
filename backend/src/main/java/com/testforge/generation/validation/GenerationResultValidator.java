@@ -7,6 +7,7 @@ import com.testforge.generation.provider.TestGenerationResult.GeneratedStep;
 import com.testforge.generation.provider.TestGenerationResult.GeneratedTestCase;
 import com.testforge.generation.provider.TestGenerationResult.GeneratedTestData;
 import com.testforge.testcase.domain.CoverageIntent;
+import com.testforge.testcase.validation.TestDataReferencePolicy;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -23,10 +24,13 @@ public class GenerationResultValidator {
           "(?is)(```|\\bcurl\\s+https?://|\\bpowershell\\b|\\bDROP\\s+TABLE\\b|<script[ >])");
 
   private final GenerationProperties properties;
+  private final TestDataReferencePolicy testDataReferences;
 
   /** Initializes GenerationResultValidator with its required collaborators and domain state. */
-  public GenerationResultValidator(GenerationProperties properties) {
+  public GenerationResultValidator(
+      GenerationProperties properties, TestDataReferencePolicy testDataReferences) {
     this.properties = properties;
+    this.testDataReferences = testDataReferences;
   }
 
   /** Validates generated content before any result is persisted. */
@@ -100,6 +104,15 @@ public class GenerationResultValidator {
         }
         rejectUnsafeOrVague(data.exampleValue());
       }
+    }
+    try {
+      testDataReferences.canonicalize(
+          testCase.testData() == null
+              ? List.of()
+              : testCase.testData().stream().map(GeneratedTestData::name).toList(),
+          testCase.steps().stream().map(GeneratedStep::testDataReference).toList());
+    } catch (TestDataReferencePolicy.Violation violation) {
+      fail(violation.getMessage());
     }
     rejectUnsafeOrVague(testCase.title());
     rejectUnsafeOrVague(testCase.objective());

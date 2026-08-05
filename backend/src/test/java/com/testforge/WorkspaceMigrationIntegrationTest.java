@@ -25,7 +25,7 @@ class WorkspaceMigrationIntegrationTest {
         jdbc.queryForList(
             "select version from testforge.flyway_schema_history where success and version is not null order by installed_rank",
             String.class);
-    assertThat(appliedVersions).containsExactly("1", "2", "3", "4");
+    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5");
     assertThat(
             jdbc.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = 'testforge' and table_name in ('workspaces', 'workspace_memberships')",
@@ -34,6 +34,11 @@ class WorkspaceMigrationIntegrationTest {
     assertThat(
             jdbc.queryForObject(
                 "select is_nullable from information_schema.columns where table_schema = 'testforge' and table_name = 'projects' and column_name = 'workspace_id'",
+                String.class))
+        .isEqualToIgnoringCase("YES");
+    assertThat(
+            jdbc.queryForObject(
+                "select is_nullable from information_schema.columns where table_schema = 'testforge' and table_name = 'requirements' and column_name = 'priority'",
                 String.class))
         .isEqualToIgnoringCase("YES");
   }
@@ -92,6 +97,48 @@ class WorkspaceMigrationIntegrationTest {
                 "select count(*) from testforge.projects p left join testforge.workspaces w on w.id = p.workspace_id where p.workspace_id is not null and w.id is null",
                 Integer.class))
         .isZero();
+  }
+
+  /** Verifies a V4 user story receives deterministic MEDIUM priority during V5 upgrade. */
+  @Test
+  void backfillsLegacyUserStoryPriorityWithoutMakingTheBridgeColumnRequired() {
+    String url = databaseUrl("priority_upgrade");
+    configuredFlyway(url, MigrationVersion.fromVersion("4")).migrate();
+    JdbcTemplate jdbc = jdbc(url);
+    UUID ownerId = UUID.randomUUID();
+    UUID projectId = UUID.randomUUID();
+    UUID requirementId = UUID.randomUUID();
+    jdbc.update(
+        "insert into testforge.users (id, email, email_normalized, display_name, password_hash, role, enabled, created_at, updated_at) values (?, 'priority@testforge.local', 'priority@testforge.local', 'Priority Owner', 'not-a-real-hash', 'USER', true, current_timestamp, current_timestamp)",
+        ownerId);
+    jdbc.update(
+        "insert into testforge.workspaces (id, name, status, created_by, created_at, updated_at, version) values (?, 'Priority Workspace', 'ACTIVE', ?, current_timestamp, current_timestamp, 0)",
+        ownerId,
+        ownerId);
+    jdbc.update(
+        "insert into testforge.projects (id, owner_id, workspace_id, name, description, status, created_at, updated_at, version) values (?, ?, ?, 'Priority Project', '', 'ACTIVE', current_timestamp, current_timestamp, 0)",
+        projectId,
+        ownerId,
+        ownerId);
+    jdbc.update(
+        "insert into testforge.requirements (id, work_item_number, project_id, title, user_story, business_requirements, assumptions, source_reference, status, created_by, created_at, updated_at, version) values (?, 9001, ?, 'Legacy story', 'As a tester, I need priority backfill.', '', '', '', 'DRAFT', ?, current_timestamp, current_timestamp, 0)",
+        requirementId,
+        projectId,
+        ownerId);
+
+    configuredFlyway(url, null).migrate();
+
+    assertThat(
+            jdbc.queryForObject(
+                "select priority from testforge.requirements where id = ?",
+                String.class,
+                requirementId))
+        .isEqualTo("MEDIUM");
+    assertThat(
+            jdbc.queryForObject(
+                "select is_nullable from information_schema.columns where table_schema = 'testforge' and table_name = 'requirements' and column_name = 'priority'",
+                String.class))
+        .isEqualToIgnoringCase("YES");
   }
 
   /** Creates an isolated H2 URL with PostgreSQL compatibility enabled. */

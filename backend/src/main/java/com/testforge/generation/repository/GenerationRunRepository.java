@@ -1,6 +1,7 @@
 package com.testforge.generation.repository;
 
 import com.testforge.generation.domain.GenerationRunEntity;
+import com.testforge.generation.domain.GenerationStatus;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +17,10 @@ public interface GenerationRunRepository extends JpaRepository<GenerationRunEnti
 
   /** Finds all by requirement id order by started at desc for the supplied criteria. */
   List<GenerationRunEntity> findAllByRequirementIdOrderByStartedAtDesc(UUID requirementId);
+
+  /** Finds every successful set candidate for deterministic active-set resolution. */
+  List<GenerationRunEntity> findAllByRequirementIdAndStatus(
+      UUID requirementId, GenerationStatus status);
 
   /** Finds owned for the supplied criteria. */
   @Query(

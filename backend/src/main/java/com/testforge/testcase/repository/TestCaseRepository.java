@@ -12,9 +12,17 @@ public interface TestCaseRepository extends JpaRepository<TestCaseEntity, UUID> 
   /** Finds all by requirement id order by work item number for the supplied criteria. */
   List<TestCaseEntity> findAllByRequirementIdOrderByWorkItemNumber(UUID requirementId);
 
+  /** Finds the cases in one immutable generation set. */
+  List<TestCaseEntity> findAllByRequirementIdAndGenerationRunIdOrderByWorkItemNumber(
+      UUID requirementId, UUID generationRunId);
+
   /** Finds all by requirement id and status order by work item number for the supplied criteria. */
   List<TestCaseEntity> findAllByRequirementIdAndStatusOrderByWorkItemNumber(
       UUID requirementId, TestCaseStatus status);
+
+  /** Finds status-filtered cases in one immutable generation set. */
+  List<TestCaseEntity> findAllByRequirementIdAndGenerationRunIdAndStatusOrderByWorkItemNumber(
+      UUID requirementId, UUID generationRunId, TestCaseStatus status);
 
   /** Finds owned for the supplied criteria. */
   @Query(

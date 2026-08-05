@@ -43,7 +43,7 @@ public class RequirementController {
   }
 
   /** Handles the authenticated HTTP request to list. */
-  @GetMapping("/projects/{projectId}/requirements")
+  @GetMapping({"/projects/{projectId}/user-stories", "/projects/{projectId}/requirements"})
   PageResponse<RequirementSummaryResponse> list(
       Authentication authentication,
       @PathVariable UUID projectId,
@@ -53,7 +53,7 @@ public class RequirementController {
   }
 
   /** Handles the authenticated HTTP request to create. */
-  @PostMapping("/projects/{projectId}/requirements")
+  @PostMapping({"/projects/{projectId}/user-stories", "/projects/{projectId}/requirements"})
   @ResponseStatus(HttpStatus.CREATED)
   RequirementResponse create(
       Authentication authentication,
@@ -63,13 +63,13 @@ public class RequirementController {
   }
 
   /** Handles the authenticated HTTP request to get. */
-  @GetMapping("/requirements/{requirementId}")
+  @GetMapping({"/user-stories/{requirementId}", "/requirements/{requirementId}"})
   RequirementResponse get(Authentication authentication, @PathVariable UUID requirementId) {
     return requirementService.get(currentUser.id(authentication), requirementId);
   }
 
   /** Handles the authenticated HTTP request to update. */
-  @PatchMapping("/requirements/{requirementId}")
+  @PatchMapping({"/user-stories/{requirementId}", "/requirements/{requirementId}"})
   RequirementResponse update(
       Authentication authentication,
       @PathVariable UUID requirementId,
@@ -78,7 +78,10 @@ public class RequirementController {
   }
 
   /** Handles the authenticated HTTP request to add criterion. */
-  @PostMapping("/requirements/{requirementId}/acceptance-criteria")
+  @PostMapping({
+    "/user-stories/{requirementId}/acceptance-criteria",
+    "/requirements/{requirementId}/acceptance-criteria"
+  })
   @ResponseStatus(HttpStatus.CREATED)
   AcceptanceCriterionResponse addCriterion(
       Authentication authentication,

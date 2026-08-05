@@ -3,16 +3,17 @@
 ## Status and scope
 
 Implemented as TestForge AI Stage 1. This specification covers creation of an
-owned requirement, validated manual-test generation, review, traceability, and
+owned User Story, validated manual-test generation, review, traceability, and
 approved export. Automation generation and execution are explicitly out of
 scope.
 
-## Requirement input
+## User Story input
 
 An authenticated owner supplies:
 
 - a title and user story;
 - optional business requirements, assumptions, and source reference;
+- priority `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`, defaulting to `MEDIUM`;
 - between 1 and 50 acceptance criteria, persisted with stable `AC-#` keys.
 
 Request DTO size limits and exact API shapes are canonical in the backend source
@@ -34,7 +35,8 @@ exploratory coverage maps only to supplied keys when a mapping is claimed.
 
 The semantic validator rejects empty or oversized output, unsupported enums,
 duplicate titles, missing or non-contiguous steps, blank or vague text,
-executable content, unknown criterion keys, and incomplete synthetic test data.
+executable content, unknown criterion keys, incomplete synthetic test data,
+normalized duplicate data names, and dangling step data references.
 The service permits one controlled retry, persists only validated output in one
 transaction, and records safe run metadata and failure state.
 
@@ -42,7 +44,7 @@ transaction, and records safe run metadata and failure state.
 
 1. An authenticated owner can create a requirement with at least one acceptance
    criterion and retrieve it without exposing another owner's data.
-2. Reusing the same idempotency key for the same owner and requirement returns
+2. Reusing the same idempotency key for the same owner and User Story returns
    the original generation run rather than duplicating evidence.
 3. Every direct generated case maps only to acceptance-criterion keys supplied
    with the source requirement.
@@ -52,12 +54,16 @@ transaction, and records safe run metadata and failure state.
    is rejected before persistence; one controlled regeneration is allowed.
 6. Provider and validation failures return safe run information without raw
    provider bodies, secrets, or partial cases.
-7. A reviewer can edit a case with optimistic concurrency and approve, reject,
-   or request changes while retaining revision and audit evidence.
+7. A reviewer can edit an active case with optimistic concurrency and approve,
+   reject, request changes, or explicitly reopen a terminal decision while
+   retaining revision and audit evidence.
 8. Traceability distinguishes raw generated coverage from approved coverage.
 9. Export is unavailable until at least one case is approved and protects CSV
    and Markdown consumers from content injection.
 10. Default automated tests and evaluations never require a live provider.
+11. The latest successful run is the active generation set; failures do not
+    supersede it, historical sets are read-only, and reviewed/revised evidence
+    requires confirmation before regeneration.
 
 ## Quality bar
 

@@ -1,5 +1,6 @@
 package com.testforge.generation.dto;
 
+import com.testforge.generation.domain.GenerationSetState;
 import com.testforge.generation.domain.GenerationStatus;
 import java.time.Instant;
 import java.util.UUID;
@@ -19,4 +20,6 @@ public record GenerationRunResponse(
     Integer outputTokens,
     String failureCode,
     String failureMessage,
-    String correlationId) {}
+    String correlationId,
+    int setNumber,
+    GenerationSetState setState) {}

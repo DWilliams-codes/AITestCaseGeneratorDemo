@@ -84,8 +84,8 @@ export function ProjectDashboardPage() {
             <Chip label="Stage 1 MVP" size="small" color="success" variant="outlined" />
           </Stack>
           <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 680 }}>
-            Organize source requirements, generate structured coverage, and keep every human
-            decision traceable.
+            Organize user stories, generate structured coverage, and keep every human decision
+            traceable.
           </Typography>
         </Box>
         <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setOpen(true)}>
@@ -140,7 +140,7 @@ export function ProjectDashboardPage() {
                 Create your first project
               </Typography>
               <Typography color="text.secondary">
-                Group related requirements and give reviewers a clear boundary for ownership, audit
+                Group related user stories and give reviewers a clear boundary for ownership, audit
                 history, and exports.
               </Typography>
               <Button variant="contained" onClick={() => setOpen(true)}>
@@ -212,8 +212,8 @@ export function ProjectDashboardPage() {
                   sx={{ justifyContent: 'space-between', alignItems: 'center', mt: 'auto', pt: 3 }}
                 >
                   <Typography variant="caption" color="text.secondary">
-                    {project.requirementCount} requirement
-                    {project.requirementCount === 1 ? '' : 's'}
+                    {project.userStoryCount} user{' '}
+                    {project.userStoryCount === 1 ? 'story' : 'stories'}
                   </Typography>
                   <ArrowForwardRoundedIcon color="primary" fontSize="small" />
                 </Stack>

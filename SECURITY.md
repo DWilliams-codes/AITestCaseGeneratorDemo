@@ -20,11 +20,11 @@ Do not open a public issue. Use the repository owner's private security-reportin
 
 ## Implemented controls
 
-Authentication uses Argon2id, short-lived audience-bound HS256 JWT access tokens, rotating opaque refresh tokens hashed at rest, refresh-token family reuse detection, cookie hardening, CSRF protection, generic authentication failures, and rate limits. Authorization is owner-scoped and cross-owner access is deliberately indistinguishable from a missing object. Personal workspace memberships are now recorded, but membership does not grant shared-content access; owner predicates remain authoritative.
+Authentication uses Argon2id, short-lived audience-bound HS256 JWT access tokens, rotating opaque refresh tokens hashed at rest, refresh-token family reuse detection, cookie hardening, CSRF protection, generic authentication failures, and rate limits. The SPA's epoch-based reset clears bearer, CSRF, and coalesced promise state so stale refresh/CSRF completions cannot restore an older session. Authorization is owner-scoped and cross-owner access is deliberately indistinguishable from a missing object. Personal workspace memberships are now recorded, but membership does not grant shared-content access; owner predicates remain authoritative.
 
 All JSON requests reject unknown properties and enforce field and collection bounds. Correlation IDs are parsed and normalized as UUIDs before being returned in a response header. Security headers deny framing and restrict browser capabilities. The Nginx frontend applies a restrictive CSP; inline styles remain allowed because Material UI's Emotion runtime injects styles.
 
-Generation minimizes provider-bound data, marks requirement content as untrusted, stores no OpenAI Response object, validates strict schema and business semantics, rejects vague or executable output, allows one controlled retry, and persists only validated structured data. Exports require approval and defend against CSV formula injection and Markdown/HTML control injection.
+Generation minimizes provider-bound data, marks User Story content as untrusted, stores no OpenAI Response object, validates strict schema and business semantics (including normalized test-data names and references), rejects vague or executable output, allows one controlled retry, and persists only validated structured data. Superseded generation sets are read-only and default exports are active-set approved cases only. Exports defend against CSV formula injection and Markdown/HTML control injection.
 
 Audit events capture actor, project, resource, action, time, correlation ID, and non-sensitive metadata. They do not capture passwords, tokens, provider keys, full requirements, or generated case bodies.
 
