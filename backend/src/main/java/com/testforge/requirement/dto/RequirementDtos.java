@@ -3,6 +3,7 @@ package com.testforge.requirement.dto;
 import com.testforge.requirement.domain.AmbiguityCategory;
 import com.testforge.requirement.domain.AmbiguitySeverity;
 import com.testforge.requirement.domain.RequirementStatus;
+import com.testforge.requirement.domain.UserStoryPriority;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -23,10 +24,29 @@ public final class RequirementDtos {
       @Size(max = 20000) String businessRequirements,
       @Size(max = 10000) String assumptions,
       @Size(max = 1000) String sourceReference,
+      UserStoryPriority priority,
       @NotNull @Size(min = 1, max = 50) List<@NotBlank @Size(max = 4000) String> acceptanceCriteria) {
     /** Initializes CreateRequirementRequest with its required collaborators and domain state. */
     public CreateRequirementRequest {
       acceptanceCriteria = acceptanceCriteria == null ? null : List.copyOf(acceptanceCriteria);
+    }
+
+    /** Compatibility constructor for callers compiled against the pre-priority contract. */
+    public CreateRequirementRequest(
+        String title,
+        String userStory,
+        String businessRequirements,
+        String assumptions,
+        String sourceReference,
+        List<String> acceptanceCriteria) {
+      this(
+          title,
+          userStory,
+          businessRequirements,
+          assumptions,
+          sourceReference,
+          UserStoryPriority.MEDIUM,
+          acceptanceCriteria);
     }
   }
 
@@ -37,6 +57,7 @@ public final class RequirementDtos {
       @Size(max = 10000) String assumptions,
       @Size(max = 1000) String sourceReference,
       @NotNull RequirementStatus status,
+      UserStoryPriority priority,
       @NotNull @PositiveOrZero Long version) {}
 
   public record AcceptanceCriterionRequest(
@@ -73,6 +94,7 @@ public final class RequirementDtos {
       UUID projectId,
       String title,
       RequirementStatus status,
+      UserStoryPriority priority,
       int acceptanceCriteriaCount,
       Instant updatedAt,
       long version) {}
@@ -87,6 +109,7 @@ public final class RequirementDtos {
       String assumptions,
       String sourceReference,
       RequirementStatus status,
+      UserStoryPriority priority,
       List<@Valid AcceptanceCriterionResponse> acceptanceCriteria,
       List<@Valid AmbiguityResponse> ambiguities,
       Instant createdAt,

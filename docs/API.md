@@ -44,35 +44,42 @@ Successful login returns an access token, expiry, and the current user:
 
 Passwords are 12–128 characters. Emails are normalized. Authentication failures do not disclose whether an account exists.
 
-## Projects and requirements
+## Projects and User Stories
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET`, `POST` | `/projects` | List or create owned projects |
 | `GET`, `PATCH` | `/projects/{projectId}` | Read or update an owned project |
 | `DELETE` | `/projects/{projectId}` | Archive a project |
-| `GET`, `POST` | `/projects/{projectId}/requirements` | List or create requirements |
-| `GET`, `PATCH` | `/requirements/{requirementId}` | Read or update a requirement |
-| `POST` | `/requirements/{requirementId}/acceptance-criteria` | Add a criterion |
+| `GET`, `POST` | `/projects/{projectId}/user-stories` | List or create User Stories |
+| `GET`, `PATCH` | `/user-stories/{userStoryId}` | Read or update a User Story |
+| `POST` | `/user-stories/{userStoryId}/acceptance-criteria` | Add a criterion |
 | `PATCH`, `DELETE` | `/acceptance-criteria/{criterionId}` | Update or remove a criterion |
 | `POST` | `/ambiguities/{ambiguityId}/resolve` | Record an ambiguity resolution |
 
-Collections are paged with `page` and `size` where applicable. Update bodies include `version`; stale writes return `409` with `code=stale_version`. A requirement must retain at least one criterion and may contain at most 50.
+Collections are paged with `page` and `size` where applicable. Update bodies include `version`; stale writes return `409` with `code=stale_version`. A User Story must retain at least one criterion, may contain at most 50, and has priority `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW` (default `MEDIUM`). Project responses expose `userStoryCount` and retain deprecated `requirementCount`. Equivalent `/requirements` routes are compatibility adapters over the same services and DTOs.
 
 ## Generation and test cases
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/requirements/{requirementId}/generate-test-cases` | Generate initial cases |
-| `POST` | `/requirements/{requirementId}/regenerate` | Generate an additional validated revision set |
+| `POST` | `/user-stories/{userStoryId}/generate-test-cases` | Generate initial cases |
+| `POST` | `/user-stories/{userStoryId}/regenerate?confirmSupersede=false` | Generate a new immutable set |
+| `GET` | `/user-stories/{userStoryId}/generation-runs` | List attempts with stable set number/state |
 | `GET` | `/generation-runs/{runId}` | Inspect provider/run metadata |
-| `GET` | `/requirements/{requirementId}/test-cases` | List structured cases |
+| `GET` | `/user-stories/{userStoryId}/test-cases?generationRunId=` | List active or selected historical cases |
 | `GET`, `PATCH` | `/test-cases/{testCaseId}` | Read or edit a full structured case |
 | `POST` | `/test-cases/{testCaseId}/approve` | Approve after human review |
 | `POST` | `/test-cases/{testCaseId}/reject` | Reject after human review |
 | `POST` | `/test-cases/{testCaseId}/request-changes` | Return the case for changes |
+| `POST` | `/test-cases/{testCaseId}/reopen` | Reopen an approved/rejected active case with reason/version |
+| `GET` | `/test-cases/{testCaseId}/revisions` | Page normalized structured revisions |
 
-Generation requests require a nonblank `Idempotency-Key` header. Reusing a key for the same actor and requirement returns the original run. Generation run statuses include completed, safe provider failure, and validation rejection. Editing a case creates a revision and moves it to review state.
+Generation requests require a nonblank `Idempotency-Key` header. Reusing a key for the same actor and User Story returns the original run. Only the latest successful run by `completedAt` then UUID is active; failed attempts never supersede it. Regeneration returns `409 supersede_confirmation_required` when the active set has revision/review evidence unless confirmation is explicit. Review/reopen bodies include expected `version`; reject and request-changes comments and reopen reasons are required. Superseded sets and terminal cases are read-only until a valid reopen.
+
+Test-data names are stripped and unique case-insensitively. Every nonblank step
+reference resolves to exactly one canonical name; the server rejects the whole
+edit or generated result before partial persistence otherwise.
 
 Requirement summaries and details include `workItemNumber`. Test-case responses include the same field and a derived `testCaseKey` such as `TC-1042`. Both resource types draw from one database sequence, so the numeric portion is globally unique and remains stable across edits and regenerations. UUID `id` fields remain the internal API identifiers.
 
@@ -80,17 +87,17 @@ Requirement summaries and details include `workItemNumber`. Test-case responses 
 curl --request POST \
   --header "Authorization: Bearer <access-token>" \
   --header "Idempotency-Key: 3aa87332-84a7-42f4-92e3-cbfad0cf18ed" \
-  http://localhost:8080/api/v1/requirements/<requirement-id>/generate-test-cases
+  http://localhost:8080/api/v1/user-stories/<user-story-id>/generate-test-cases
 ```
 
 ## Traceability, export, and audit
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/requirements/{requirementId}/coverage` | Raw and approved criterion coverage |
-| `GET` | `/requirements/{requirementId}/traceability` | Criterion-to-test evidence matrix |
-| `GET` | `/requirements/{requirementId}/export?format=csv|json|markdown` | Download approved cases |
-| `GET` | `/projects/{projectId}/audit-events` | Page through owned audit evidence |
+| `GET` | `/user-stories/{userStoryId}/coverage?generationRunId=` | Active/selected criterion coverage |
+| `GET` | `/user-stories/{userStoryId}/traceability?generationRunId=` | Active/selected evidence matrix |
+| `GET` | `/user-stories/{userStoryId}/export?format=csv|json|markdown&generationRunId=` | Download approved cases |
+| `GET` | `/projects/{projectId}/audit-events` | Page owned audit evidence with optional `entityType`, `entityId`, `actorId`, `action`, `from`, and `to` filters |
 
 Export returns `400 no_approved_test_cases` until at least one case is approved. Responses include `Content-Disposition` with a safe filename.
 

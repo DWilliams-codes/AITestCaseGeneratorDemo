@@ -20,6 +20,7 @@ const project = {
   name: 'Customer Returns Portal',
   description: 'Retail returns quality coverage.',
   status: 'ACTIVE',
+  userStoryCount: 1,
   requirementCount: 1,
   createdAt: '2026-07-30T12:00:00Z',
   updatedAt: '2026-07-30T12:00:00Z',
@@ -35,6 +36,7 @@ const requirement = {
   assumptions: 'A synthetic delivered order exists.',
   sourceReference: 'DEMO-RET-101',
   status: 'NEEDS_CLARIFICATION',
+  priority: 'MEDIUM',
   acceptanceCriteriaCount: 1,
   acceptanceCriteria: [
     {
@@ -105,13 +107,32 @@ const testCase = {
   version: 0,
 };
 
-/** Returns authenticated API handlers shared by requirement-workflow component tests. */
+/** Returns authenticated API handlers shared by user-story workflow component tests. */
 function authenticatedHandlers() {
   return [
     http.post('/api/v1/auth/refresh', () =>
       HttpResponse.json({ accessToken: 'workflow-token', expiresInSeconds: 600, user }),
     ),
     http.get(`/api/v1/projects/${project.id}`, () => HttpResponse.json(project)),
+    http.get(`/api/v1/user-stories/${requirement.id}/generation-runs`, () =>
+      HttpResponse.json([
+        {
+          id: testCase.generationRunId,
+          requirementId: requirement.id,
+          provider: 'requirement-rules',
+          model: 'testforge-rules-v2',
+          promptVersion: 'manual-test-v1',
+          status: 'COMPLETED',
+          generatedCaseCount: 1,
+          failureCode: null,
+          failureMessage: null,
+          startedAt: '2026-07-30T12:00:00Z',
+          completedAt: '2026-07-30T12:00:01Z',
+          setNumber: 1,
+          setState: 'ACTIVE',
+        },
+      ]),
+    ),
   ];
 }
 
@@ -121,11 +142,12 @@ function renderRoute(path: string) {
   return render(<App router={router} />);
 }
 
-describe('project and requirement workflow', () => {
-  it('shows project requirements and opens the structured requirement form', async () => {
+describe('project and user-story workflow', () => {
+  it('shows project user stories, audit controls, and the structured story form', async () => {
+    const auditRequests: URLSearchParams[] = [];
     server.use(
       ...authenticatedHandlers(),
-      http.get(`/api/v1/projects/${project.id}/requirements`, () =>
+      http.get(`/api/v1/projects/${project.id}/user-stories`, () =>
         HttpResponse.json({
           items: [
             {
@@ -134,6 +156,7 @@ describe('project and requirement workflow', () => {
               projectId: project.id,
               title: requirement.title,
               status: requirement.status,
+              priority: requirement.priority,
               acceptanceCriteriaCount: 1,
               updatedAt: requirement.updatedAt,
               version: 1,
@@ -146,14 +169,55 @@ describe('project and requirement workflow', () => {
           hasNext: false,
         }),
       ),
+      http.get(`/api/v1/projects/${project.id}/audit-events`, ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        auditRequests.push(params);
+        const page = Number(params.get('page') ?? 0);
+        return HttpResponse.json({
+          items: [
+            {
+              id: `audit-${page}`,
+              actorId: user.id,
+              projectId: project.id,
+              entityType: page === 0 ? 'REQUIREMENT' : 'PROJECT',
+              entityId: page === 0 ? requirement.id : project.id,
+              action: 'CREATED',
+              metadata: {},
+              timestamp: '2026-07-30T12:04:00Z',
+              correlationId: `audit-correlation-${page}`,
+            },
+          ],
+          page,
+          size: 20,
+          totalElements: 21,
+          totalPages: 2,
+          hasNext: page === 0,
+        });
+      }),
     );
     const actor = userEvent.setup();
     renderRoute(`/projects/${project.id}`);
 
     expect(await screen.findByRole('heading', { level: 1, name: project.name })).toBeVisible();
     expect(await screen.findByRole('heading', { level: 3, name: requirement.title })).toBeVisible();
-    await actor.click(screen.getByRole('button', { name: 'New requirement' }));
-    expect(screen.getByRole('heading', { name: 'Add a requirement' })).toBeVisible();
+    expect(await screen.findByText('User story — Created')).toBeVisible();
+    await actor.click(screen.getByRole('combobox', { name: 'Event type' }));
+    await actor.click(screen.getByRole('option', { name: 'User story' }));
+    await actor.type(screen.getByRole('textbox', { name: 'Entity ID' }), requirement.id);
+    await actor.type(screen.getByRole('textbox', { name: 'Actor ID' }), user.id);
+    await actor.type(screen.getByRole('textbox', { name: 'Action' }), 'CREATED');
+    await actor.click(screen.getByRole('button', { name: 'Apply filters' }));
+    await waitFor(() => expect(auditRequests.at(-1)?.get('entityType')).toBe('REQUIREMENT'));
+    expect(auditRequests.at(-1)?.get('entityId')).toBe(requirement.id);
+    expect(auditRequests.at(-1)?.get('actorId')).toBe(user.id);
+    expect(auditRequests.at(-1)?.get('action')).toBe('CREATED');
+    await actor.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(await screen.findByText('Project — Created')).toBeVisible();
+    expect(auditRequests.at(-1)?.get('page')).toBe('1');
+    await actor.click(screen.getByRole('button', { name: 'New user story' }));
+    expect(screen.getByRole('heading', { name: 'Add a user story' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'User story statement' })).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: 'Requirements and constraints' })).toBeEnabled();
     expect(screen.getByLabelText('AC-1')).toBeEnabled();
     await actor.click(screen.getByRole('button', { name: 'Add criterion' }));
     expect(screen.getByLabelText('AC-2')).toBeEnabled();
@@ -161,7 +225,7 @@ describe('project and requirement workflow', () => {
     await actor.click(screen.getByRole('button', { name: 'Move acceptance criterion 1 down' }));
     await actor.click(screen.getByRole('button', { name: 'Remove acceptance criterion 2' }));
     expect(screen.queryByLabelText('AC-2')).not.toBeInTheDocument();
-  });
+  }, 20_000);
 
   it('orders test cases naturally by default and supports sorting and filtering', async () => {
     const unorderedCases = [
@@ -192,11 +256,11 @@ describe('project and requirement workflow', () => {
     ];
     server.use(
       ...authenticatedHandlers(),
-      http.get(`/api/v1/requirements/${requirement.id}`, () => HttpResponse.json(requirement)),
-      http.get(`/api/v1/requirements/${requirement.id}/test-cases`, () =>
+      http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases`, () =>
         HttpResponse.json(unorderedCases),
       ),
-      http.get(`/api/v1/requirements/${requirement.id}/coverage`, () =>
+      http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
         HttpResponse.json({
           requirementId: requirement.id,
           totalCriteria: 1,
@@ -206,7 +270,7 @@ describe('project and requirement workflow', () => {
           approvedCoveragePercent: 100,
         }),
       ),
-      http.get(`/api/v1/requirements/${requirement.id}/traceability`, () =>
+      http.get(`/api/v1/user-stories/${requirement.id}/traceability`, () =>
         HttpResponse.json({ requirementId: requirement.id, rows: [] }),
       ),
     );
@@ -280,18 +344,21 @@ describe('project and requirement workflow', () => {
 
     await actor.type(screen.getByRole('textbox', { name: 'Search test cases' }), 'no match');
     expect(screen.getByText('No test cases match the current filters.')).toBeVisible();
-  });
+  }, 20_000);
 
-  it('reviews generated evidence, edits its structure, and inspects traceability', async () => {
-    let currentCase = testCase;
-    const primaryCriterion = requirement.acceptanceCriteria[0]!;
+  it('collects required human evidence before reopening or requesting changes', async () => {
+    let currentCase = { ...testCase, status: 'APPROVED', version: 4 } as typeof testCase;
+    let reopenRequests = 0;
+    let changeRequests = 0;
+    let reopenPayload: Record<string, unknown> | null = null;
+    let changePayload: Record<string, unknown> | null = null;
     server.use(
       ...authenticatedHandlers(),
-      http.get(`/api/v1/requirements/${requirement.id}`, () => HttpResponse.json(requirement)),
-      http.get(`/api/v1/requirements/${requirement.id}/test-cases`, () =>
+      http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases`, () =>
         HttpResponse.json([currentCase]),
       ),
-      http.get(`/api/v1/requirements/${requirement.id}/coverage`, () =>
+      http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
         HttpResponse.json({
           requirementId: requirement.id,
           totalCriteria: 1,
@@ -301,7 +368,89 @@ describe('project and requirement workflow', () => {
           approvedCoveragePercent: currentCase.status === 'APPROVED' ? 100 : 0,
         }),
       ),
-      http.get(`/api/v1/requirements/${requirement.id}/traceability`, () =>
+      http.get(`/api/v1/user-stories/${requirement.id}/traceability`, () =>
+        HttpResponse.json({ requirementId: requirement.id, rows: [] }),
+      ),
+      http.post(`/api/v1/test-cases/${testCase.id}/reopen`, async ({ request }) => {
+        reopenRequests += 1;
+        reopenPayload = (await request.json()) as Record<string, unknown>;
+        currentCase = { ...currentCase, status: 'IN_REVIEW', version: 5 };
+        return HttpResponse.json(currentCase);
+      }),
+      http.post(`/api/v1/test-cases/${testCase.id}/request-changes`, async ({ request }) => {
+        changeRequests += 1;
+        changePayload = (await request.json()) as Record<string, unknown>;
+        currentCase = { ...currentCase, status: 'NEEDS_REVISION', version: 6 };
+        return HttpResponse.json(currentCase);
+      }),
+    );
+    const actor = userEvent.setup();
+    renderRoute(`/user-stories/${requirement.id}`);
+
+    await actor.click(await screen.findByRole('tab', { name: 'Test cases (1)' }));
+    await actor.click(await screen.findByText(testCase.title));
+    await actor.click(screen.getByRole('button', { name: 'Reopen for review' }));
+    const reopenDialog = screen.getByRole('dialog', {
+      name: `Reopen for review ${testCase.testCaseKey}`,
+    });
+    const reopenReason = within(reopenDialog).getByRole('textbox', { name: 'Reopen reason' });
+    await actor.type(reopenReason, '  ');
+    await actor.click(within(reopenDialog).getByRole('button', { name: 'Reopen test case' }));
+    expect(reopenRequests).toBe(0);
+    expect(
+      within(reopenDialog).getByText('Enter a meaningful reason for reopening this test case.'),
+    ).toBeVisible();
+    await actor.clear(reopenReason);
+    await actor.type(reopenReason, 'New production-like evidence needs human review.');
+    await actor.click(within(reopenDialog).getByRole('button', { name: 'Reopen test case' }));
+    expect(await screen.findByText('IN REVIEW')).toBeVisible();
+    expect(reopenPayload).toEqual({
+      reason: 'New production-like evidence needs human review.',
+      version: 4,
+    });
+
+    await actor.click(screen.getByRole('button', { name: 'Request changes' }));
+    const changesDialog = screen.getByRole('dialog', {
+      name: `Request changes ${testCase.testCaseKey}`,
+    });
+    const reviewComment = within(changesDialog).getByRole('textbox', { name: 'Review comment' });
+    await actor.type(reviewComment, 'x');
+    await actor.click(within(changesDialog).getByRole('button', { name: 'Request changes' }));
+    expect(changeRequests).toBe(0);
+    expect(
+      within(changesDialog).getByText('Enter a meaningful comment for this review decision.'),
+    ).toBeVisible();
+    await actor.clear(reviewComment);
+    await actor.type(reviewComment, 'Clarify the expected retry-state evidence.');
+    await actor.click(within(changesDialog).getByRole('button', { name: 'Request changes' }));
+    expect(await screen.findByText('NEEDS REVISION')).toBeVisible();
+    expect(changePayload).toEqual({
+      comments: 'Clarify the expected retry-state evidence.',
+      version: 5,
+    });
+  }, 20_000);
+
+  it('reviews generated evidence, edits its structure, and inspects traceability', async () => {
+    let currentCase = testCase;
+    let approvalPayload: Record<string, unknown> | null = null;
+    const primaryCriterion = requirement.acceptanceCriteria[0]!;
+    server.use(
+      ...authenticatedHandlers(),
+      http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases`, () =>
+        HttpResponse.json([currentCase]),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
+        HttpResponse.json({
+          requirementId: requirement.id,
+          totalCriteria: 1,
+          coveredCriteria: 1,
+          approvedCriteria: currentCase.status === 'APPROVED' ? 1 : 0,
+          coveragePercent: 100,
+          approvedCoveragePercent: currentCase.status === 'APPROVED' ? 100 : 0,
+        }),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/traceability`, () =>
         HttpResponse.json({
           requirementId: requirement.id,
           rows: [
@@ -339,11 +488,52 @@ describe('project and requirement workflow', () => {
         } as typeof testCase;
         return HttpResponse.json(currentCase);
       }),
-      http.post(`/api/v1/test-cases/${testCase.id}/approve`, () => {
-        currentCase = { ...currentCase, status: 'APPROVED' };
+      http.post(`/api/v1/test-cases/${testCase.id}/approve`, async ({ request }) => {
+        approvalPayload = (await request.json()) as Record<string, unknown>;
+        currentCase = { ...currentCase, status: 'APPROVED', version: 2 };
         return HttpResponse.json(currentCase);
       }),
-      http.post(`/api/v1/requirements/${requirement.id}/regenerate`, () =>
+      http.get(`/api/v1/test-cases/${testCase.id}/revisions`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'revision-1',
+              revisionNumber: 1,
+              snapshot: { ...testCase, schemaVersion: 1 },
+              changedBy: user.id,
+              changedAt: '2026-07-30T12:05:00Z',
+            },
+          ],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+          hasNext: false,
+        }),
+      ),
+      http.get(`/api/v1/projects/${project.id}/audit-events`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'test-case-audit-1',
+              actorId: user.id,
+              projectId: project.id,
+              entityType: 'TEST_CASE',
+              entityId: testCase.id,
+              action: 'UPDATED',
+              metadata: {},
+              timestamp: '2026-07-30T12:05:00Z',
+              correlationId: 'test-case-history',
+            },
+          ],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+          hasNext: false,
+        }),
+      ),
+      http.post(`/api/v1/user-stories/${requirement.id}/regenerate`, () =>
         HttpResponse.json(
           {
             id: 'run-2',
@@ -365,6 +555,9 @@ describe('project and requirement workflow', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: requirement.title })).toBeVisible();
     expect(await screen.findByText('100%')).toBeVisible();
+    expect(screen.getByRole('tablist', { name: 'User Story workspace sections' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Story details' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Requirements and constraints' })).toBeVisible();
     await actor.click(screen.getByRole('tab', { name: 'Test cases (1)' }));
     await actor.click(await screen.findByText(testCase.title));
     expect(await screen.findByText(testCase.finalExpectedOutcome, { exact: false })).toBeVisible();
@@ -400,6 +593,14 @@ describe('project and requirement workflow', () => {
     await actor.click(within(dialog).getByRole('button', { name: 'Save changes' }));
     expect(await screen.findByText('Create exactly one eligible return')).toBeVisible();
 
+    await actor.click(screen.getByRole('button', { name: 'Show history' }));
+    expect(await screen.findByText('Revision timeline')).toBeVisible();
+    await actor.click(screen.getByRole('button', { name: 'Compare revision 1' }));
+    const comparison = screen.getByRole('table', { name: 'Revision comparison' });
+    expect(within(comparison).getByText('Create one eligible return request')).toBeVisible();
+    expect(within(comparison).getByText('Create exactly one eligible return')).toBeVisible();
+    expect(screen.getByText(/UPDATED/)).toBeVisible();
+
     await actor.click(screen.getByRole('button', { name: 'Edit' }));
     const dirtyDialog = screen.getByRole('dialog', { name: `Edit ${testCase.testCaseKey}` });
     await actor.type(within(dirtyDialog).getByRole('textbox', { name: /Title/ }), ' updated');
@@ -409,12 +610,19 @@ describe('project and requirement workflow', () => {
     confirm.mockRestore();
 
     await actor.click(screen.getByRole('button', { name: 'Approve' }));
-    expect(await screen.findByText('APPROVED')).toBeVisible();
+    const approvalDialog = screen.getByRole('dialog', { name: `Approve ${testCase.testCaseKey}` });
+    expect(
+      within(approvalDialog).getByRole('textbox', { name: 'Approval comment (optional)' }),
+    ).toBeEnabled();
+    await actor.click(within(approvalDialog).getByRole('button', { name: 'Confirm approval' }));
+    expect((await screen.findAllByText('APPROVED')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('1 criterion has approved evidence')).toBeVisible();
+    expect(approvalPayload).toEqual({ comments: '', version: 1 });
     await actor.click(screen.getByRole('tab', { name: 'Traceability' }));
     expect(screen.getByText('AC-1')).toBeVisible();
     await actor.click(screen.getByRole('tab', { name: 'Ambiguities (1)' }));
     expect(screen.getByText('MISSING PERMISSION RULE')).toBeVisible();
     await actor.click(screen.getByRole('button', { name: 'Regenerate' }));
-    expect(await screen.findByText(/Generation completed/)).toBeVisible();
-  }, 15_000);
+    expect(await screen.findByText(/1 manual test case was created from this story/)).toBeVisible();
+  }, 30_000);
 });

@@ -26,7 +26,8 @@ public final class ProjectDtos {
       String name,
       String description,
       ProjectStatus status,
-      long requirementCount,
+      long userStoryCount,
+      @Deprecated long requirementCount,
       Instant createdAt,
       Instant updatedAt,
       long version) {}

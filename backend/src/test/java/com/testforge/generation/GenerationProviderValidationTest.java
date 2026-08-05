@@ -19,6 +19,7 @@ import com.testforge.testcase.domain.CoverageIntent;
 import com.testforge.testcase.domain.DataSensitivity;
 import com.testforge.testcase.domain.TestCaseCategory;
 import com.testforge.testcase.domain.TestPriority;
+import com.testforge.testcase.validation.TestDataReferencePolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -26,7 +27,8 @@ import org.junit.jupiter.api.Test;
 
 class GenerationProviderValidationTest {
   private final GenerationResultValidator validator =
-      new GenerationResultValidator(new GenerationProperties("fake", 10, 5));
+      new GenerationResultValidator(
+          new GenerationProperties("fake", 10, 5), new TestDataReferencePolicy());
 
   /**
    * Covers the fake provider generates deterministic valid and context sensitive coverage scenario.
@@ -321,6 +323,68 @@ class GenerationProviderValidationTest {
             null,
             null);
     validator.validate(request, result(List.of(exploratory)));
+  }
+
+  /** Covers normalized duplicate names, dangling references, and canonical matching. */
+  @Test
+  void validatorEnforcesTestDataReferenceIntegrity() {
+    TestGenerationRequest request =
+        request("As a tester, I want a form, so that I can submit.", "", "");
+    assertInvalid(
+        request,
+        result(
+            List.of(
+                withData(
+                    List.of(
+                        data("requestId", "First", "TF-1", DataSensitivity.PUBLIC),
+                        data(" REQUESTID ", "Second", "TF-2", DataSensitivity.PUBLIC))))));
+
+    GeneratedTestCase base = validCase("Dangling reference");
+    assertInvalid(
+        request,
+        result(
+            List.of(
+                copy(
+                    base,
+                    base.title(),
+                    base.objective(),
+                    base.finalExpectedOutcome(),
+                    base.rationale(),
+                    base.category(),
+                    base.priority(),
+                    base.riskLevel(),
+                    base.coverageIntent(),
+                    List.of(
+                        new GeneratedStep(
+                            1,
+                            "Submit the synthetic request.",
+                            "One request is stored.",
+                            "missing")),
+                    base.acceptanceCriteriaKeys(),
+                    base.testData()))));
+
+    validator.validate(
+        request,
+        result(
+            List.of(
+                copy(
+                    base,
+                    "Canonical reference",
+                    base.objective(),
+                    base.finalExpectedOutcome(),
+                    base.rationale(),
+                    base.category(),
+                    base.priority(),
+                    base.riskLevel(),
+                    base.coverageIntent(),
+                    List.of(
+                        new GeneratedStep(
+                            1,
+                            "Submit the synthetic request.",
+                            "One request is stored.",
+                            " REQUESTID ")),
+                    base.acceptanceCriteriaKeys(),
+                    base.testData()))));
   }
 
   /** Executes the request operation for GenerationProviderValidationTest. */

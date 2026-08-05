@@ -3,7 +3,9 @@ package com.testforge.testcase.application;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.testforge.audit.application.AuditService;
+import com.testforge.common.dto.PageResponse;
 import com.testforge.common.error.ApiExceptions;
+import com.testforge.generation.application.ActiveGenerationSetResolver;
 import com.testforge.requirement.application.RequirementService;
 import com.testforge.requirement.domain.RequirementEntity;
 import com.testforge.requirement.repository.AcceptanceCriterionRepository;
@@ -15,8 +17,10 @@ import com.testforge.testcase.domain.TestCaseRevisionEntity;
 import com.testforge.testcase.domain.TestDataItemEntity;
 import com.testforge.testcase.domain.TestStepEntity;
 import com.testforge.testcase.dto.TestCaseDtos.PreconditionResponse;
+import com.testforge.testcase.dto.TestCaseDtos.ReopenRequest;
 import com.testforge.testcase.dto.TestCaseDtos.ReviewRequest;
 import com.testforge.testcase.dto.TestCaseDtos.ReviewResponse;
+import com.testforge.testcase.dto.TestCaseDtos.RevisionResponse;
 import com.testforge.testcase.dto.TestCaseDtos.StepResponse;
 import com.testforge.testcase.dto.TestCaseDtos.TestCaseResponse;
 import com.testforge.testcase.dto.TestCaseDtos.TestDataResponse;
@@ -27,12 +31,15 @@ import com.testforge.testcase.repository.TestCaseReviewRepository;
 import com.testforge.testcase.repository.TestCaseRevisionRepository;
 import com.testforge.testcase.repository.TestDataItemRepository;
 import com.testforge.testcase.repository.TestStepRepository;
+import com.testforge.testcase.validation.TestDataReferencePolicy;
 import com.testforge.traceability.repository.TraceabilityLinkRepository;
 import java.time.Clock;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,6 +54,8 @@ public class TestCaseService {
   private final TraceabilityLinkRepository links;
   private final AcceptanceCriterionRepository criteria;
   private final RequirementService requirementService;
+  private final ActiveGenerationSetResolver activeSets;
+  private final TestDataReferencePolicy testDataReferences;
   private final AuditService auditService;
   private final ObjectMapper objectMapper;
   private final Clock clock;
@@ -62,6 +71,8 @@ public class TestCaseService {
       TraceabilityLinkRepository links,
       AcceptanceCriterionRepository criteria,
       RequirementService requirementService,
+      ActiveGenerationSetResolver activeSets,
+      TestDataReferencePolicy testDataReferences,
       AuditService auditService,
       ObjectMapper objectMapper,
       Clock clock) {
@@ -74,6 +85,8 @@ public class TestCaseService {
     this.links = links;
     this.criteria = criteria;
     this.requirementService = requirementService;
+    this.activeSets = activeSets;
+    this.testDataReferences = testDataReferences;
     this.auditService = auditService;
     this.objectMapper = objectMapper;
     this.clock = clock;
@@ -81,9 +94,15 @@ public class TestCaseService {
 
   /** Lists resources visible to the current owner using the requested page. */
   @Transactional(readOnly = true)
-  public List<TestCaseResponse> list(UUID ownerId, UUID requirementId) {
+  public List<TestCaseResponse> list(UUID ownerId, UUID requirementId, UUID generationRunId) {
     requirementService.requireOwned(ownerId, requirementId);
-    return testCases.findAllByRequirementIdOrderByWorkItemNumber(requirementId).stream()
+    UUID selectedRunId = selectReadableRun(requirementId, generationRunId);
+    if (selectedRunId == null) {
+      return List.of();
+    }
+    return testCases
+        .findAllByRequirementIdAndGenerationRunIdOrderByWorkItemNumber(requirementId, selectedRunId)
+        .stream()
         .map(this::toResponse)
         .toList();
   }
@@ -98,25 +117,33 @@ public class TestCaseService {
   @Transactional
   public TestCaseResponse update(UUID ownerId, UUID testCaseId, UpdateTestCaseRequest request) {
     TestCaseEntity testCase = requireOwned(ownerId, testCaseId);
+    assertActive(testCase);
     if (testCase.getVersion() != request.version()) {
       throw ApiExceptions.conflict(
           "stale_version", "This test case changed since it was loaded. Refresh and retry.");
     }
     validateStepNumbers(request);
+    List<String> canonicalReferences = validateTestDataReferences(request);
     RequirementEntity requirement =
         requirementService.requireOwned(ownerId, testCase.getRequirementId());
+    boolean actualChange = hasActualChange(testCase, request, canonicalReferences);
     saveRevision(testCase, ownerId);
-    testCase.update(
-        request.title().strip(),
-        request.objective().strip(),
-        request.category(),
-        request.priority(),
-        request.riskLevel(),
-        request.automationCandidate(),
-        request.rationale().strip(),
-        request.finalExpectedOutcome().strip(),
-        clock.instant());
-    replaceParts(testCaseId, request);
+    try {
+      testCase.update(
+          request.title().strip(),
+          request.objective().strip(),
+          request.category(),
+          request.priority(),
+          request.riskLevel(),
+          request.automationCandidate(),
+          request.rationale().strip(),
+          request.finalExpectedOutcome().strip(),
+          actualChange,
+          clock.instant());
+    } catch (TestCaseEntity.InvalidTransition exception) {
+      throw ApiExceptions.conflict("invalid_test_case_transition", exception.getMessage());
+    }
+    replaceParts(testCaseId, request, canonicalReferences);
     auditService.record(
         ownerId,
         requirement.getProjectId(),
@@ -124,6 +151,7 @@ public class TestCaseService {
         testCaseId,
         "UPDATED",
         Map.of("testCaseKey", testCase.getTestCaseKey()));
+    testCases.flush();
     return toResponse(testCase);
   }
 
@@ -132,9 +160,15 @@ public class TestCaseService {
   public TestCaseResponse review(
       UUID ownerId, UUID testCaseId, ReviewDecision decision, ReviewRequest request) {
     TestCaseEntity testCase = requireOwned(ownerId, testCaseId);
+    assertActive(testCase);
+    assertVersion(testCase, request.version());
     RequirementEntity requirement =
         requirementService.requireOwned(ownerId, testCase.getRequirementId());
-    testCase.review(decision, clock.instant());
+    try {
+      testCase.review(decision, clean(request.comments()), clock.instant());
+    } catch (TestCaseEntity.InvalidTransition exception) {
+      throw ApiExceptions.conflict("invalid_test_case_transition", exception.getMessage());
+    }
     reviews.save(
         TestCaseReviewEntity.create(
             testCaseId, ownerId, decision, clean(request.comments()), clock.instant()));
@@ -145,7 +179,51 @@ public class TestCaseService {
         testCaseId,
         "REVIEWED",
         Map.of("decision", decision.name(), "testCaseKey", testCase.getTestCaseKey()));
+    reviews.flush();
+    testCases.flush();
     return toResponse(testCase);
+  }
+
+  /** Explicitly reopens a terminal active-set case with optimistic concurrency. */
+  @Transactional
+  public TestCaseResponse reopen(UUID ownerId, UUID testCaseId, ReopenRequest request) {
+    TestCaseEntity testCase = requireOwned(ownerId, testCaseId);
+    assertActive(testCase);
+    assertVersion(testCase, request.version());
+    RequirementEntity requirement =
+        requirementService.requireOwned(ownerId, testCase.getRequirementId());
+    try {
+      testCase.reopen(request.reason().strip(), clock.instant());
+    } catch (TestCaseEntity.InvalidTransition exception) {
+      throw ApiExceptions.conflict("invalid_test_case_transition", exception.getMessage());
+    }
+    auditService.record(
+        ownerId,
+        requirement.getProjectId(),
+        "TEST_CASE",
+        testCaseId,
+        "REOPENED",
+        Map.of("reason", request.reason().strip(), "testCaseKey", testCase.getTestCaseKey()));
+    testCases.flush();
+    return toResponse(testCase);
+  }
+
+  /** Returns normalized, structured, owner-isolated revision history. */
+  @Transactional(readOnly = true)
+  public PageResponse<RevisionResponse> revisions(
+      UUID ownerId, UUID testCaseId, int page, int size) {
+    requireOwned(ownerId, testCaseId);
+    return PageResponse.from(
+        revisions
+            .findAllByTestCaseIdOrderByChangedAtDescIdDesc(testCaseId, PageRequest.of(page, size))
+            .map(
+                revision ->
+                    new RevisionResponse(
+                        revision.getId(),
+                        revision.getRevisionNumber(),
+                        normalizeSnapshot(revision.getSnapshotJson()),
+                        revision.getChangedBy(),
+                        revision.getChangedAt())));
   }
 
   /** Loads the requested resource and verifies that it belongs to the current owner. */
@@ -224,7 +302,8 @@ public class TestCaseService {
   }
 
   /** Executes the replace parts operation for TestCaseService. */
-  private void replaceParts(UUID testCaseId, UpdateTestCaseRequest request) {
+  private void replaceParts(
+      UUID testCaseId, UpdateTestCaseRequest request, List<String> canonicalReferences) {
     preconditions.deleteAllByTestCaseId(testCaseId);
     steps.deleteAllByTestCaseId(testCaseId);
     testData.deleteAllByTestCaseId(testCaseId);
@@ -236,17 +315,16 @@ public class TestCaseService {
           TestCasePreconditionEntity.create(
               testCaseId, index, request.preconditions().get(index).strip()));
     }
-    request
-        .steps()
-        .forEach(
-            item ->
-                steps.save(
-                    TestStepEntity.create(
-                        testCaseId,
-                        item.stepNumber(),
-                        item.action().strip(),
-                        item.expectedResult().strip(),
-                        clean(item.testDataReference()))));
+    for (int index = 0; index < request.steps().size(); index++) {
+      var item = request.steps().get(index);
+      steps.save(
+          TestStepEntity.create(
+              testCaseId,
+              item.stepNumber(),
+              item.action().strip(),
+              item.expectedResult().strip(),
+              canonicalReferences.get(index)));
+    }
     request
         .testData()
         .forEach(
@@ -259,6 +337,130 @@ public class TestCaseService {
                         item.exampleValue().strip(),
                         item.sensitivity(),
                         item.generationStrategy().strip())));
+  }
+
+  /** Validates names/references before any managed case state is mutated. */
+  private List<String> validateTestDataReferences(UpdateTestCaseRequest request) {
+    try {
+      return testDataReferences.canonicalize(
+          request.testData().stream().map(item -> item.name().strip()).toList(),
+          request.steps().stream().map(item -> item.testDataReference()).toList());
+    } catch (TestDataReferencePolicy.Violation violation) {
+      throw ApiExceptions.badRequest("invalid_test_data_reference", violation.getMessage());
+    }
+  }
+
+  /** Compares normalized mutable fields and parts to prevent a false revision transition. */
+  private boolean hasActualChange(
+      TestCaseEntity testCase, UpdateTestCaseRequest request, List<String> canonicalReferences) {
+    TestCaseResponse current = toResponse(testCase);
+    if (!Objects.equals(current.title(), request.title().strip())
+        || !Objects.equals(current.objective(), request.objective().strip())
+        || current.category() != request.category()
+        || current.priority() != request.priority()
+        || current.riskLevel() != request.riskLevel()
+        || current.automationCandidate() != request.automationCandidate()
+        || !Objects.equals(current.rationale(), request.rationale().strip())
+        || !Objects.equals(
+            current.finalExpectedOutcome(), request.finalExpectedOutcome().strip())) {
+      return true;
+    }
+    List<String> requestedPreconditions =
+        request.preconditions().stream().map(String::strip).toList();
+    if (!current.preconditions().stream()
+        .map(PreconditionResponse::description)
+        .toList()
+        .equals(requestedPreconditions)) {
+      return true;
+    }
+    if (current.steps().size() != request.steps().size()) {
+      return true;
+    }
+    for (int index = 0; index < request.steps().size(); index++) {
+      var persisted = current.steps().get(index);
+      var requested = request.steps().get(index);
+      if (persisted.stepNumber() != requested.stepNumber()
+          || !Objects.equals(persisted.action(), requested.action().strip())
+          || !Objects.equals(persisted.expectedResult(), requested.expectedResult().strip())
+          || !Objects.equals(persisted.testDataReference(), canonicalReferences.get(index))) {
+        return true;
+      }
+    }
+    if (current.testData().size() != request.testData().size()) {
+      return true;
+    }
+    for (int index = 0; index < request.testData().size(); index++) {
+      var persisted = current.testData().get(index);
+      var requested = request.testData().get(index);
+      if (!Objects.equals(persisted.name(), requested.name().strip())
+          || !Objects.equals(persisted.description(), requested.description().strip())
+          || !Objects.equals(persisted.exampleValue(), requested.exampleValue().strip())
+          || persisted.sensitivity() != requested.sensitivity()
+          || !Objects.equals(
+              persisted.generationStrategy(), requested.generationStrategy().strip())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Selects the active set by default and validates an explicit historical selector. */
+  private UUID selectReadableRun(UUID requirementId, UUID requestedRunId) {
+    if (requestedRunId == null) {
+      return activeSets.resolve(requirementId).map(item -> item.getId()).orElse(null);
+    }
+    return activeSets.successful(requirementId).stream()
+        .filter(run -> run.getId().equals(requestedRunId))
+        .findFirst()
+        .map(run -> run.getId())
+        .orElseThrow(() -> ApiExceptions.notFound("Successful generation set not found."));
+  }
+
+  /** Rejects mutation when the case is not part of the active successful set. */
+  private void assertActive(TestCaseEntity testCase) {
+    boolean active =
+        activeSets
+            .resolve(testCase.getRequirementId())
+            .map(run -> run.getId().equals(testCase.getGenerationRunId()))
+            .orElse(false);
+    if (!active) {
+      throw ApiExceptions.conflict(
+          "superseded_generation_set", "Superseded generation sets are read-only.");
+    }
+  }
+
+  /** Rejects a stale test-case mutation using the submitted expected version. */
+  private void assertVersion(TestCaseEntity testCase, long requestedVersion) {
+    if (testCase.getVersion() != requestedVersion) {
+      throw ApiExceptions.conflict(
+          "stale_version", "This test case changed since it was loaded. Refresh and retry.");
+    }
+  }
+
+  /** Normalizes current and legacy revision payloads into a structured object. */
+  private com.fasterxml.jackson.databind.JsonNode normalizeSnapshot(String snapshotJson) {
+    try {
+      var snapshot = objectMapper.readTree(snapshotJson);
+      if (snapshot != null && snapshot.isTextual()) {
+        snapshot = objectMapper.readTree(snapshot.textValue());
+      }
+      if (snapshot != null && snapshot.isObject()) {
+        var normalized = snapshot.deepCopy();
+        if (!normalized.has("schemaVersion")) {
+          ((com.fasterxml.jackson.databind.node.ObjectNode) normalized).put("schemaVersion", 1);
+        }
+        return normalized;
+      }
+      var normalized = objectMapper.createObjectNode();
+      normalized.put("schemaVersion", 1);
+      normalized.set("legacySnapshot", snapshot);
+      return normalized;
+    } catch (JsonProcessingException exception) {
+      var normalized = objectMapper.createObjectNode();
+      normalized.put("schemaVersion", 1);
+      normalized.put("legacySnapshot", snapshotJson);
+      return normalized;
+    }
   }
 
   /** Executes the validate step numbers operation for TestCaseService. */

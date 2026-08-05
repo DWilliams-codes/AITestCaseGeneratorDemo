@@ -50,6 +50,29 @@ describe('TestForge application', () => {
               name: 'Customer Returns Portal',
               description: 'Retail returns quality coverage.',
               status: 'ACTIVE',
+              userStoryCount: 1,
+              requirementCount: 1,
+              createdAt: '2026-07-30T12:00:00Z',
+              updatedAt: '2026-07-30T12:00:00Z',
+              version: 0,
+            },
+            {
+              id: '20000000-0000-0000-0000-000000000010',
+              name: 'Zero Story Project',
+              description: 'Exercises the canonical zero-count label.',
+              status: 'ACTIVE',
+              userStoryCount: 0,
+              requirementCount: 9,
+              createdAt: '2026-07-30T12:00:00Z',
+              updatedAt: '2026-07-30T12:00:00Z',
+              version: 0,
+            },
+            {
+              id: '20000000-0000-0000-0000-000000000011',
+              name: 'Five Story Project',
+              description: 'Exercises the canonical plural count label.',
+              status: 'ACTIVE',
+              userStoryCount: 5,
               requirementCount: 1,
               createdAt: '2026-07-30T12:00:00Z',
               updatedAt: '2026-07-30T12:00:00Z',
@@ -58,7 +81,7 @@ describe('TestForge application', () => {
           ],
           page: 0,
           size: 20,
-          totalElements: 1,
+          totalElements: 3,
           totalPages: 1,
           hasNext: false,
         }),
@@ -71,6 +94,10 @@ describe('TestForge application', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Projects' })).toBeVisible();
     expect(await screen.findByRole('heading', { name: 'Customer Returns Portal' })).toBeVisible();
+    expect(screen.getByText('1 user story')).toBeVisible();
+    expect(screen.getByText('0 user stories')).toBeVisible();
+    expect(screen.getByText('5 user stories')).toBeVisible();
+    expect(screen.queryByText(/requirements?$/i)).not.toBeInTheDocument();
     expect(screen.getByText('Maya Chen')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeVisible();
@@ -99,6 +126,7 @@ describe('TestForge application', () => {
             name: body.name,
             description: body.description,
             status: 'ACTIVE',
+            userStoryCount: 0,
             requirementCount: 0,
             createdAt: '2026-07-30T12:00:00Z',
             updatedAt: '2026-07-30T12:00:00Z',
@@ -113,13 +141,14 @@ describe('TestForge application', () => {
           name: 'Payments Modernization',
           description: 'Synthetic payments project.',
           status: 'ACTIVE',
+          userStoryCount: 0,
           requirementCount: 0,
           createdAt: '2026-07-30T12:00:00Z',
           updatedAt: '2026-07-30T12:00:00Z',
           version: 0,
         }),
       ),
-      http.get('/api/v1/projects/20000000-0000-0000-0000-000000000002/requirements', () =>
+      http.get('/api/v1/projects/20000000-0000-0000-0000-000000000002/user-stories', () =>
         HttpResponse.json({
           items: [],
           page: 0,
@@ -171,6 +200,7 @@ describe('TestForge application', () => {
               name: 'Recovered Project',
               description: 'Available after retry.',
               status: 'ACTIVE',
+              userStoryCount: 0,
               requirementCount: 0,
               createdAt: '2026-07-30T12:00:00Z',
               updatedAt: '2026-07-30T12:00:00Z',
@@ -227,6 +257,8 @@ describe('TestForge application', () => {
     const actor = userEvent.setup();
     renderRoute('/login');
     await actor.click(await screen.findByRole('tab', { name: 'Create account' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Create your account' })).toBeVisible();
+    expect(screen.getByText('Start a secure quality engineering workspace.')).toBeVisible();
     await actor.type(screen.getByLabelText('Display name'), 'Jordan Lee');
     const email = screen.getByLabelText('Email address');
     await actor.clear(email);

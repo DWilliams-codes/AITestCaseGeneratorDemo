@@ -1,5 +1,7 @@
 package com.testforge.traceability.application;
 
+import com.testforge.common.error.ApiExceptions;
+import com.testforge.generation.application.ActiveGenerationSetResolver;
 import com.testforge.requirement.application.RequirementService;
 import com.testforge.requirement.repository.AcceptanceCriterionRepository;
 import com.testforge.testcase.domain.TestCaseEntity;
@@ -23,28 +25,35 @@ public class TraceabilityService {
   private final AcceptanceCriterionRepository criteria;
   private final TestCaseRepository testCases;
   private final TraceabilityLinkRepository links;
+  private final ActiveGenerationSetResolver activeSets;
 
   /** Initializes TraceabilityService with its required collaborators and domain state. */
   public TraceabilityService(
       RequirementService requirementService,
       AcceptanceCriterionRepository criteria,
       TestCaseRepository testCases,
-      TraceabilityLinkRepository links) {
+      TraceabilityLinkRepository links,
+      ActiveGenerationSetResolver activeSets) {
     this.requirementService = requirementService;
     this.criteria = criteria;
     this.testCases = testCases;
     this.links = links;
+    this.activeSets = activeSets;
   }
 
   /** Executes the traceability operation for TraceabilityService. */
   @Transactional(readOnly = true)
-  public TraceabilityResponse traceability(UUID ownerId, UUID requirementId) {
+  public TraceabilityResponse traceability(UUID ownerId, UUID requirementId, UUID generationRunId) {
     requirementService.requireOwned(ownerId, requirementId);
+    UUID selectedRunId = selectReadableRun(requirementId, generationRunId);
     var criterionList = criteria.findAllByRequirementIdOrderBySortOrder(requirementId);
     Map<UUID, TestCaseEntity> caseById = new HashMap<>();
-    testCases
-        .findAllByRequirementIdOrderByWorkItemNumber(requirementId)
-        .forEach(item -> caseById.put(item.getId(), item));
+    if (selectedRunId != null) {
+      testCases
+          .findAllByRequirementIdAndGenerationRunIdOrderByWorkItemNumber(
+              requirementId, selectedRunId)
+          .forEach(item -> caseById.put(item.getId(), item));
+    }
     var allLinks =
         links.findAllByAcceptanceCriterionIdIn(
             criterionList.stream().map(item -> item.getId()).toList());
@@ -80,8 +89,8 @@ public class TraceabilityService {
 
   /** Executes the coverage operation for TraceabilityService. */
   @Transactional(readOnly = true)
-  public CoverageResponse coverage(UUID ownerId, UUID requirementId) {
-    TraceabilityResponse matrix = traceability(ownerId, requirementId);
+  public CoverageResponse coverage(UUID ownerId, UUID requirementId, UUID generationRunId) {
+    TraceabilityResponse matrix = traceability(ownerId, requirementId, generationRunId);
     int total = matrix.rows().size();
     int covered =
         Math.toIntExact(matrix.rows().stream().filter(row -> !row.testCases().isEmpty()).count());
@@ -95,6 +104,18 @@ public class TraceabilityService {
                 .count());
     return new CoverageResponse(
         requirementId, total, covered, approved, percent(covered, total), percent(approved, total));
+  }
+
+  /** Selects the active set by default and validates an explicit historical selector. */
+  private UUID selectReadableRun(UUID requirementId, UUID requestedRunId) {
+    if (requestedRunId == null) {
+      return activeSets.resolve(requirementId).map(run -> run.getId()).orElse(null);
+    }
+    return activeSets.successful(requirementId).stream()
+        .filter(run -> run.getId().equals(requestedRunId))
+        .findFirst()
+        .map(run -> run.getId())
+        .orElseThrow(() -> ApiExceptions.notFound("Successful generation set not found."));
   }
 
   /** Executes the percent operation for TraceabilityService. */

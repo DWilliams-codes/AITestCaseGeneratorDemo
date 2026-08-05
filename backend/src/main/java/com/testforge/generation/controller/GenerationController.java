@@ -6,6 +6,7 @@ import com.testforge.generation.dto.GenerationRunResponse;
 import com.testforge.security.CurrentUser;
 import com.testforge.security.RateLimitService;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -41,8 +43,8 @@ public class GenerationController {
 
   /** Handles the authenticated HTTP request to generate. */
   @PostMapping({
-    "/requirements/{requirementId}/generate-test-cases",
-    "/requirements/{requirementId}/regenerate"
+    "/user-stories/{requirementId}/generate-test-cases",
+    "/requirements/{requirementId}/generate-test-cases"
   })
   @ResponseStatus(HttpStatus.CREATED)
   GenerationRunResponse generate(
@@ -53,6 +55,33 @@ public class GenerationController {
     rateLimitService.check(
         "generation", userId.toString(), securityProperties.generationAttemptsPerMinute());
     return generationService.generate(userId, requirementId, idempotencyKey);
+  }
+
+  /** Regenerates a new immutable set, optionally confirming supersession evidence. */
+  @PostMapping({
+    "/user-stories/{requirementId}/regenerate",
+    "/requirements/{requirementId}/regenerate"
+  })
+  @ResponseStatus(HttpStatus.CREATED)
+  GenerationRunResponse regenerate(
+      Authentication authentication,
+      @PathVariable UUID requirementId,
+      @RequestHeader("Idempotency-Key") @Size(min = 8, max = 200) String idempotencyKey,
+      @RequestParam(defaultValue = "false") boolean confirmSupersede) {
+    UUID userId = currentUser.id(authentication);
+    rateLimitService.check(
+        "generation", userId.toString(), securityProperties.generationAttemptsPerMinute());
+    return generationService.regenerate(userId, requirementId, idempotencyKey, confirmSupersede);
+  }
+
+  /** Lists generation attempts and stable successful-set metadata. */
+  @GetMapping({
+    "/user-stories/{requirementId}/generation-runs",
+    "/requirements/{requirementId}/generation-runs"
+  })
+  List<GenerationRunResponse> list(
+      Authentication authentication, @PathVariable UUID requirementId) {
+    return generationService.list(currentUser.id(authentication), requirementId);
   }
 
   /** Handles the authenticated HTTP request to get. */

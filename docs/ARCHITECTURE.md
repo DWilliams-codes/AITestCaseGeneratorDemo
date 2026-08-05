@@ -62,11 +62,20 @@ Provider failure and invalid output become safe generation-run states; raw provi
 
 ## Data model
 
-The normalized schema includes users, refresh-token families, projects, requirements, acceptance criteria, requirement ambiguities and revisions, generation runs, test cases, preconditions, steps, test data, traceability links, reviews, test-case revisions, and audit events. UUIDs remain the non-guessable internal identifiers used for routes and authorization. A separate shared database sequence issues immutable ADO-style work-item numbers for user stories and test cases; those display numbers never replace owner validation. Optimistic versions prevent lost updates. Flyway is the only schema migration mechanism; Hibernate validates rather than creates production tables.
+The normalized schema includes users, refresh-token families, projects, requirements, acceptance criteria, requirement ambiguities and revisions, generation runs, test cases, preconditions, steps, test data, traceability links, reviews, test-case revisions, and audit events. The existing `requirements` table is the physical store for the canonical User Story aggregate; V5 adds only a nullable, backfilled priority bridge. UUIDs remain the non-guessable internal identifiers used for routes and authorization. A separate shared database sequence issues immutable ADO-style work-item numbers for user stories and test cases; those display numbers never replace owner validation. Optimistic versions prevent lost updates. Flyway is the only schema migration mechanism; Hibernate validates rather than creates production tables.
+
+Completed generation runs are immutable generation sets. One application
+resolver orders successful runs by completion time then UUID, designates the
+latest active, and assigns stable one-based set numbers. Cases, traceability,
+coverage, review, and export use that resolver; explicit historical selection
+is read-only. Test-data name/reference integrity is likewise centralized in one
+policy used before generation persistence and case edits. Review and reopen
+transitions live in the test-case entity, while revisions, reviews, and audit
+events remain separate append-only evidence views.
 
 ## Authentication and browser state
 
-The API issues a short-lived JWT access token to browser memory and a long-lived opaque refresh token in an HttpOnly SameSite cookie. Refresh rotates the token and invalidates its predecessor. Reuse revokes the token family. On reload, the SPA bootstraps CSRF state and attempts refresh; it never writes tokens to local or session storage.
+The API issues a short-lived JWT access token to browser memory and a long-lived opaque refresh token in an HttpOnly SameSite cookie. Refresh rotates the token and invalidates its predecessor. Reuse revokes the token family. On reload, the SPA bootstraps CSRF state and attempts refresh; it never writes tokens to local or session storage. A monotonic client epoch invalidates older refresh and CSRF completions, and one reset clears all session-scoped token/promise caches on refresh failure, logout completion, and before a new login or registration.
 
 Cookie-authenticated mutations require a double-submit CSRF token. Bearer requests are still constrained by exact credentialed CORS in browsers. JWTs validate signature, timestamp, issuer, and `testforge-api` audience.
 

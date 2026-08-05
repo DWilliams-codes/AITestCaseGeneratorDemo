@@ -98,13 +98,15 @@ public class ProjectService {
 
   /** Maps the source data to response. */
   private ProjectResponse toResponse(ProjectEntity project) {
+    long userStoryCount = requirements.countByProjectId(project.getId());
     return new ProjectResponse(
         project.getId(),
         project.getWorkspaceId(),
         project.getName(),
         project.getDescription(),
         project.getStatus(),
-        requirements.countByProjectId(project.getId()),
+        userStoryCount,
+        userStoryCount,
         project.getCreatedAt(),
         project.getUpdatedAt(),
         project.getVersion());

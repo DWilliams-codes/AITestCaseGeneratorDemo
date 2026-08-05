@@ -5,6 +5,7 @@ import com.testforge.common.correlation.CorrelationIds;
 import com.testforge.common.error.ApiExceptions;
 import com.testforge.common.workitem.WorkItemNumberService;
 import com.testforge.generation.domain.GenerationRunEntity;
+import com.testforge.generation.domain.GenerationSetState;
 import com.testforge.generation.domain.GenerationStatus;
 import com.testforge.generation.dto.GenerationRunResponse;
 import com.testforge.generation.provider.TestGenerationProvider;
@@ -30,8 +31,11 @@ import com.testforge.testcase.domain.TestDataItemEntity;
 import com.testforge.testcase.domain.TestStepEntity;
 import com.testforge.testcase.repository.TestCasePreconditionRepository;
 import com.testforge.testcase.repository.TestCaseRepository;
+import com.testforge.testcase.repository.TestCaseReviewRepository;
+import com.testforge.testcase.repository.TestCaseRevisionRepository;
 import com.testforge.testcase.repository.TestDataItemRepository;
 import com.testforge.testcase.repository.TestStepRepository;
+import com.testforge.testcase.validation.TestDataReferencePolicy;
 import com.testforge.traceability.domain.TraceabilityLinkEntity;
 import com.testforge.traceability.repository.TraceabilityLinkRepository;
 import java.math.BigDecimal;
@@ -65,6 +69,10 @@ public class GenerationService {
   private final TraceabilityLinkRepository traceability;
   private final TestGenerationProvider provider;
   private final GenerationResultValidator validator;
+  private final ActiveGenerationSetResolver activeSets;
+  private final TestCaseRevisionRepository revisions;
+  private final TestCaseReviewRepository reviews;
+  private final TestDataReferencePolicy testDataReferences;
   private final AuditService auditService;
   private final Clock clock;
 
@@ -83,6 +91,10 @@ public class GenerationService {
       TraceabilityLinkRepository traceability,
       TestGenerationProvider provider,
       GenerationResultValidator validator,
+      ActiveGenerationSetResolver activeSets,
+      TestCaseRevisionRepository revisions,
+      TestCaseReviewRepository reviews,
+      TestDataReferencePolicy testDataReferences,
       AuditService auditService,
       Clock clock) {
     this.requirementService = requirementService;
@@ -98,6 +110,10 @@ public class GenerationService {
     this.traceability = traceability;
     this.provider = provider;
     this.validator = validator;
+    this.activeSets = activeSets;
+    this.revisions = revisions;
+    this.reviews = reviews;
+    this.testDataReferences = testDataReferences;
     this.auditService = auditService;
     this.clock = clock;
   }
@@ -105,7 +121,28 @@ public class GenerationService {
   /** Generates structured manual test coverage from the requirement input. */
   @Transactional
   public GenerationRunResponse generate(UUID userId, UUID requirementId, String idempotencyKey) {
+    return generateInternal(userId, requirementId, idempotencyKey, false);
+  }
+
+  /** Regenerates while requiring explicit confirmation before superseding reviewed output. */
+  @Transactional
+  public GenerationRunResponse regenerate(
+      UUID userId, UUID requirementId, String idempotencyKey, boolean confirmSupersede) {
+    return generateInternal(userId, requirementId, idempotencyKey, confirmSupersede);
+  }
+
+  /** Executes the shared validated generation transaction and subsequent-set guard. */
+  private GenerationRunResponse generateInternal(
+      UUID userId, UUID requirementId, String idempotencyKey, boolean confirmSupersede) {
     RequirementEntity requirement = requirementService.requireOwned(userId, requirementId);
+    String idempotencyHash = hash(idempotencyKey);
+    var existing =
+        runs.findByRequirementIdAndRequestedByAndIdempotencyKeyHash(
+            requirementId, userId, idempotencyHash);
+    if (existing.isPresent()) {
+      return toResponse(existing.get());
+    }
+    requireSupersessionConfirmation(requirementId, confirmSupersede);
     if (projectService.requireOwned(userId, requirement.getProjectId()).getStatus()
         == ProjectStatus.ARCHIVED) {
       throw ApiExceptions.badRequest(
@@ -118,14 +155,6 @@ public class GenerationService {
           "acceptance_criteria_required",
           "Add at least one acceptance criterion before generation.");
     }
-    String idempotencyHash = hash(idempotencyKey);
-    var existing =
-        runs.findByRequirementIdAndRequestedByAndIdempotencyKeyHash(
-            requirementId, userId, idempotencyHash);
-    if (existing.isPresent()) {
-      return toResponse(existing.get());
-    }
-
     TestGenerationRequest providerRequest = toProviderRequest(requirement, criterionEntities);
     Instant now = clock.instant();
     GenerationRunEntity run =
@@ -172,12 +201,38 @@ public class GenerationService {
     return toResponse(run);
   }
 
+  /** Requires confirmation before a new operation supersedes protected active evidence. */
+  private void requireSupersessionConfirmation(UUID requirementId, boolean confirmSupersede) {
+    activeSets
+        .resolve(requirementId)
+        .filter(
+            run ->
+                revisions.countByGenerationRunId(run.getId()) > 0
+                    || reviews.countByGenerationRunId(run.getId()) > 0)
+        .filter(run -> !confirmSupersede)
+        .ifPresent(
+            run -> {
+              throw ApiExceptions.conflict(
+                  "supersede_confirmation_required",
+                  "Confirm superseding the active generation set because it contains review or revision evidence.");
+            });
+  }
+
   /** Returns the owned resource identified by the request. */
   @Transactional(readOnly = true)
   public GenerationRunResponse get(UUID userId, UUID runId) {
     return runs.findOwned(runId, userId)
         .map(this::toResponse)
         .orElseThrow(() -> ApiExceptions.notFound("Generation run not found."));
+  }
+
+  /** Lists generation attempts for an owned user story in reverse chronological order. */
+  @Transactional(readOnly = true)
+  public List<GenerationRunResponse> list(UUID userId, UUID requirementId) {
+    requirementService.requireOwned(userId, requirementId);
+    return runs.findAllByRequirementIdOrderByStartedAtDesc(requirementId).stream()
+        .map(this::toResponse)
+        .toList();
   }
 
   /** Executes the generate validated operation for GenerationService. */
@@ -261,6 +316,12 @@ public class GenerationService {
 
   /** Executes the persist parts operation for GenerationService. */
   private void persistParts(UUID testCaseId, GeneratedTestCase generated) {
+    List<String> canonicalReferences =
+        testDataReferences.canonicalize(
+            generated.testData() == null
+                ? List.of()
+                : generated.testData().stream().map(item -> item.name().strip()).toList(),
+            generated.steps().stream().map(item -> item.testDataReference()).toList());
     if (generated.preconditions() != null) {
       for (int index = 0; index < generated.preconditions().size(); index++) {
         preconditions.save(
@@ -273,21 +334,22 @@ public class GenerationService {
         testData.save(
             TestDataItemEntity.create(
                 testCaseId,
-                data.name(),
+                data.name().strip(),
                 data.description(),
                 data.exampleValue(),
                 data.sensitivity(),
                 data.generationStrategy()));
       }
     }
-    for (var step : generated.steps()) {
+    for (int index = 0; index < generated.steps().size(); index++) {
+      var step = generated.steps().get(index);
       steps.save(
           TestStepEntity.create(
               testCaseId,
               step.stepNumber(),
               step.action(),
               step.expectedResult(),
-              step.testDataReference()));
+              canonicalReferences.get(index)));
     }
   }
 
@@ -308,6 +370,8 @@ public class GenerationService {
 
   /** Maps the source data to response. */
   private GenerationRunResponse toResponse(GenerationRunEntity run) {
+    var active = activeSets.resolve(run.getRequirementId());
+    boolean successful = run.getStatus() == GenerationStatus.COMPLETED;
     return new GenerationRunResponse(
         run.getId(),
         run.getRequirementId(),
@@ -323,7 +387,13 @@ public class GenerationService {
         run.getOutputTokens(),
         run.getFailureCode(),
         run.getFailureMessage(),
-        run.getCorrelationId());
+        run.getCorrelationId(),
+        activeSets.setNumber(run),
+        successful
+            ? (active.map(item -> item.getId().equals(run.getId())).orElse(false)
+                ? GenerationSetState.ACTIVE
+                : GenerationSetState.SUPERSEDED)
+            : null);
   }
 
   /** Executes the canonical input operation for GenerationService. */

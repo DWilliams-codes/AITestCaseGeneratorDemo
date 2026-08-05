@@ -14,7 +14,7 @@ test('seeded analyst workflow is navigable and has no serious accessibility viol
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused();
 
-  for (const currentPage of ['projects', 'project', 'requirement']) {
+  for (const currentPage of ['projects', 'project', 'user-story']) {
     const results = await new AxeBuilder({ page }).analyze();
     const seriousViolations = results.violations.filter(({ impact }) =>
       ['serious', 'critical'].includes(impact ?? ''),

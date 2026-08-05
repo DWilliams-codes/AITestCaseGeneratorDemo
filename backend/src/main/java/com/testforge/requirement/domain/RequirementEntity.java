@@ -40,6 +40,10 @@ public class RequirementEntity {
   @Column(nullable = false, length = 40)
   private RequirementStatus status;
 
+  @Enumerated(EnumType.STRING)
+  @Column(length = 20)
+  private UserStoryPriority priority;
+
   @Column(name = "created_by", nullable = false)
   private UUID createdBy;
 
@@ -64,6 +68,7 @@ public class RequirementEntity {
       String businessRequirements,
       String assumptions,
       String sourceReference,
+      UserStoryPriority priority,
       UUID createdBy,
       Instant now) {
     this.id = id;
@@ -75,6 +80,7 @@ public class RequirementEntity {
     this.assumptions = assumptions;
     this.sourceReference = sourceReference;
     this.status = RequirementStatus.DRAFT;
+    this.priority = priority == null ? UserStoryPriority.MEDIUM : priority;
     this.createdBy = createdBy;
     this.createdAt = now;
     this.updatedAt = now;
@@ -89,6 +95,7 @@ public class RequirementEntity {
       String businessRequirements,
       String assumptions,
       String sourceReference,
+      UserStoryPriority priority,
       UUID createdBy,
       Instant now) {
     return new RequirementEntity(
@@ -100,6 +107,7 @@ public class RequirementEntity {
         businessRequirements,
         assumptions,
         sourceReference,
+        priority,
         createdBy,
         now);
   }
@@ -112,6 +120,7 @@ public class RequirementEntity {
       String assumptions,
       String sourceReference,
       RequirementStatus status,
+      UserStoryPriority priority,
       Instant now) {
     this.title = title;
     this.userStory = userStory;
@@ -119,6 +128,7 @@ public class RequirementEntity {
     this.assumptions = assumptions;
     this.sourceReference = sourceReference;
     this.status = status;
+    this.priority = priority == null ? UserStoryPriority.MEDIUM : priority;
     this.updatedAt = now;
   }
 
@@ -178,6 +188,11 @@ public class RequirementEntity {
   /** Returns the current status value. */
   public RequirementStatus getStatus() {
     return status;
+  }
+
+  /** Returns the priority, treating bridge-era null rows as MEDIUM. */
+  public UserStoryPriority getPriority() {
+    return priority == null ? UserStoryPriority.MEDIUM : priority;
   }
 
   /** Returns the current created by value. */

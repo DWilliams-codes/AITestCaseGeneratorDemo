@@ -37,13 +37,26 @@ class PostgreSqlWorkspaceUpgradeIntegrationTest {
     insertLegacyProject(jdbc, firstProjectId, firstUserId, "First Legacy Project");
     insertLegacyProject(jdbc, secondProjectId, secondUserId, "Second Legacy Project");
 
+    configuredFlyway(MigrationVersion.fromVersion("4")).migrate();
+    UUID requirementId = UUID.randomUUID();
+    jdbc.update(
+        "insert into testforge.requirements (id, work_item_number, project_id, title, user_story, business_requirements, assumptions, source_reference, status, created_by, created_at, updated_at, version) values (?, 9901, ?, 'Legacy PostgreSQL story', 'As a tester, I need deterministic priority.', '', '', '', 'DRAFT', ?, current_timestamp, current_timestamp, 0)",
+        requirementId,
+        firstProjectId,
+        firstUserId);
     configuredFlyway(null).migrate();
 
     List<String> appliedVersions =
         jdbc.queryForList(
             "select version from testforge.flyway_schema_history where success and version is not null order by installed_rank",
             String.class);
-    assertThat(appliedVersions).containsExactly("1", "2", "3", "4");
+    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5");
+    assertThat(
+            jdbc.queryForObject(
+                "select priority from testforge.requirements where id = ?",
+                String.class,
+                requirementId))
+        .isEqualTo("MEDIUM");
     assertThat(
             jdbc.queryForObject(
                 "select count(*) from testforge.workspaces where id = created_by and status = 'ACTIVE'",

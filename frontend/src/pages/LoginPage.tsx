@@ -108,7 +108,7 @@ export function LoginPage() {
               letterSpacing: '-.045em',
             }}
           >
-            From requirements to review-ready test coverage.
+            From user stories to review-ready test coverage.
           </Typography>
           <Typography
             sx={{ mt: 3, fontSize: '1.125rem', color: 'rgba(255,255,255,.74)', maxWidth: 500 }}
@@ -135,10 +135,12 @@ export function LoginPage() {
             </Box>
             <Box>
               <Typography component="h1" variant="h1">
-                Welcome back
+                {mode === 'login' ? 'Welcome back' : 'Create your account'}
               </Typography>
               <Typography color="text.secondary" sx={{ mt: 1 }}>
-                Sign in to your quality engineering workspace.
+                {mode === 'login'
+                  ? 'Sign in to your quality engineering workspace.'
+                  : 'Start a secure quality engineering workspace.'}
               </Typography>
             </Box>
             <Card>

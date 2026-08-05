@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.testforge.audit.application.AuditService;
 import com.testforge.common.error.ApiExceptions;
+import com.testforge.generation.application.ActiveGenerationSetResolver;
 import com.testforge.requirement.application.RequirementService;
 import com.testforge.requirement.domain.RequirementEntity;
 import com.testforge.testcase.application.TestCaseService;
@@ -24,6 +25,7 @@ public class ExportService {
   private final TestCaseService testCaseService;
   private final ObjectMapper objectMapper;
   private final AuditService auditService;
+  private final ActiveGenerationSetResolver activeSets;
 
   /** Initializes ExportService with its required collaborators and domain state. */
   public ExportService(
@@ -31,25 +33,31 @@ public class ExportService {
       TestCaseRepository testCases,
       TestCaseService testCaseService,
       ObjectMapper objectMapper,
-      AuditService auditService) {
+      AuditService auditService,
+      ActiveGenerationSetResolver activeSets) {
     this.requirementService = requirementService;
     this.testCases = testCases;
     this.testCaseService = testCaseService;
     this.objectMapper = objectMapper;
     this.auditService = auditService;
+    this.activeSets = activeSets;
   }
 
   /** Executes the export operation for ExportService. */
   @Transactional
-  public ExportFile export(UUID ownerId, UUID requirementId, String requestedFormat) {
+  public ExportFile export(
+      UUID ownerId, UUID requirementId, UUID generationRunId, String requestedFormat) {
     RequirementEntity requirement = requirementService.requireOwned(ownerId, requirementId);
+    UUID selectedRunId = selectReadableRun(requirementId, generationRunId);
     List<TestCaseResponse> approved =
-        testCases
-            .findAllByRequirementIdAndStatusOrderByWorkItemNumber(
-                requirementId, TestCaseStatus.APPROVED)
-            .stream()
-            .map(testCaseService::toResponse)
-            .toList();
+        selectedRunId == null
+            ? List.of()
+            : testCases
+                .findAllByRequirementIdAndGenerationRunIdAndStatusOrderByWorkItemNumber(
+                    requirementId, selectedRunId, TestCaseStatus.APPROVED)
+                .stream()
+                .map(testCaseService::toResponse)
+                .toList();
     if (approved.isEmpty()) {
       throw ApiExceptions.badRequest(
           "no_approved_test_cases", "Approve at least one test case before exporting.");
@@ -73,6 +81,18 @@ public class ExportService {
         "EXPORTED",
         Map.of("format", format, "approvedCaseCount", approved.size()));
     return file;
+  }
+
+  /** Selects the active set by default and validates an explicit historical selector. */
+  private UUID selectReadableRun(UUID requirementId, UUID requestedRunId) {
+    if (requestedRunId == null) {
+      return activeSets.resolve(requirementId).map(run -> run.getId()).orElse(null);
+    }
+    return activeSets.successful(requirementId).stream()
+        .filter(run -> run.getId().equals(requestedRunId))
+        .findFirst()
+        .map(run -> run.getId())
+        .orElseThrow(() -> ApiExceptions.notFound("Successful generation set not found."));
   }
 
   /** Maps the source data to json. */

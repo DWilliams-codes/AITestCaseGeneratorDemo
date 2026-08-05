@@ -47,18 +47,21 @@ import {
 } from '@mui/material';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import { useMemo, useState } from 'react';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError, apiRequest, downloadExport } from '../api/client';
 import type {
+  AuditEvent,
   Coverage,
   GenerationRun,
+  PageResponse,
   Project,
   Requirement,
   TestCase,
   TestCaseCategory,
   TestPriority,
   TestCaseStatus,
+  TestCaseRevision,
   Traceability,
 } from '../types/api';
 
@@ -92,6 +95,7 @@ const priorityRank: Record<TestPriority, number> = {
 };
 type TestCaseSort =
   'sequence-asc' | 'sequence-desc' | 'priority-desc' | 'status-asc' | 'updated-desc';
+type ReviewAction = 'approve' | 'reject' | 'request-changes' | 'reopen';
 
 /** Orders test cases by their global work-item number with stable creation and UUID tie-breakers. */
 function compareByTestCaseNumber(left: TestCase, right: TestCase) {
@@ -102,21 +106,38 @@ function compareByTestCaseNumber(left: TestCase, right: TestCase) {
   );
 }
 
+/** Builds a grammatically correct completion notice for one or many generated cases. */
+function generationCompletedNotice(run: GenerationRun, source: string) {
+  const generated =
+    run.generatedCaseCount === 1
+      ? '1 manual test case was created'
+      : `${run.generatedCaseCount} manual test cases were created`;
+  return `Generation completed and passed the server-side quality gate. ${generated} from this story using ${source}.`;
+}
+
 /** Coordinates requirement details, generated coverage, review actions, traceability, and exports. */
 export function RequirementPage() {
-  const { requirementId = '' } = useParams();
+  const { userStoryId: requirementId = '' } = useParams();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState(0);
   const [editing, setEditing] = useState<TestCase | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<{
+    testCase: TestCase;
+    action: ReviewAction;
+  } | null>(null);
   const [notice, setNotice] = useState('');
   const [caseSearch, setCaseSearch] = useState('');
   const [caseStatus, setCaseStatus] = useState<TestCaseStatus | 'ALL'>('ALL');
   const [caseCategory, setCaseCategory] = useState<TestCaseCategory | 'ALL'>('ALL');
   const [casePriority, setCasePriority] = useState<TestPriority | 'ALL'>('ALL');
   const [caseSort, setCaseSort] = useState<TestCaseSort>('sequence-asc');
+  const [selectedRunId, setSelectedRunId] = useState('');
+  const generationRunQuery = selectedRunId
+    ? `?generationRunId=${encodeURIComponent(selectedRunId)}`
+    : '';
   const requirement = useQuery({
     queryKey: ['requirement', requirementId],
-    queryFn: () => apiRequest<Requirement>(`/api/v1/requirements/${requirementId}`),
+    queryFn: () => apiRequest<Requirement>(`/api/v1/user-stories/${requirementId}`),
     enabled: Boolean(requirementId),
   });
   const project = useQuery({
@@ -125,18 +146,31 @@ export function RequirementPage() {
     enabled: Boolean(requirement.data?.projectId),
   });
   const cases = useQuery({
-    queryKey: ['test-cases', requirementId],
-    queryFn: () => apiRequest<TestCase[]>(`/api/v1/requirements/${requirementId}/test-cases`),
+    queryKey: ['test-cases', requirementId, selectedRunId],
+    queryFn: () =>
+      apiRequest<TestCase[]>(
+        `/api/v1/user-stories/${requirementId}/test-cases${generationRunQuery}`,
+      ),
     enabled: Boolean(requirementId),
   });
   const coverage = useQuery({
-    queryKey: ['coverage', requirementId],
-    queryFn: () => apiRequest<Coverage>(`/api/v1/requirements/${requirementId}/coverage`),
+    queryKey: ['coverage', requirementId, selectedRunId],
+    queryFn: () =>
+      apiRequest<Coverage>(`/api/v1/user-stories/${requirementId}/coverage${generationRunQuery}`),
     enabled: Boolean(requirementId),
   });
   const traceability = useQuery({
-    queryKey: ['traceability', requirementId],
-    queryFn: () => apiRequest<Traceability>(`/api/v1/requirements/${requirementId}/traceability`),
+    queryKey: ['traceability', requirementId, selectedRunId],
+    queryFn: () =>
+      apiRequest<Traceability>(
+        `/api/v1/user-stories/${requirementId}/traceability${generationRunQuery}`,
+      ),
+    enabled: Boolean(requirementId),
+  });
+  const runs = useQuery({
+    queryKey: ['generation-runs', requirementId],
+    queryFn: () =>
+      apiRequest<GenerationRun[]>(`/api/v1/user-stories/${requirementId}/generation-runs`),
     enabled: Boolean(requirementId),
   });
   const visibleCases = useMemo(() => {
@@ -193,50 +227,71 @@ export function RequirementPage() {
       queryClient.invalidateQueries({ queryKey: ['test-cases', requirementId] }),
       queryClient.invalidateQueries({ queryKey: ['coverage', requirementId] }),
       queryClient.invalidateQueries({ queryKey: ['traceability', requirementId] }),
+      queryClient.invalidateQueries({ queryKey: ['generation-runs', requirementId] }),
     ]);
   };
   const generate = useMutation({
-    mutationFn: () =>
-      apiRequest<GenerationRun>(
-        `/api/v1/requirements/${requirementId}/${cases.data?.length ? 'regenerate' : 'generate-test-cases'}`,
-        { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } },
-      ),
+    mutationFn: async () => {
+      const regenerating = runs.data?.some((run) => run.setState === 'ACTIVE') ?? false;
+      const path = `/api/v1/user-stories/${requirementId}/${regenerating ? 'regenerate' : 'generate-test-cases'}`;
+      const request = (confirmSupersede: boolean) =>
+        apiRequest<GenerationRun>(
+          `${path}${regenerating ? `?confirmSupersede=${String(confirmSupersede)}` : ''}`,
+          { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } },
+        );
+      try {
+        return await request(false);
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.code === 'supersede_confirmation_required' &&
+          window.confirm(
+            'The active set contains review or revision evidence. Preserve it and create a new active set?',
+          )
+        ) {
+          return request(true);
+        }
+        throw error;
+      }
+    },
     onSuccess: async (run) => {
       const source =
         run.provider === 'openai-responses'
           ? `OpenAI model ${run.model}`
-          : `the local requirement-driven engine ${run.model}`;
-      setNotice(
-        `Generation completed and passed the server-side quality gate. ${run.generatedCaseCount} manual test cases were created from this story using ${source}.`,
-      );
+          : `the local story-driven engine ${run.model}`;
+      setNotice(generationCompletedNotice(run, source));
       await refreshAll();
+      setSelectedRunId('');
       setTab(1);
     },
   });
   const review = useMutation({
     mutationFn: ({
-      id,
+      testCase,
       action,
+      text,
     }: {
-      id: string;
-      action: 'approve' | 'reject' | 'request-changes';
+      testCase: TestCase;
+      action: ReviewAction;
+      text: string;
     }) =>
-      apiRequest(`/api/v1/test-cases/${id}/${action}`, {
+      apiRequest(`/api/v1/test-cases/${testCase.id}/${action}`, {
         method: 'POST',
         body: JSON.stringify({
-          comments:
-            action === 'approve'
-              ? 'Approved after human review.'
-              : 'Decision recorded by the reviewer.',
+          ...(action === 'reopen' ? { reason: text.trim() } : { comments: text.trim() }),
+          version: testCase.version,
         }),
       }),
-    onSuccess: refreshAll,
+    onSuccess: async () => {
+      setReviewTarget(null);
+      await refreshAll();
+    },
   });
 
   if (requirement.isLoading)
     return (
       <Box sx={{ py: 10, display: 'grid', placeItems: 'center' }}>
-        <CircularProgress aria-label="Loading requirement" />
+        <CircularProgress aria-label="Loading user story" />
       </Box>
     );
   if (requirement.error || !requirement.data)
@@ -244,7 +299,7 @@ export function RequirementPage() {
       <Alert severity="error">
         {requirement.error instanceof ApiError
           ? requirement.error.message
-          : 'Requirement not found.'}
+          : 'User story not found.'}
       </Alert>
     );
   const req = requirement.data;
@@ -253,7 +308,7 @@ export function RequirementPage() {
   const exportFile = async (format: string) => {
     setNotice('');
     try {
-      await downloadExport(requirementId, format);
+      await downloadExport(requirementId, format, true, selectedRunId || undefined);
       setNotice(`${format.toUpperCase()} export downloaded.`);
     } catch (error) {
       setNotice(error instanceof ApiError ? error.message : 'The export could not be completed.');
@@ -297,7 +352,7 @@ export function RequirementPage() {
           </Stack>
           <Typography color="text.secondary" sx={{ mt: 1 }}>
             User Story {req.workItemNumber} • Source {req.sourceReference || 'not specified'} •
-            Version {req.version}
+            Priority {req.priority} • Version {req.version}
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
@@ -366,7 +421,11 @@ export function RequirementPage() {
         <MetricCard
           label="Approved coverage"
           value={`${coverage.data?.approvedCoveragePercent ?? 0}%`}
-          detail={`${coverage.data?.approvedCriteria ?? 0} criteria have approved evidence`}
+          detail={
+            (coverage.data?.approvedCriteria ?? 0) === 1
+              ? '1 criterion has approved evidence'
+              : `${coverage.data?.approvedCriteria ?? 0} criteria have approved evidence`
+          }
           color="success.main"
         />
         <MetricCard
@@ -386,9 +445,9 @@ export function RequirementPage() {
           onChange={(_, value: number) => setTab(value)}
           variant="scrollable"
           scrollButtons="auto"
-          aria-label="Requirement workspace sections"
+          aria-label="User Story workspace sections"
         >
-          <Tab label="Requirement" />
+          <Tab label="Story details" />
           <Tab label={`Test cases (${cases.data?.length ?? 0})`} />
           <Tab label="Traceability" />
           <Tab label={`Ambiguities (${req.ambiguities.filter((item) => !item.resolved).length})`} />
@@ -399,7 +458,7 @@ export function RequirementPage() {
             <Stack spacing={3}>
               <Section title="User story" text={req.userStory} />
               <Section
-                title="Business rules and constraints"
+                title="Requirements and constraints"
                 text={req.businessRequirements || 'No additional business rules were supplied.'}
               />
               <Section
@@ -447,7 +506,7 @@ export function RequirementPage() {
                   No test cases yet
                 </Typography>
                 <Typography color="text.secondary" sx={{ mt: 1 }}>
-                  Generate a balanced, validated set from the requirement source.
+                  Generate a balanced, validated set from the user story source.
                 </Typography>
               </Box>
             )}
@@ -469,6 +528,22 @@ export function RequirementPage() {
                     gap: 1.5,
                   }}
                 >
+                  <TextField
+                    select
+                    label="Generation set"
+                    value={selectedRunId}
+                    onChange={(event) => setSelectedRunId(event.target.value)}
+                    size="small"
+                  >
+                    <MenuItem value="">Active set</MenuItem>
+                    {runs.data
+                      ?.filter((run) => run.status === 'COMPLETED')
+                      .map((run) => (
+                        <MenuItem key={run.id} value={run.id}>
+                          Set {run.setNumber} — {run.setState}
+                        </MenuItem>
+                      ))}
+                  </TextField>
                   <TextField
                     label="Search test cases"
                     value={caseSearch}
@@ -562,8 +637,13 @@ export function RequirementPage() {
                 key={testCase.id}
                 testCase={testCase}
                 onEdit={() => setEditing(testCase)}
-                onReview={(action) => review.mutate({ id: testCase.id, action })}
+                onReview={(action) => {
+                  review.reset();
+                  setReviewTarget({ testCase, action });
+                }}
                 busy={review.isPending}
+                readOnly={Boolean(selectedRunId)}
+                projectId={req.projectId}
               />
             ))}
           </Box>
@@ -575,7 +655,7 @@ export function RequirementPage() {
                 <TableHead>
                   <TableRow>
                     <TableCell>Criterion</TableCell>
-                    <TableCell>Requirement statement</TableCell>
+                    <TableCell>Acceptance criterion</TableCell>
                     <TableCell>Mapped evidence</TableCell>
                   </TableRow>
                 </TableHead>
@@ -625,7 +705,7 @@ export function RequirementPage() {
           <CardContent sx={{ p: { xs: 2.5, md: 4 } }}>
             <Stack spacing={2}>
               {req.ambiguities.length === 0 && (
-                <Alert severity="success">No requirement ambiguities were detected.</Alert>
+                <Alert severity="success">No user story ambiguities were detected.</Alert>
               )}
               {req.ambiguities.map((item) => (
                 <Card key={item.id} variant="outlined">
@@ -677,6 +757,27 @@ export function RequirementPage() {
           }}
         />
       )}
+      {reviewTarget && (
+        <ReviewDecisionDialog
+          testCase={reviewTarget.testCase}
+          action={reviewTarget.action}
+          busy={review.isPending}
+          error={review.error}
+          onClose={() => {
+            if (!review.isPending) {
+              review.reset();
+              setReviewTarget(null);
+            }
+          }}
+          onSubmit={(text) =>
+            review.mutate({
+              testCase: reviewTarget.testCase,
+              action: reviewTarget.action,
+              text,
+            })
+          }
+        />
+      )}
     </Stack>
   );
 }
@@ -720,18 +821,138 @@ function Section({ title, text }: { title: string; text: string }) {
   );
 }
 
+/** Collects decision-specific human evidence before changing a test-case review state. */
+function ReviewDecisionDialog({
+  testCase,
+  action,
+  busy,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  testCase: TestCase;
+  action: ReviewAction;
+  busy: boolean;
+  error: Error | null;
+  onClose(): void;
+  onSubmit(text: string): void;
+}) {
+  const [text, setText] = useState('');
+  const [validation, setValidation] = useState('');
+  const required = action !== 'approve';
+  const decisionLabel =
+    action === 'request-changes'
+      ? 'Request changes'
+      : action === 'reopen'
+        ? 'Reopen for review'
+        : action === 'reject'
+          ? 'Reject'
+          : 'Approve';
+  const inputLabel =
+    action === 'reopen'
+      ? 'Reopen reason'
+      : action === 'approve'
+        ? 'Approval comment (optional)'
+        : 'Review comment';
+  const submitLabel =
+    action === 'request-changes'
+      ? 'Request changes'
+      : action === 'reopen'
+        ? 'Reopen test case'
+        : action === 'reject'
+          ? 'Reject test case'
+          : 'Confirm approval';
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+      <Stack
+        component="form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (required && text.trim().length < 3) {
+            setValidation(
+              action === 'reopen'
+                ? 'Enter a meaningful reason for reopening this test case.'
+                : 'Enter a meaningful comment for this review decision.',
+            );
+            return;
+          }
+          setValidation('');
+          onSubmit(text);
+        }}
+      >
+        <DialogTitle>
+          {decisionLabel} {testCase.testCaseKey}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity={action === 'reject' ? 'warning' : 'info'}>
+              {testCase.title} • Current state {testCase.status.replaceAll('_', ' ')}
+            </Alert>
+            {error && (
+              <Alert severity="error">
+                {error instanceof ApiError
+                  ? error.message
+                  : 'The review decision could not be saved.'}
+              </Alert>
+            )}
+            <TextField
+              autoFocus
+              multiline
+              minRows={4}
+              label={inputLabel}
+              value={text}
+              onChange={(event) => {
+                setText(event.target.value);
+                if (validation) setValidation('');
+              }}
+              required={required}
+              error={Boolean(validation)}
+              helperText={
+                validation ||
+                (required
+                  ? 'Required. Record the evidence behind this decision.'
+                  : 'Optional. Add evidence that will help future reviewers.')
+              }
+              slotProps={{ htmlInput: { maxLength: 4000 } }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="contained"
+            color={action === 'reject' ? 'error' : action === 'approve' ? 'success' : 'primary'}
+            disabled={busy}
+          >
+            {busy ? 'Saving…' : submitLabel}
+          </Button>
+        </DialogActions>
+      </Stack>
+    </Dialog>
+  );
+}
+
 /** Presents a generated test case, its evidence, and the available human review actions. */
 function TestCasePanel({
   testCase,
   onEdit,
   onReview,
   busy,
+  readOnly,
+  projectId,
 }: {
   testCase: TestCase;
   onEdit(): void;
-  onReview(action: 'approve' | 'reject' | 'request-changes'): void;
+  onReview(action: ReviewAction): void;
   busy: boolean;
+  readOnly: boolean;
+  projectId: string;
 }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
   return (
     <Accordion disableGutters>
       <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
@@ -801,28 +1022,220 @@ function TestCasePanel({
           <Alert severity="success" icon={<FactCheckOutlinedIcon />}>
             <strong>Final outcome:</strong> {testCase.finalExpectedOutcome}
           </Alert>
-          <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-            <Button startIcon={<EditOutlinedIcon />} onClick={onEdit}>
-              Edit
-            </Button>
-            <Button color="warning" onClick={() => onReview('request-changes')} disabled={busy}>
-              Request changes
-            </Button>
-            <Button color="error" onClick={() => onReview('reject')} disabled={busy}>
-              Reject
-            </Button>
-            <Button
-              variant="contained"
-              color="success"
-              onClick={() => onReview('approve')}
-              disabled={busy || testCase.status === 'APPROVED'}
+          <Button
+            onClick={() => setHistoryOpen((value) => !value)}
+            sx={{ alignSelf: 'flex-start' }}
+          >
+            {historyOpen ? 'Hide history' : 'Show history'}
+          </Button>
+          {historyOpen && <TestCaseHistory testCase={testCase} projectId={projectId} />}
+          {readOnly && <Alert severity="info">Historical generation sets are read-only.</Alert>}
+          {!readOnly && (
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}
             >
-              Approve
-            </Button>
-          </Stack>
+              {(testCase.status === 'GENERATED' ||
+                testCase.status === 'IN_REVIEW' ||
+                testCase.status === 'NEEDS_REVISION') && (
+                <Button startIcon={<EditOutlinedIcon />} onClick={onEdit}>
+                  Edit
+                </Button>
+              )}
+              {(testCase.status === 'GENERATED' || testCase.status === 'IN_REVIEW') && (
+                <>
+                  <Button
+                    color="warning"
+                    onClick={() => onReview('request-changes')}
+                    disabled={busy}
+                  >
+                    Request changes
+                  </Button>
+                  <Button color="error" onClick={() => onReview('reject')} disabled={busy}>
+                    Reject
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    onClick={() => onReview('approve')}
+                    disabled={busy}
+                  >
+                    Approve
+                  </Button>
+                </>
+              )}
+              {(testCase.status === 'APPROVED' || testCase.status === 'REJECTED') && (
+                <Button onClick={() => onReview('reopen')} disabled={busy}>
+                  Reopen for review
+                </Button>
+              )}
+            </Stack>
+          )}
         </Stack>
       </AccordionDetails>
     </Accordion>
+  );
+}
+
+const comparisonFields = [
+  ['Title', 'title'],
+  ['Objective', 'objective'],
+  ['Category', 'category'],
+  ['Priority', 'priority'],
+  ['Risk level', 'riskLevel'],
+  ['Status', 'status'],
+  ['Preconditions', 'preconditions'],
+  ['Steps', 'steps'],
+  ['Test data', 'testData'],
+  ['Final outcome', 'finalExpectedOutcome'],
+] as const;
+
+/** Converts a normalized revision field into readable inert comparison text. */
+function comparisonText(snapshot: Record<string, unknown>, field: string) {
+  const value = snapshot[field];
+  if (value == null) return 'Not recorded';
+  if (!Array.isArray(value)) return typeof value === 'string' ? value : String(value);
+  if (value.length === 0) return 'None';
+  if (field === 'preconditions') {
+    return value
+      .map((item, index) => {
+        const record =
+          typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
+        return `${index + 1}. ${String(record.description ?? item)}`;
+      })
+      .join('\n');
+  }
+  if (field === 'steps') {
+    return value
+      .map((item, index) => {
+        const record =
+          typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
+        const reference = record.testDataReference
+          ? ` [data: ${String(record.testDataReference)}]`
+          : '';
+        return `${String(record.stepNumber ?? index + 1)}. ${String(record.action ?? '')} → ${String(record.expectedResult ?? '')}${reference}`;
+      })
+      .join('\n');
+  }
+  if (field === 'testData') {
+    return value
+      .map((item) => {
+        const record =
+          typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
+        return `${String(record.name ?? 'Unnamed')}: ${String(record.description ?? '')} (${String(record.exampleValue ?? 'no example')})`;
+      })
+      .join('\n');
+  }
+  return value.map((item) => String(item)).join('\n');
+}
+
+/** Presents structured revisions, review evidence, and matching audit events as inert text. */
+function TestCaseHistory({ testCase, projectId }: { testCase: TestCase; projectId: string }) {
+  const [selectedRevisionId, setSelectedRevisionId] = useState('');
+  const revisions = useQuery({
+    queryKey: ['test-case-revisions', testCase.id],
+    queryFn: () =>
+      apiRequest<PageResponse<TestCaseRevision>>(
+        `/api/v1/test-cases/${testCase.id}/revisions?size=20`,
+      ),
+  });
+  const audit = useQuery({
+    queryKey: ['test-case-audit', projectId, testCase.id],
+    queryFn: () =>
+      apiRequest<PageResponse<AuditEvent>>(
+        `/api/v1/projects/${projectId}/audit-events?entityType=TEST_CASE&entityId=${encodeURIComponent(testCase.id)}&size=20`,
+      ),
+  });
+  const effectiveRevisionId = selectedRevisionId || revisions.data?.items[0]?.id || '';
+  const selectedRevision = revisions.data?.items.find((item) => item.id === effectiveRevisionId);
+  const currentSnapshot = testCase as unknown as Record<string, unknown>;
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Stack spacing={2}>
+          <Box>
+            <Typography sx={{ fontWeight: 750 }}>Revision timeline</Typography>
+            {revisions.data?.items.map((revision) => (
+              <Button
+                key={revision.id}
+                size="small"
+                variant={effectiveRevisionId === revision.id ? 'contained' : 'text'}
+                onClick={() => setSelectedRevisionId(revision.id)}
+                aria-label={`Compare revision ${revision.revisionNumber}`}
+                sx={{ mt: 1, mr: 1 }}
+              >
+                Revision {revision.revisionNumber} • {new Date(revision.changedAt).toLocaleString()}
+              </Button>
+            ))}
+            {revisions.data?.items.length === 0 && (
+              <Typography variant="body2" color="text.secondary">
+                No saved revisions.
+              </Typography>
+            )}
+          </Box>
+          {selectedRevision && (
+            <Box>
+              <Typography sx={{ fontWeight: 750, mb: 1 }}>
+                Revision {selectedRevision.revisionNumber} compared with current
+              </Typography>
+              <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                <Table size="small" aria-label="Revision comparison">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Field</TableCell>
+                      <TableCell>Selected revision</TableCell>
+                      <TableCell>Current test case</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {comparisonFields.map(([label, field]) => (
+                      <TableRow key={field}>
+                        <TableCell sx={{ fontWeight: 700, verticalAlign: 'top' }}>
+                          {label}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'pre-wrap', verticalAlign: 'top' }}>
+                          {comparisonText(selectedRevision.snapshot, field)}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'pre-wrap', verticalAlign: 'top' }}>
+                          {comparisonText(currentSnapshot, field)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          )}
+          <Box>
+            <Typography sx={{ fontWeight: 750 }}>Reviews</Typography>
+            {testCase.reviews.map((review) => (
+              <Typography key={review.id} variant="body2" sx={{ mt: 0.75 }}>
+                {review.decision.replaceAll('_', ' ')} • {review.comments || 'No comment'}
+              </Typography>
+            ))}
+            {testCase.reviews.length === 0 && (
+              <Typography variant="body2" color="text.secondary">
+                No review decisions.
+              </Typography>
+            )}
+          </Box>
+          <Box>
+            <Typography sx={{ fontWeight: 750 }}>Audit timeline</Typography>
+            {audit.data?.items.map((event) => (
+              <Typography key={event.id} variant="body2" sx={{ mt: 0.75 }}>
+                {new Date(event.timestamp).toLocaleString()} • {event.action.replaceAll('_', ' ')}
+              </Typography>
+            ))}
+            {audit.data?.items.length === 0 && (
+              <Typography variant="body2" color="text.secondary">
+                No matching audit events.
+              </Typography>
+            )}
+          </Box>
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -840,12 +1253,54 @@ function EditTestCaseDialog({
     register,
     control,
     handleSubmit,
+    getValues,
+    setValue,
     formState: { isDirty, isSubmitting },
   } = useForm<TestCase>({ defaultValues: testCase });
   const stepFields = useFieldArray({ control, name: 'steps' });
   const preconditionFields = useFieldArray({ control, name: 'preconditions' });
   const dataFields = useFieldArray({ control, name: 'testData' });
+  const watchedData = useWatch({ control, name: 'testData' });
+  const watchedSteps = useWatch({ control, name: 'steps' });
   const [error, setError] = useState('');
+  const normalizedDataName = (value: string | null | undefined) =>
+    (value ?? '').trim().toLocaleLowerCase();
+  /** Propagates a data-item rename to every case-insensitive matching step reference. */
+  const renameTestData = (index: number, nextName: string) => {
+    const previousName = getValues(`testData.${index}.name`);
+    setValue(`testData.${index}.name`, nextName, { shouldDirty: true });
+    if (!normalizedDataName(previousName)) return;
+    getValues('steps').forEach((step, stepIndex) => {
+      if (normalizedDataName(step.testDataReference) === normalizedDataName(previousName)) {
+        setValue(`steps.${stepIndex}.testDataReference`, nextName || null, {
+          shouldDirty: true,
+        });
+      }
+    });
+  };
+  /** Requires an explicit reference clear before deleting a referenced data item. */
+  const removeTestData = (index: number) => {
+    const name = getValues(`testData.${index}.name`);
+    const referencedSteps = getValues('steps')
+      .map((step, stepIndex) => ({ step, stepIndex }))
+      .filter(
+        ({ step }) =>
+          normalizedDataName(name) &&
+          normalizedDataName(step.testDataReference) === normalizedDataName(name),
+      );
+    if (
+      referencedSteps.length > 0 &&
+      !window.confirm(
+        `Clear ${referencedSteps.length} step reference(s) before deleting this test-data item?`,
+      )
+    ) {
+      return;
+    }
+    referencedSteps.forEach(({ stepIndex }) =>
+      setValue(`steps.${stepIndex}.testDataReference`, null, { shouldDirty: true }),
+    );
+    dataFields.remove(index);
+  };
   /** Closes immediately when clean or asks before discarding unsaved edits. */
   const requestClose = () => {
     if (!isDirty || window.confirm('Discard the unsaved test-case changes?')) onClose();
@@ -1034,9 +1489,25 @@ function EditTestCaseDialog({
                     required
                   />
                   <TextField
+                    select
                     label="Test data reference"
-                    {...register(`steps.${index}.testDataReference`)}
-                  />
+                    value={watchedSteps?.[index]?.testDataReference ?? ''}
+                    onChange={(event) =>
+                      setValue(`steps.${index}.testDataReference`, event.target.value || null, {
+                        shouldDirty: true,
+                      })
+                    }
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    {(watchedData ?? [])
+                      .map((item) => item.name.trim())
+                      .filter(Boolean)
+                      .map((name, dataIndex) => (
+                        <MenuItem key={`${normalizedDataName(name)}-${dataIndex}`} value={name}>
+                          {name}
+                        </MenuItem>
+                      ))}
+                  </TextField>
                 </Stack>
               </Box>
             ))}
@@ -1083,13 +1554,19 @@ function EditTestCaseDialog({
                   <IconButton
                     size="small"
                     aria-label={`Remove test data item ${index + 1}`}
-                    onClick={() => dataFields.remove(index)}
+                    onClick={() => removeTestData(index)}
                   >
                     <DeleteOutlineRoundedIcon fontSize="small" />
                   </IconButton>
                 </Stack>
                 <Stack spacing={1.5} sx={{ mt: 1 }}>
-                  <TextField label="Name" {...register(`testData.${index}.name`)} required />
+                  <TextField
+                    label="Name"
+                    value={watchedData?.[index]?.name ?? ''}
+                    {...register(`testData.${index}.name`)}
+                    onChange={(event) => renameTestData(index, event.target.value)}
+                    required
+                  />
                   <TextField
                     label="Description"
                     {...register(`testData.${index}.description`)}
