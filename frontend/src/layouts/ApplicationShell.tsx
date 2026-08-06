@@ -2,7 +2,7 @@ import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
 import { AppBar, Avatar, Box, Button, Container, Stack, Toolbar, Typography } from '@mui/material';
-import { Link, Outlet, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth/useAuth';
 
 /** Renders authenticated navigation, identity controls, routed content, and review guidance. */

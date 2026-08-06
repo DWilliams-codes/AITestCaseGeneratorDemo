@@ -2,9 +2,13 @@ package com.testforge.generation.controller;
 
 import com.testforge.config.SecurityProperties;
 import com.testforge.generation.application.GenerationService;
+import com.testforge.generation.dto.GenerationRunPageResponse;
 import com.testforge.generation.dto.GenerationRunResponse;
 import com.testforge.security.CurrentUser;
 import com.testforge.security.RateLimitService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
@@ -50,7 +54,7 @@ public class GenerationController {
   GenerationRunResponse generate(
       Authentication authentication,
       @PathVariable UUID requirementId,
-      @RequestHeader("Idempotency-Key") @Size(min = 8, max = 200) String idempotencyKey) {
+      @RequestHeader("Idempotency-Key") @NotBlank @Size(min = 8, max = 200) String idempotencyKey) {
     UUID userId = currentUser.id(authentication);
     rateLimitService.check(
         "generation", userId.toString(), securityProperties.generationAttemptsPerMinute());
@@ -66,7 +70,7 @@ public class GenerationController {
   GenerationRunResponse regenerate(
       Authentication authentication,
       @PathVariable UUID requirementId,
-      @RequestHeader("Idempotency-Key") @Size(min = 8, max = 200) String idempotencyKey,
+      @RequestHeader("Idempotency-Key") @NotBlank @Size(min = 8, max = 200) String idempotencyKey,
       @RequestParam(defaultValue = "false") boolean confirmSupersede) {
     UUID userId = currentUser.id(authentication);
     rateLimitService.check(
@@ -82,6 +86,19 @@ public class GenerationController {
   List<GenerationRunResponse> list(
       Authentication authentication, @PathVariable UUID requirementId) {
     return generationService.list(currentUser.id(authentication), requirementId);
+  }
+
+  /** Returns a canonical bounded generation-history page. */
+  @GetMapping({
+    "/user-stories/{requirementId}/generation-runs/page",
+    "/requirements/{requirementId}/generation-runs/page"
+  })
+  GenerationRunPageResponse listPage(
+      Authentication authentication,
+      @PathVariable UUID requirementId,
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+    return generationService.listPage(currentUser.id(authentication), requirementId, page, size);
   }
 
   /** Handles the authenticated HTTP request to get. */

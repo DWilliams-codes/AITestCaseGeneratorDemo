@@ -2,8 +2,9 @@
 
 ## Scope and evidence
 
-This assessment describes the repository at TF-001. Evidence was taken from the
-Spring domain packages, Flyway V1–V4, React API types and workflow tests,
+This assessment describes the repository after local TF-005 implementation and
+the evaluator-only TF-006 prompt release.
+Evidence was taken from the Spring domain packages, Flyway V1–V6, React API types and workflow tests,
 provider validation tests, export code, security tests, and the deterministic
 evaluation harness. “Future” below means designed but not implemented.
 
@@ -11,11 +12,11 @@ evaluation harness. “Future” below means designed but not implemented.
 
 | Area | Current implementation | Evidence / boundary |
 | --- | --- | --- |
-| Backend | Java 21 Spring Boot modular monolith under `backend/src/main/java/com/testforge` | Packages: `auth`, `user`, `workspace`, `project`, `requirement`, `generation`, `testcase`, `traceability`, `export`, `audit`, `security`, `automation`, `common`, `config` |
+| Backend | Java 21 Spring Boot modular monolith under `backend/src/main/java/com/testforge` | Packages: `auth`, `user`, `workspace`, `project`, `requirement`, `generation`, `testcase`, `traceability`, `export`, `audit`, `security`, `common`, `config`; unused production automation types were removed |
 | Frontend | React/TypeScript SPA under `frontend/src` | Auth context, application shell, project dashboard, project detail, requirement workspace, test-case review, API client, and shared API types |
-| Persistence | PostgreSQL system of record, Hibernate validation, forward-only Flyway | V1 schema ownership; V2 Stage 1 tables; V3 global work-item sequence; V4 additive workspace tenancy |
-| AI resources | Versioned prompt and strict JSON Schema under backend resources | `test-generation-v1.txt` and `test-generation-schema-v1.json` loaded by `OpenAiTestGenerationProvider` |
-| Evaluation | Versioned JSONL fixtures and rubric under `evals`, deterministic validator under `scripts` | Six blocking manual-test fixtures; three non-blocking automation roadmap fixtures |
+| Persistence | PostgreSQL system of record, Hibernate validation, forward-only Flyway; H2 test scope only | V1–V5 prior schema; V6 additive release tuple, source snapshots, snapshot traceability, and revision provenance |
+| AI resources | Versioned prompt and strict JSON Schema under backend resources | Runtime `test-generation-v2.txt` with retained v1 rollback/history prompt; runtime `test-generation-schema-v2.json` with retained schema v1, loaded by `OpenAiTestGenerationProvider` |
+| Evaluation | Versioned JSONL fixtures and rubric under `evals`, deterministic validator under `scripts` | Eight blocking manual-test fixtures; three non-blocking automation roadmap fixtures |
 | Delivery | Docker/Compose, GitHub Actions, verification wrappers, agent/skill guidance | No live provider call or dependency installation in the default harness |
 
 ## End-to-end implemented application flow
@@ -29,13 +30,15 @@ evaluation harness. “Future” below means designed but not implemented.
 3. The analyst creates an owner-scoped project and requirement, including
    keyed acceptance criteria. The API assigns UUID routing IDs and globally
    unique numeric work-item IDs to requirements and cases.
-4. Requirement logic records ambiguity findings. Generation creates a run,
-   calls the configured `TestGenerationProvider`, validates structured output,
-   permits one controlled validation retry, and persists a complete valid set.
+4. Requirement logic records ambiguity findings. Generation commits one
+   idempotent `PENDING` claim and exact source snapshots, calls the configured
+   `TestGenerationProvider` outside a database transaction, validates structured
+   output, permits one classified retry, and atomically persists a complete set.
 5. The analyst edits structured preconditions, synthetic data, ordered steps,
    expected results, and case metadata. Revisions and reviews preserve evidence.
-6. Traceability joins cases to acceptance criteria and calculates raw/approved
-   coverage. Only approved cases can be exported as CSV, JSON, or Markdown.
+6. Snapshot traceability joins cases to immutable generated criteria and
+   calculates DIRECT-only primary coverage plus separate partial/supporting
+   metrics. Only approved cases can be exported as CSV, JSON, or inert Markdown.
 7. Audit queries remain project-owner scoped. TF-001 membership listing does not
    enable any shared project-derived read or write.
 
@@ -45,7 +48,8 @@ The persistence model includes `users`, `refresh_token_sessions`, `workspaces`,
 `workspace_memberships`, `projects`, `requirements`, `acceptance_criteria`,
 `requirement_ambiguities`, `generation_runs`, `test_cases`,
 `test_case_preconditions`, `test_steps`, `test_data_items`,
-`traceability_links`, `test_case_reviews`, `requirement_revisions`,
+`traceability_links`, `generation_criterion_snapshots`,
+`snapshot_traceability_links`, `test_case_reviews`, `requirement_revisions`,
 `test_case_revisions`, and `audit_events`. The global
 `work_item_number_seq` supplies stable external numbers for requirements and
 test cases; UUIDs remain stable internal identifiers. Optimistic `version`
@@ -65,7 +69,9 @@ ambiguity resolution; generation/regeneration and run inspection; case list,
 detail, edit, approve/reject/request-changes; coverage/traceability; approved
 export; and project audit history. Pagination, strict unknown-field rejection,
 optimistic versions, idempotency keys, correlation IDs, and RFC 7807 problems
-are application contracts.
+are application contracts. Canonical generation-run, test-case, review,
+revision, project, story, and audit collections are bounded pages; legacy arrays
+are capped compatibility adapters.
 
 The SPA implements the Stage 1 owner workflow and review surfaces. It does not
 yet implement workspace selection/administration, source paste/upload catalog,
@@ -75,8 +81,10 @@ rendering. Those are target capabilities, not hidden routes.
 
 ## Prompt, schema, and provider integration
 
-`GenerationService` owns run/idempotency/persistence coordination and records
-the `manual-test-v1` prompt version. `TestGenerationProvider` is the neutral
+`GenerationService` is a nontransactional provider orchestrator;
+`GenerationTransactionService` owns short claim/finalization/failure
+transactions and records the pinned manual generation release tuple.
+`TestGenerationProvider` is the neutral
 boundary. `OpenAiTestGenerationProvider` loads the prompt and strict JSON Schema,
 uses the Responses API with `json_schema` formatting and `store:false`, enforces
 timeouts/output limits, parses usage, and maps safe provider failures. The
@@ -94,15 +102,15 @@ and evaluation baselines rather than renaming the existing prompt.
 ## Automated-test inventory
 
 - MockMvc covers the full generation/review/traceability/export workflow,
-  cross-owner 404s, CSRF/unknown fields, refresh reuse, optimistic conflicts,
+  cross-owner 404s, CSRF/unknown fields, concurrent refresh reuse, optimistic conflicts,
   criteria and ambiguity behavior, workspace provisioning/listing, and the
   membership-does-not-share invariant.
 - Workspace service tests cover deterministic provisioning, idempotency,
   old-binary reconciliation, caller role mapping, and malformed invariant
   failures. A Spring transaction test forces late refresh-token failure and
   asserts user/workspace/membership/session rollback.
-- Migration coverage includes H2 fresh and V3-upgrade paths, PostgreSQL current
-  constraints, and a Testcontainers PostgreSQL V3 fixture upgraded through V4
+- Migration coverage includes H2 fresh and V3/V4/V5-upgrade paths, PostgreSQL current
+  constraints, and Testcontainers PostgreSQL upgrade fixtures through V6
   with two-user no-cross-mapping assertions.
 - Provider/validator tests cover request protocol, strict parsing, transport and
   refusal failures, schema/semantic rejection, output bounds, and deterministic
@@ -115,12 +123,14 @@ and evaluation baselines rather than renaming the existing prompt.
 
 ## Technical debt, security issues, and missing requirements
 
-- Generation is synchronous; process failure and multi-instance retry need a
+- Generation remains synchronous, but provider calls no longer hold database
+  transactions and stale claims terminalize safely; process failure and multi-instance retry still need a
   durable job state machine. Rate limiting is process-local.
 - Owner authorization is safe but blocks real collaboration. Workspace roles
   exist without shared-content semantics, invitations, last-owner protection,
   or inactive-member/session re-evaluation.
-- Requirement ambiguity is not a versioned analysis artifact, and generated
+- Criterion evidence is immutable per generation run, but requirement ambiguity
+  is not a versioned analysis artifact, and generated
   cases are not preceded by a reviewable coverage plan. There is no suite-level
   grouping or generalized traceability/version snapshot.
 - Audit shares the transactional database and has no outbox/WORM forwarding.
@@ -169,7 +179,7 @@ and evaluation baselines rather than renaming the existing prompt.
 
 - Replace the process-local rate limiter with gateway or distributed limits for
   multi-instance operation.
-- Replace local/demo operational assumptions with managed secrets, private
+- Replace Compose/demo operational assumptions with managed secrets, private
   PostgreSQL, tested backups, centralized telemetry, and signed artifacts.
 - Replace ad hoc prompt/model changes with a release registry tied to fixture
   scores, semantic-validation versions, and rollback evidence.
@@ -187,7 +197,8 @@ and evaluation baselines rather than renaming the existing prompt.
 ## Readiness conclusion
 
 The Stage 1 workflow is a credible foundation: its strongest assets are
-server-side isolation, structured output validation, durable traceability, and
-human review. The main architectural gap is not technology choice; it is the
-absence of a complete workspace policy, immutable artifact snapshots, durable
-generation orchestration, and an approved automation-draft contract.
+server-side isolation, structured output validation, immutable generation
+criterion evidence, durable traceability, and human review. The main
+architectural gap is not technology choice; it is the absence of a complete
+workspace policy, generalized cross-stage artifact snapshots, asynchronous
+durable generation jobs, and an approved automation-draft contract.

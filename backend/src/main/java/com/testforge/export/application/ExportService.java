@@ -2,19 +2,22 @@ package com.testforge.export.application;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.testforge.audit.application.AuditMetadata;
 import com.testforge.audit.application.AuditService;
 import com.testforge.common.error.ApiExceptions;
 import com.testforge.generation.application.ActiveGenerationSetResolver;
+import com.testforge.generation.application.LegacyGenerationEvidenceReconciler;
+import com.testforge.generation.domain.GenerationRunEntity;
 import com.testforge.requirement.application.RequirementService;
 import com.testforge.requirement.domain.RequirementEntity;
-import com.testforge.testcase.application.TestCaseService;
+import com.testforge.testcase.application.TestCaseResponseAssembler;
 import com.testforge.testcase.domain.TestCaseStatus;
 import com.testforge.testcase.dto.TestCaseDtos.TestCaseResponse;
 import com.testforge.testcase.repository.TestCaseRepository;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,25 +25,31 @@ import org.springframework.transaction.annotation.Transactional;
 public class ExportService {
   private final RequirementService requirementService;
   private final TestCaseRepository testCases;
-  private final TestCaseService testCaseService;
+  private final TestCaseResponseAssembler responseAssembler;
   private final ObjectMapper objectMapper;
   private final AuditService auditService;
   private final ActiveGenerationSetResolver activeSets;
+  private final LegacyGenerationEvidenceReconciler legacyEvidence;
+  private final MarkdownTextEncoder markdownTextEncoder;
 
   /** Initializes ExportService with its required collaborators and domain state. */
   public ExportService(
       RequirementService requirementService,
       TestCaseRepository testCases,
-      TestCaseService testCaseService,
+      TestCaseResponseAssembler responseAssembler,
       ObjectMapper objectMapper,
       AuditService auditService,
-      ActiveGenerationSetResolver activeSets) {
+      ActiveGenerationSetResolver activeSets,
+      LegacyGenerationEvidenceReconciler legacyEvidence,
+      MarkdownTextEncoder markdownTextEncoder) {
     this.requirementService = requirementService;
     this.testCases = testCases;
-    this.testCaseService = testCaseService;
+    this.responseAssembler = responseAssembler;
     this.objectMapper = objectMapper;
     this.auditService = auditService;
     this.activeSets = activeSets;
+    this.legacyEvidence = legacyEvidence;
+    this.markdownTextEncoder = markdownTextEncoder;
   }
 
   /** Executes the export operation for ExportService. */
@@ -48,16 +57,22 @@ public class ExportService {
   public ExportFile export(
       UUID ownerId, UUID requirementId, UUID generationRunId, String requestedFormat) {
     RequirementEntity requirement = requirementService.requireOwned(ownerId, requirementId);
-    UUID selectedRunId = selectReadableRun(requirementId, generationRunId);
-    List<TestCaseResponse> approved =
-        selectedRunId == null
-            ? List.of()
-            : testCases
-                .findAllByRequirementIdAndGenerationRunIdAndStatusOrderByWorkItemNumber(
-                    requirementId, selectedRunId, TestCaseStatus.APPROVED)
-                .stream()
-                .map(testCaseService::toResponse)
-                .toList();
+    GenerationRunEntity selectedRun = selectReadableRun(requirementId, generationRunId);
+    if (selectedRun != null) {
+      legacyEvidence.reconcile(List.of(selectedRun));
+    }
+    UUID selectedRunId = selectedRun == null ? null : selectedRun.getId();
+    List<TestCaseResponse> approved;
+    if (selectedRunId == null) {
+      approved = List.of();
+    } else {
+      approved =
+          responseAssembler.assembleAll(
+              testCases
+                  .findAllByRequirementIdAndGenerationRunIdAndStatusOrderByWorkItemNumber(
+                      requirementId, selectedRunId, TestCaseStatus.APPROVED, PageRequest.of(0, 100))
+                  .getContent());
+    }
     if (approved.isEmpty()) {
       throw ApiExceptions.badRequest(
           "no_approved_test_cases", "Approve at least one test case before exporting.");
@@ -79,19 +94,17 @@ public class ExportService {
         "REQUIREMENT",
         requirementId,
         "EXPORTED",
-        Map.of("format", format, "approvedCaseCount", approved.size()));
+        AuditMetadata.exported(format, approved.size()));
     return file;
   }
 
   /** Selects the active set by default and validates an explicit historical selector. */
-  private UUID selectReadableRun(UUID requirementId, UUID requestedRunId) {
+  private GenerationRunEntity selectReadableRun(UUID requirementId, UUID requestedRunId) {
     if (requestedRunId == null) {
-      return activeSets.resolve(requirementId).map(run -> run.getId()).orElse(null);
+      return activeSets.resolve(requirementId).orElse(null);
     }
-    return activeSets.successful(requirementId).stream()
-        .filter(run -> run.getId().equals(requestedRunId))
-        .findFirst()
-        .map(run -> run.getId())
+    return activeSets
+        .successful(requirementId, requestedRunId)
         .orElseThrow(() -> ApiExceptions.notFound("Successful generation set not found."));
   }
 
@@ -139,23 +152,25 @@ public class ExportService {
   /** Maps the source data to markdown. */
   private String toMarkdown(RequirementEntity requirement, List<TestCaseResponse> approved) {
     StringBuilder markdown =
-        new StringBuilder("# ").append(markdownText(requirement.getTitle())).append("\n\n");
+        new StringBuilder("# ")
+            .append(markdownTextEncoder.encode(requirement.getTitle()))
+            .append("\n\n");
     markdown.append("Approved manual test cases exported by TestForge AI.\n\n");
     for (TestCaseResponse testCase : approved) {
       markdown
           .append("## ")
-          .append(markdownText(testCase.testCaseKey()))
+          .append(markdownTextEncoder.encode(testCase.testCaseKey()))
           .append(" — ")
-          .append(markdownText(testCase.title()))
+          .append(markdownTextEncoder.encode(testCase.title()))
           .append("\n\n")
           .append("- Category: ")
           .append(testCase.category())
           .append("\n- Priority: ")
           .append(testCase.priority())
           .append("\n- Acceptance criteria: ")
-          .append(markdownText(String.join(", ", testCase.acceptanceCriteriaKeys())))
+          .append(markdownTextEncoder.encode(String.join(", ", testCase.acceptanceCriteriaKeys())))
           .append("\n\n")
-          .append(markdownText(testCase.objective()))
+          .append(markdownTextEncoder.encode(testCase.objective()))
           .append("\n\n| Step | Action | Expected result |\n|---:|---|---|\n");
       testCase
           .steps()
@@ -165,13 +180,13 @@ public class ExportService {
                       .append('|')
                       .append(step.stepNumber())
                       .append('|')
-                      .append(markdownText(step.action()))
+                      .append(markdownTextEncoder.encode(step.action()))
                       .append('|')
-                      .append(markdownText(step.expectedResult()))
+                      .append(markdownTextEncoder.encode(step.expectedResult()))
                       .append("|\n"));
       markdown
           .append("\nFinal expected outcome: ")
-          .append(markdownText(testCase.finalExpectedOutcome()))
+          .append(markdownTextEncoder.encode(testCase.finalExpectedOutcome()))
           .append("\n\n");
     }
     return markdown.toString();
@@ -190,17 +205,6 @@ public class ExportService {
       return '\'' + value;
     }
     return value;
-  }
-
-  /** Executes the markdown text operation for ExportService. */
-  private String markdownText(String value) {
-    return (value == null ? "" : value)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("|", "\\|")
-        .replace("\r", " ")
-        .replace("\n", " ");
   }
 
   public record ExportFile(String mediaType, String extension, String content) {}

@@ -145,3 +145,23 @@ state.
   product-security hardening item, not a workflow-package change.
 - A later authorized slice may package these skills for distribution, add policy
   automation around exact-SHA CI, or harden supply-chain/Compose controls.
+
+## 2026-08-05 model-routing addendum
+
+The supported routing overlay keeps the primary coordinator and default
+temporary subagents on `gpt-5.6-terra` with medium reasoning. Architect is
+pinned to `gpt-5.6-sol` high, Builder to `gpt-5.6-terra` high, and Reviewer to
+high reasoning with no model pin so normal review inherits Terra. An explicitly
+temporary security or high-risk generation Reviewer may override the existing
+Reviewer role to Sol high for that launch.
+
+No Luna model, generic model slug, new role, capability, or gate is introduced.
+The three existing profiles, maximum concurrency of three, single-writer rule,
+Architect conformance, independent Reviewer verdict, Lead decisions, and all
+seven publication CI gates remain unchanged. Routing applies only after role
+authorization and does not claim a live model change for an already-running
+parent thread.
+Authorized repository exploration uses the built-in read-only explorer with
+`$repository-audit` on the Terra-medium default; no persistent explorer profile
+is added. Max reasoning is never persisted and may be selected manually only
+for exceptional work.

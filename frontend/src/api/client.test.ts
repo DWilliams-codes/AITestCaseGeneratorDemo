@@ -6,6 +6,7 @@ import {
   refreshSession,
   resetApiClient,
   setAccessToken,
+  subscribeSessionInvalidated,
 } from './client';
 import { server } from '../test/server';
 
@@ -206,5 +207,23 @@ describe('API client security and error behavior', () => {
     await expect(staleRefresh).resolves.toBeNull();
     await apiRequest('/api/v1/session-probe');
     expect(authorizationHeaders).toEqual([null]);
+  });
+
+  it('broadcasts only a current refresh failure', async () => {
+    let invalidations = 0;
+    const unsubscribe = subscribeSessionInvalidated(() => {
+      invalidations += 1;
+    });
+    server.use(
+      http.post('/api/v1/auth/refresh', () =>
+        HttpResponse.json({ detail: 'Expired.' }, { status: 401 }),
+      ),
+    );
+
+    await expect(refreshSession()).resolves.toBeNull();
+    expect(invalidations).toBe(1);
+    resetApiClient();
+    expect(invalidations).toBe(1);
+    unsubscribe();
   });
 });

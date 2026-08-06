@@ -28,7 +28,8 @@ import org.junit.jupiter.api.Test;
 class GenerationProviderValidationTest {
   private final GenerationResultValidator validator =
       new GenerationResultValidator(
-          new GenerationProperties("fake", 10, 5), new TestDataReferencePolicy());
+          new GenerationProperties("fake", 10, 5, java.time.Duration.ofMinutes(4)),
+          new TestDataReferencePolicy());
 
   /**
    * Covers the fake provider generates deterministic valid and context sensitive coverage scenario.
@@ -107,6 +108,38 @@ class GenerationProviderValidationTest {
     assertThat(invoiceResult.testCases().getFirst().testData().getFirst().exampleValue())
         .contains(archiveInvoice.requirementId().toString())
         .isNotEqualTo(reportResult.testCases().getFirst().testData().getFirst().exampleValue());
+  }
+
+  /** Accepts one direct case that independently maps multiple supplied acceptance criteria. */
+  @Test
+  void validatorAcceptsOneDirectCaseMappedToMultipleAcceptanceCriteria() {
+    TestGenerationRequest request =
+        new TestGenerationRequest(
+            UUID.randomUUID(),
+            "Create a return",
+            "As a shopper, I want to create a return and avoid duplicate requests.",
+            "One open return may exist per order line.",
+            "A synthetic eligible order exists.",
+            List.of(
+                new CriterionInput("AC-1", "An eligible request creates one open return."),
+                new CriterionInput("AC-2", "A second request does not create another return.")),
+            "multi-criterion-correlation");
+    GeneratedTestCase consolidated =
+        copy(
+            validCase("Create and prevent a duplicate return"),
+            "Create and prevent a duplicate return",
+            "Verify one workflow creates the first return and rejects the second request.",
+            "One open return remains for the order line.",
+            "Direct evidence for creation and duplicate prevention.",
+            TestCaseCategory.DATA_INTEGRITY,
+            TestPriority.HIGH,
+            TestPriority.HIGH,
+            CoverageIntent.ACCEPTANCE_CRITERIA,
+            validSteps(),
+            List.of("AC-1", "AC-2"),
+            validData());
+
+    validator.validate(request, result(List.of(consolidated)));
   }
 
   /** Covers the validator rejects missing oversized and duplicate case collections scenario. */
@@ -255,6 +288,7 @@ class GenerationProviderValidationTest {
                 List.of("AC-1"),
                 validData()));
     invalidEnums.forEach(testCase -> assertInvalid(request, result(List.of(testCase))));
+    assertInvalid(request, result(List.of(withAutomationCandidate(null))));
 
     assertInvalid(request, result(List.of(withSteps(null))));
     assertInvalid(request, result(List.of(withSteps(List.of()))));
@@ -322,7 +356,7 @@ class GenerationProviderValidationTest {
             validSteps(),
             null,
             null);
-    validator.validate(request, result(List.of(exploratory)));
+    assertInvalid(request, result(List.of(exploratory)));
   }
 
   /** Covers normalized duplicate names, dangling references, and canonical matching. */
@@ -510,6 +544,25 @@ class GenerationProviderValidationTest {
         true,
         base.coverageIntent(),
         preconditions,
+        base.testData(),
+        base.steps(),
+        base.finalExpectedOutcome(),
+        base.acceptanceCriteriaKeys(),
+        base.rationale());
+  }
+
+  /** Returns a case with an explicit automation-candidate presence value. */
+  private GeneratedTestCase withAutomationCandidate(Boolean automationCandidate) {
+    GeneratedTestCase base = validCase("Automation candidate contract");
+    return new GeneratedTestCase(
+        base.title(),
+        base.objective(),
+        base.category(),
+        base.priority(),
+        base.riskLevel(),
+        automationCandidate,
+        base.coverageIntent(),
+        base.preconditions(),
         base.testData(),
         base.steps(),
         base.finalExpectedOutcome(),

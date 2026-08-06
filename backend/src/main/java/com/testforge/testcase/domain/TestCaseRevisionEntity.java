@@ -2,6 +2,8 @@ package com.testforge.testcase.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -27,6 +29,16 @@ public class TestCaseRevisionEntity {
   @Column(name = "changed_at", nullable = false)
   private Instant changedAt;
 
+  @Enumerated(EnumType.STRING)
+  @Column(name = "change_type", length = 30)
+  private TestCaseRevisionChangeType changeType;
+
+  @Column(name = "change_reason", length = 4000)
+  private String changeReason;
+
+  @Column(name = "source_audit_event_id")
+  private UUID sourceAuditEventId;
+
   /** Creates an empty TestCaseRevisionEntity instance for the persistence framework. */
   protected TestCaseRevisionEntity() {}
 
@@ -36,13 +48,19 @@ public class TestCaseRevisionEntity {
       long revisionNumber,
       String snapshotJson,
       UUID changedBy,
-      Instant changedAt) {
+      Instant changedAt,
+      TestCaseRevisionChangeType changeType,
+      String changeReason,
+      UUID sourceAuditEventId) {
     this.id = UUID.randomUUID();
     this.testCaseId = testCaseId;
     this.revisionNumber = revisionNumber;
     this.snapshotJson = snapshotJson;
     this.changedBy = changedBy;
     this.changedAt = changedAt;
+    this.changeType = changeType;
+    this.changeReason = changeReason;
+    this.sourceAuditEventId = sourceAuditEventId;
   }
 
   /** Creates a new TestCaseRevisionEntity initialized from the supplied domain values. */
@@ -53,7 +71,53 @@ public class TestCaseRevisionEntity {
       UUID changedBy,
       Instant changedAt) {
     return new TestCaseRevisionEntity(
-        testCaseId, revisionNumber, snapshotJson, changedBy, changedAt);
+        testCaseId,
+        revisionNumber,
+        snapshotJson,
+        changedBy,
+        changedAt,
+        TestCaseRevisionChangeType.EDIT,
+        null,
+        null);
+  }
+
+  /** Records a controlled lifecycle revision while retaining its full domain reason. */
+  public static TestCaseRevisionEntity reopen(
+      UUID testCaseId,
+      long revisionNumber,
+      String snapshotJson,
+      UUID changedBy,
+      Instant changedAt,
+      String reason) {
+    return new TestCaseRevisionEntity(
+        testCaseId,
+        revisionNumber,
+        snapshotJson,
+        changedBy,
+        changedAt,
+        TestCaseRevisionChangeType.REOPEN,
+        reason,
+        null);
+  }
+
+  /** Transfers a legacy audit reason into owner-isolated revision evidence exactly once. */
+  public static TestCaseRevisionEntity legacyReopen(
+      UUID testCaseId,
+      long revisionNumber,
+      String snapshotJson,
+      UUID changedBy,
+      Instant changedAt,
+      String reason,
+      UUID sourceAuditEventId) {
+    return new TestCaseRevisionEntity(
+        testCaseId,
+        revisionNumber,
+        snapshotJson,
+        changedBy,
+        changedAt,
+        TestCaseRevisionChangeType.LEGACY_REOPEN,
+        reason,
+        sourceAuditEventId);
   }
 
   /** Returns the revision identifier. */
@@ -84,5 +148,20 @@ public class TestCaseRevisionEntity {
   /** Returns the server timestamp for the revision. */
   public Instant getChangedAt() {
     return changedAt;
+  }
+
+  /** Returns the current change type value. */
+  public TestCaseRevisionChangeType getChangeType() {
+    return changeType;
+  }
+
+  /** Returns the current change reason value. */
+  public String getChangeReason() {
+    return changeReason;
+  }
+
+  /** Returns the legacy audit source used for idempotent bridge reconciliation. */
+  public UUID getSourceAuditEventId() {
+    return sourceAuditEventId;
   }
 }

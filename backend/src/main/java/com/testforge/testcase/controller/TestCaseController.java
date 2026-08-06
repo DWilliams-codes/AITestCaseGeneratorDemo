@@ -6,6 +6,7 @@ import com.testforge.testcase.application.TestCaseService;
 import com.testforge.testcase.domain.ReviewDecision;
 import com.testforge.testcase.dto.TestCaseDtos.ReopenRequest;
 import com.testforge.testcase.dto.TestCaseDtos.ReviewRequest;
+import com.testforge.testcase.dto.TestCaseDtos.ReviewResponse;
 import com.testforge.testcase.dto.TestCaseDtos.RevisionResponse;
 import com.testforge.testcase.dto.TestCaseDtos.TestCaseResponse;
 import com.testforge.testcase.dto.TestCaseDtos.UpdateTestCaseRequest;
@@ -46,6 +47,21 @@ public class TestCaseController {
       @PathVariable UUID requirementId,
       @RequestParam(required = false) UUID generationRunId) {
     return testCaseService.list(currentUser.id(authentication), requirementId, generationRunId);
+  }
+
+  /** Returns the canonical bounded test-case page. */
+  @GetMapping({
+    "/user-stories/{requirementId}/test-cases/page",
+    "/requirements/{requirementId}/test-cases/page"
+  })
+  PageResponse<TestCaseResponse> listPage(
+      Authentication authentication,
+      @PathVariable UUID requirementId,
+      @RequestParam(required = false) UUID generationRunId,
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+    return testCaseService.listPage(
+        currentUser.id(authentication), requirementId, generationRunId, page, size);
   }
 
   /** Handles the authenticated HTTP request to get. */
@@ -107,6 +123,16 @@ public class TestCaseController {
       @RequestParam(defaultValue = "0") @Min(0) int page,
       @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
     return testCaseService.revisions(currentUser.id(authentication), testCaseId, page, size);
+  }
+
+  /** Returns a bounded review-history page. */
+  @GetMapping("/test-cases/{testCaseId}/reviews")
+  PageResponse<ReviewResponse> reviews(
+      Authentication authentication,
+      @PathVariable UUID testCaseId,
+      @RequestParam(defaultValue = "0") @Min(0) int page,
+      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+    return testCaseService.reviews(currentUser.id(authentication), testCaseId, page, size);
   }
 
   /** Handles the authenticated HTTP request to review. */

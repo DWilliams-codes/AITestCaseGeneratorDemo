@@ -1,6 +1,7 @@
 package com.testforge.requirement.controller;
 
 import com.testforge.common.dto.PageResponse;
+import com.testforge.common.http.IfMatchVersion;
 import com.testforge.requirement.application.RequirementService;
 import com.testforge.requirement.dto.RequirementDtos.AcceptanceCriterionRequest;
 import com.testforge.requirement.dto.RequirementDtos.AcceptanceCriterionResponse;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -86,8 +88,10 @@ public class RequirementController {
   AcceptanceCriterionResponse addCriterion(
       Authentication authentication,
       @PathVariable UUID requirementId,
+      @RequestHeader("If-Match") String ifMatch,
       @Valid @RequestBody AcceptanceCriterionRequest request) {
-    return requirementService.addCriterion(currentUser.id(authentication), requirementId, request);
+    return requirementService.addCriterion(
+        currentUser.id(authentication), requirementId, IfMatchVersion.parse(ifMatch), request);
   }
 
   /** Handles the authenticated HTTP request to update criterion. */
@@ -95,15 +99,21 @@ public class RequirementController {
   AcceptanceCriterionResponse updateCriterion(
       Authentication authentication,
       @PathVariable UUID criterionId,
+      @RequestHeader("If-Match") String ifMatch,
       @Valid @RequestBody AcceptanceCriterionRequest request) {
-    return requirementService.updateCriterion(currentUser.id(authentication), criterionId, request);
+    return requirementService.updateCriterion(
+        currentUser.id(authentication), criterionId, IfMatchVersion.parse(ifMatch), request);
   }
 
   /** Deletes criterion from persistent storage. */
   @DeleteMapping("/acceptance-criteria/{criterionId}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
-  void deleteCriterion(Authentication authentication, @PathVariable UUID criterionId) {
-    requirementService.deleteCriterion(currentUser.id(authentication), criterionId);
+  void deleteCriterion(
+      Authentication authentication,
+      @PathVariable UUID criterionId,
+      @RequestHeader("If-Match") String ifMatch) {
+    requirementService.deleteCriterion(
+        currentUser.id(authentication), criterionId, IfMatchVersion.parse(ifMatch));
   }
 
   /** Handles the authenticated HTTP request to resolve ambiguity. */

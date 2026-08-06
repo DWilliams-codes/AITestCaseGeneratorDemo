@@ -15,6 +15,7 @@ accepted record to hide a later change; add a superseding ADR and link both.
 | [0008](0008-postgresql-flyway.md) | PostgreSQL and Flyway | Accepted |
 | [0009](0009-workspace-tenancy-expand-contract.md) | Workspace tenancy through expand/backfill/contract | Accepted for expand/backfill |
 | [0010](0010-stage-one-user-story-workflow-integrity.md) | User Story workflow integrity on existing Stage One storage | Accepted |
+| [0011](0011-runtime-postgresql-and-test-database-boundary.md) | PostgreSQL-only runtime with test-scoped H2 | Accepted |
 
 Create a zero-padded sequential file for a new cross-cutting decision. Include
 context, decision, consequences, alternatives, and any superseded record.

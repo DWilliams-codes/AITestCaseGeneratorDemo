@@ -109,6 +109,11 @@ public class AuditEventEntity {
     return metadata;
   }
 
+  /** Replaces legacy free-form metadata with a closed, bounded audit fact. */
+  public void replaceMetadata(String safeMetadata) {
+    this.metadata = safeMetadata;
+  }
+
   /** Returns the current timestamp value. */
   public Instant getTimestamp() {
     return timestamp;

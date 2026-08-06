@@ -139,6 +139,11 @@ public class RequirementEntity {
     this.updatedAt = now;
   }
 
+  /** Advances the source aggregate whenever its ordered acceptance criteria change. */
+  public void markCriteriaChanged(Instant now) {
+    this.updatedAt = now.isAfter(updatedAt) ? now : updatedAt.plusNanos(1);
+  }
+
   /** Marks the entity as archived and records its modification time. */
   public void archive(Instant now) {
     this.status = RequirementStatus.ARCHIVED;

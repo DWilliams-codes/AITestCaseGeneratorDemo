@@ -39,7 +39,7 @@ public record TestGenerationResult(
       TestCaseCategory category,
       TestPriority priority,
       TestPriority riskLevel,
-      boolean automationCandidate,
+      Boolean automationCandidate,
       CoverageIntent coverageIntent,
       List<String> preconditions,
       List<GeneratedTestData> testData,

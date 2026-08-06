@@ -54,3 +54,24 @@ Publication is later and optional; its seven exact-SHA CI results live outside
 the candidate commit and precede a no-write Lead publication/merge decision.
 Normal checks never install dependencies, call a live provider, execute
 generated automation, or mutate external systems.
+
+## Model routing
+
+This additive routing applies only after the existing workflow authorizes the
+role. It does not create another role, capability, gate, or permission.
+
+| Authorized context | Model | Reasoning | Routing note |
+| --- | --- | --- | --- |
+| Primary coordinator | `gpt-5.6-terra` | Medium | Default orchestration path; current running threads do not claim a live switch |
+| Default temporary subagent | `gpt-5.6-terra` | Medium | Used only when delegation is already authorized |
+| Architect | `gpt-5.6-sol` | High | Existing read-only architecture and conformance role |
+| Builder | `gpt-5.6-terra` | High | Existing sole workspace-write role |
+| Reviewer | Inherits `gpt-5.6-terra` | High | Profile intentionally has no persistent model pin |
+| Temporary security or high-risk generation Reviewer | `gpt-5.6-sol` | High | Explicit per-launch override of the existing Reviewer role only |
+
+The persistent profile inventory remains Architect, Builder, and Reviewer, with
+maximum concurrency three.
+Authorized repository exploration uses the built-in read-only explorer with
+`$repository-audit` on the Terra-medium default, never a persistent explorer
+profile. Max reasoning is never persisted and may be selected manually only for
+exceptional work.

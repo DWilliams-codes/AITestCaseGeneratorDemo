@@ -5,6 +5,7 @@ import com.testforge.testcase.domain.CoverageIntent;
 import com.testforge.testcase.domain.DataSensitivity;
 import com.testforge.testcase.domain.ReviewDecision;
 import com.testforge.testcase.domain.TestCaseCategory;
+import com.testforge.testcase.domain.TestCaseRevisionChangeType;
 import com.testforge.testcase.domain.TestCaseStatus;
 import com.testforge.testcase.domain.TestPriority;
 import jakarta.validation.Valid;
@@ -77,7 +78,13 @@ public final class TestCaseDtos {
       UUID id, UUID reviewerId, ReviewDecision decision, String comments, Instant createdAt) {}
 
   public record RevisionResponse(
-      UUID id, long revisionNumber, JsonNode snapshot, UUID changedBy, Instant changedAt) {}
+      UUID id,
+      long revisionNumber,
+      JsonNode snapshot,
+      UUID changedBy,
+      Instant changedAt,
+      TestCaseRevisionChangeType changeType,
+      String changeReason) {}
 
   public record TestCaseResponse(
       UUID id,

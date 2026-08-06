@@ -48,12 +48,14 @@ import {
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import { useMemo, useState } from 'react';
 import { useFieldArray, useForm, useWatch } from 'react-hook-form';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { ApiError, apiRequest, downloadExport } from '../api/client';
+import { PaginationControls } from '../components/PaginationControls';
 import type {
   AuditEvent,
   Coverage,
   GenerationRun,
+  GenerationRunPage,
   PageResponse,
   Project,
   Requirement,
@@ -96,6 +98,10 @@ const priorityRank: Record<TestPriority, number> = {
 type TestCaseSort =
   'sequence-asc' | 'sequence-desc' | 'priority-desc' | 'status-asc' | 'updated-desc';
 type ReviewAction = 'approve' | 'reject' | 'request-changes' | 'reopen';
+type Notice = {
+  message: string;
+  severity: 'success' | 'info' | 'warning' | 'error';
+};
 
 /** Orders test cases by their global work-item number with stable creation and UUID tie-breakers. */
 function compareByTestCaseNumber(left: TestCase, right: TestCase) {
@@ -115,23 +121,91 @@ function generationCompletedNotice(run: GenerationRun, source: string) {
   return `Generation completed and passed the server-side quality gate. ${generated} from this story using ${source}.`;
 }
 
+/** Maps each generation terminal or in-progress outcome to explicit user-facing semantics. */
+function generationOutcomeNotice(run: GenerationRun, source: string): Notice {
+  switch (run.status) {
+    case 'PENDING':
+      return {
+        message: 'Generation is still pending. Refresh the generation history before reviewing.',
+        severity: 'info',
+      };
+    case 'FAILED':
+      return {
+        message: run.failureMessage || 'Generation failed safely without creating partial cases.',
+        severity: 'error',
+      };
+    case 'REJECTED_BY_VALIDATION':
+      return {
+        message:
+          run.failureMessage ||
+          'Generated output did not pass validation and created no partial test cases.',
+        severity: 'warning',
+      };
+    case 'COMPLETED':
+      return { message: generationCompletedNotice(run, source), severity: 'success' };
+  }
+}
+
 /** Coordinates requirement details, generated coverage, review actions, traceability, and exports. */
 export function RequirementPage() {
   const { userStoryId: requirementId = '' } = useParams();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  /** Reads a non-negative bounded integer from the shareable page state. */
+  const numericParam = (name: string, maximum?: number) => {
+    const parsed = Math.max(0, Number.parseInt(searchParams.get(name) ?? '0', 10) || 0);
+    return maximum === undefined ? parsed : Math.min(parsed, maximum);
+  };
+  /** Atomically updates URL-backed controls while removing default representations. */
+  const setParams = (values: Array<[name: string, value: string, defaultValue?: string]>) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      values.forEach(([name, value, defaultValue = '']) => {
+        if (value === defaultValue) next.delete(name);
+        else next.set(name, value);
+      });
+      return next;
+    });
+  };
+  /** Updates one URL-backed control through the shared atomic updater. */
+  const setParam = (name: string, value: string, defaultValue = '') =>
+    setParams([[name, value, defaultValue]]);
+  const tab = numericParam('tab', 3);
+  /** Selects the visible workflow tab without losing filters or paging. */
+  const setTab = (value: number) => setParam('tab', String(value), '0');
   const [editing, setEditing] = useState<TestCase | null>(null);
   const [reviewTarget, setReviewTarget] = useState<{
     testCase: TestCase;
     action: ReviewAction;
   } | null>(null);
-  const [notice, setNotice] = useState('');
-  const [caseSearch, setCaseSearch] = useState('');
-  const [caseStatus, setCaseStatus] = useState<TestCaseStatus | 'ALL'>('ALL');
-  const [caseCategory, setCaseCategory] = useState<TestCaseCategory | 'ALL'>('ALL');
-  const [casePriority, setCasePriority] = useState<TestPriority | 'ALL'>('ALL');
-  const [caseSort, setCaseSort] = useState<TestCaseSort>('sequence-asc');
-  const [selectedRunId, setSelectedRunId] = useState('');
+  const [ambiguityTarget, setAmbiguityTarget] = useState<Requirement['ambiguities'][number] | null>(
+    null,
+  );
+  const [ambiguityResolution, setAmbiguityResolution] = useState('');
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const caseSearch = searchParams.get('caseSearch') ?? '';
+  /** Persists the case search term in the current workflow URL. */
+  const setCaseSearch = (value: string) => setParam('caseSearch', value);
+  const caseStatus = (searchParams.get('caseStatus') ?? 'ALL') as TestCaseStatus | 'ALL';
+  /** Persists the selected case-status filter. */
+  const setCaseStatus = (value: TestCaseStatus | 'ALL') => setParam('caseStatus', value, 'ALL');
+  const caseCategory = (searchParams.get('caseCategory') ?? 'ALL') as TestCaseCategory | 'ALL';
+  /** Persists the selected case-category filter. */
+  const setCaseCategory = (value: TestCaseCategory | 'ALL') =>
+    setParam('caseCategory', value, 'ALL');
+  const casePriority = (searchParams.get('casePriority') ?? 'ALL') as TestPriority | 'ALL';
+  /** Persists the selected case-priority filter. */
+  const setCasePriority = (value: TestPriority | 'ALL') => setParam('casePriority', value, 'ALL');
+  const caseSort = (searchParams.get('caseSort') ?? 'sequence-asc') as TestCaseSort;
+  /** Persists the case ordering while omitting the default order. */
+  const setCaseSort = (value: TestCaseSort) => setParam('caseSort', value, 'sequence-asc');
+  const selectedRunId = searchParams.get('generationRunId') ?? '';
+  const casePage = numericParam('casePage');
+  /** Selects a shareable generated-case page. */
+  const setCasePage = (value: number) => setParam('casePage', String(value), '0');
+  const runPage = numericParam('runPage');
+  /** Selects a shareable generation-history page. */
+  const setRunPage = (value: number) => setParam('runPage', String(value), '0');
   const generationRunQuery = selectedRunId
     ? `?generationRunId=${encodeURIComponent(selectedRunId)}`
     : '';
@@ -146,10 +220,10 @@ export function RequirementPage() {
     enabled: Boolean(requirement.data?.projectId),
   });
   const cases = useQuery({
-    queryKey: ['test-cases', requirementId, selectedRunId],
+    queryKey: ['test-cases', requirementId, selectedRunId, casePage],
     queryFn: () =>
-      apiRequest<TestCase[]>(
-        `/api/v1/user-stories/${requirementId}/test-cases${generationRunQuery}`,
+      apiRequest<PageResponse<TestCase>>(
+        `/api/v1/user-stories/${requirementId}/test-cases/page?page=${casePage}&size=20${selectedRunId ? `&generationRunId=${encodeURIComponent(selectedRunId)}` : ''}`,
       ),
     enabled: Boolean(requirementId),
   });
@@ -168,14 +242,17 @@ export function RequirementPage() {
     enabled: Boolean(requirementId),
   });
   const runs = useQuery({
-    queryKey: ['generation-runs', requirementId],
+    queryKey: ['generation-runs', requirementId, runPage],
     queryFn: () =>
-      apiRequest<GenerationRun[]>(`/api/v1/user-stories/${requirementId}/generation-runs`),
+      apiRequest<GenerationRunPage>(
+        `/api/v1/user-stories/${requirementId}/generation-runs/page?page=${runPage}&size=20`,
+      ),
     enabled: Boolean(requirementId),
   });
+  const hasActiveGenerationSet = Boolean(runs.data?.activeGenerationRunId);
   const visibleCases = useMemo(() => {
     const normalizedSearch = caseSearch.trim().toLocaleLowerCase();
-    const filtered = (cases.data ?? []).filter((testCase) => {
+    const filtered = (cases.data?.items ?? []).filter((testCase) => {
       const searchableText = [
         testCase.testCaseKey,
         testCase.title,
@@ -210,15 +287,18 @@ export function RequirementPage() {
           return compareByTestCaseNumber(left, right);
       }
     });
-  }, [caseCategory, casePriority, caseSearch, caseSort, caseStatus, cases.data]);
+  }, [caseCategory, casePriority, caseSearch, caseSort, caseStatus, cases.data?.items]);
   const hasCaseFilters =
     Boolean(caseSearch) || caseStatus !== 'ALL' || caseCategory !== 'ALL' || casePriority !== 'ALL';
   /** Restores all test-case controls to the unfiltered review queue. */
   const clearCaseFilters = () => {
-    setCaseSearch('');
-    setCaseStatus('ALL');
-    setCaseCategory('ALL');
-    setCasePriority('ALL');
+    setParams([
+      ['caseSearch', ''],
+      ['caseStatus', 'ALL', 'ALL'],
+      ['caseCategory', 'ALL', 'ALL'],
+      ['casePriority', 'ALL', 'ALL'],
+      ['casePage', '0', '0'],
+    ]);
   };
   /** Invalidates every requirement-derived query after a generation, edit, or review transition. */
   const refreshAll = async () => {
@@ -232,12 +312,14 @@ export function RequirementPage() {
   };
   const generate = useMutation({
     mutationFn: async () => {
-      const regenerating = runs.data?.some((run) => run.setState === 'ACTIVE') ?? false;
+      const regenerating = hasActiveGenerationSet;
       const path = `/api/v1/user-stories/${requirementId}/${regenerating ? 'regenerate' : 'generate-test-cases'}`;
+      const idempotencyKey = crypto.randomUUID();
+      /** Reuses this operation's idempotency key for the explicit supersession-confirmation retry. */
       const request = (confirmSupersede: boolean) =>
         apiRequest<GenerationRun>(
           `${path}${regenerating ? `?confirmSupersede=${String(confirmSupersede)}` : ''}`,
-          { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } },
+          { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } },
         );
       try {
         return await request(false);
@@ -259,10 +341,17 @@ export function RequirementPage() {
         run.provider === 'openai-responses'
           ? `OpenAI model ${run.model}`
           : `the local story-driven engine ${run.model}`;
-      setNotice(generationCompletedNotice(run, source));
+      setNotice(generationOutcomeNotice(run, source));
+      if (run.status !== 'COMPLETED') {
+        await refreshAll();
+        return;
+      }
       await refreshAll();
-      setSelectedRunId('');
-      setTab(1);
+      setParams([
+        ['generationRunId', ''],
+        ['casePage', '0', '0'],
+        ['tab', '1', '0'],
+      ]);
     },
   });
   const review = useMutation({
@@ -287,6 +376,26 @@ export function RequirementPage() {
       await refreshAll();
     },
   });
+  const resolveAmbiguity = useMutation({
+    mutationFn: () =>
+      apiRequest(`/api/v1/ambiguities/${ambiguityTarget?.id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({
+          resolution: ambiguityResolution.trim(),
+          version: ambiguityTarget?.version,
+        }),
+      }),
+    onSuccess: async () => {
+      setAmbiguityTarget(null);
+      setAmbiguityResolution('');
+      await queryClient.invalidateQueries({ queryKey: ['requirement', requirementId] });
+    },
+    onError: async (error) => {
+      if (error instanceof ApiError && error.code === 'stale_version') {
+        await queryClient.invalidateQueries({ queryKey: ['requirement', requirementId] });
+      }
+    },
+  });
 
   if (requirement.isLoading)
     return (
@@ -306,12 +415,15 @@ export function RequirementPage() {
 
   /** Downloads one export format and reports a user-facing success or failure notice. */
   const exportFile = async (format: string) => {
-    setNotice('');
+    setNotice(null);
     try {
       await downloadExport(requirementId, format, true, selectedRunId || undefined);
-      setNotice(`${format.toUpperCase()} export downloaded.`);
+      setNotice({ message: `${format.toUpperCase()} export downloaded.`, severity: 'success' });
     } catch (error) {
-      setNotice(error instanceof ApiError ? error.message : 'The export could not be completed.');
+      setNotice({
+        message: error instanceof ApiError ? error.message : 'The export could not be completed.',
+        severity: 'error',
+      });
     }
   };
 
@@ -379,26 +491,23 @@ export function RequirementPage() {
           </Button>
           <Button
             variant="contained"
-            startIcon={cases.data?.length ? <ReplayRoundedIcon /> : <AutoAwesomeRoundedIcon />}
+            startIcon={
+              cases.data?.items.length ? <ReplayRoundedIcon /> : <AutoAwesomeRoundedIcon />
+            }
             onClick={() => generate.mutate()}
             disabled={generate.isPending}
           >
             {generate.isPending
               ? 'Generating…'
-              : cases.data?.length
+              : hasActiveGenerationSet
                 ? 'Regenerate'
                 : 'Generate tests'}
           </Button>
         </Stack>
       </Stack>
       {notice && (
-        <Alert
-          severity={
-            notice.includes('could not') || notice.includes('Approve') ? 'warning' : 'success'
-          }
-          onClose={() => setNotice('')}
-        >
-          {notice}
+        <Alert severity={notice.severity} onClose={() => setNotice(null)}>
+          {notice.message}
         </Alert>
       )}
       {generate.error && (
@@ -408,33 +517,80 @@ export function RequirementPage() {
             : 'Generation failed safely.'}
         </Alert>
       )}
+      {cases.error && (
+        <Alert
+          severity="error"
+          action={<Button onClick={() => void cases.refetch()}>Retry cases</Button>}
+        >
+          Test cases could not be loaded. No empty result is being inferred.
+        </Alert>
+      )}
+      {runs.error && (
+        <Alert
+          severity="error"
+          action={<Button onClick={() => void runs.refetch()}>Retry history</Button>}
+        >
+          Generation history could not be loaded.
+        </Alert>
+      )}
+      {coverage.error && (
+        <Alert
+          severity="error"
+          action={<Button onClick={() => void coverage.refetch()}>Retry coverage</Button>}
+        >
+          Coverage evidence is unavailable; it has not been treated as zero.
+        </Alert>
+      )}
+      {traceability.error && (
+        <Alert
+          severity="error"
+          action={<Button onClick={() => void traceability.refetch()}>Retry traceability</Button>}
+        >
+          Traceability evidence is unavailable; it has not been treated as empty.
+        </Alert>
+      )}
 
       <Box
         sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}
       >
         <MetricCard
           label="Generated coverage"
-          value={`${coverage.data?.coveragePercent ?? 0}%`}
-          detail={`${coverage.data?.coveredCriteria ?? 0} of ${coverage.data?.totalCriteria ?? req.acceptanceCriteria.length} criteria`}
+          value={coverage.error ? 'Unavailable' : `${coverage.data?.coveragePercent ?? 0}%`}
+          detail={
+            coverage.error
+              ? 'Retry coverage before making a coverage decision.'
+              : `${coverage.data?.coveredCriteria ?? 0} of ${coverage.data?.totalCriteria ?? req.acceptanceCriteria.length} criteria`
+          }
           color="primary.main"
         />
         <MetricCard
           label="Approved coverage"
-          value={`${coverage.data?.approvedCoveragePercent ?? 0}%`}
+          value={coverage.error ? 'Unavailable' : `${coverage.data?.approvedCoveragePercent ?? 0}%`}
           detail={
-            (coverage.data?.approvedCriteria ?? 0) === 1
-              ? '1 criterion has approved evidence'
-              : `${coverage.data?.approvedCriteria ?? 0} criteria have approved evidence`
+            coverage.error
+              ? 'Approved evidence could not be loaded.'
+              : (coverage.data?.approvedCriteria ?? 0) === 1
+                ? '1 criterion has approved evidence'
+                : `${coverage.data?.approvedCriteria ?? 0} criteria have approved evidence`
           }
           color="success.main"
         />
         <MetricCard
           label="Review queue"
-          value={String(
-            cases.data?.filter((item) => item.status !== 'APPROVED' && item.status !== 'REJECTED')
-              .length ?? 0,
-          )}
-          detail={`${cases.data?.length ?? 0} total structured cases`}
+          value={
+            cases.error
+              ? 'Unavailable'
+              : String(
+                  cases.data?.items.filter(
+                    (item) => item.status !== 'APPROVED' && item.status !== 'REJECTED',
+                  ).length ?? 0,
+                )
+          }
+          detail={
+            cases.error
+              ? 'Retry test cases before making a review decision.'
+              : `${cases.data?.totalElements ?? 0} total structured cases`
+          }
           color="warning.main"
         />
       </Box>
@@ -448,7 +604,13 @@ export function RequirementPage() {
           aria-label="User Story workspace sections"
         >
           <Tab label="Story details" />
-          <Tab label={`Test cases (${cases.data?.length ?? 0})`} />
+          <Tab
+            label={
+              cases.error
+                ? 'Test cases (unavailable)'
+                : `Test cases (${cases.data?.totalElements ?? 0})`
+            }
+          />
           <Tab label="Traceability" />
           <Tab label={`Ambiguities (${req.ambiguities.filter((item) => !item.resolved).length})`} />
         </Tabs>
@@ -498,8 +660,22 @@ export function RequirementPage() {
         )}
         {tab === 1 && (
           <Box sx={{ p: { xs: 1.5, md: 2.5 } }}>
+            <GenerationHistory
+              page={runs.data}
+              busy={runs.isFetching}
+              failed={Boolean(runs.error)}
+              selectedRunId={selectedRunId}
+              onPageChange={setRunPage}
+              onSelectRun={(run) =>
+                setParams([
+                  ['generationRunId', run.setState === 'ACTIVE' ? '' : run.id],
+                  ['casePage', '0', '0'],
+                ])
+              }
+            />
+            <Divider sx={{ my: 2.5 }} />
             {cases.isLoading && <LinearProgress />}
-            {cases.data?.length === 0 && (
+            {cases.data?.items.length === 0 && (
               <Box sx={{ py: 8, textAlign: 'center' }}>
                 <FactCheckOutlinedIcon color="disabled" sx={{ fontSize: 48 }} />
                 <Typography variant="h2" sx={{ mt: 1 }}>
@@ -510,7 +686,7 @@ export function RequirementPage() {
                 </Typography>
               </Box>
             )}
-            {(cases.data?.length ?? 0) > 0 && (
+            {(cases.data?.items.length ?? 0) > 0 && (
               <Stack
                 component="section"
                 aria-label="Test case controls"
@@ -532,11 +708,16 @@ export function RequirementPage() {
                     select
                     label="Generation set"
                     value={selectedRunId}
-                    onChange={(event) => setSelectedRunId(event.target.value)}
+                    onChange={(event) =>
+                      setParams([
+                        ['generationRunId', event.target.value],
+                        ['casePage', '0', '0'],
+                      ])
+                    }
                     size="small"
                   >
                     <MenuItem value="">Active set</MenuItem>
-                    {runs.data
+                    {runs.data?.items
                       ?.filter((run) => run.status === 'COMPLETED')
                       .map((run) => (
                         <MenuItem key={run.id} value={run.id}>
@@ -619,7 +800,7 @@ export function RequirementPage() {
                   sx={{ alignItems: 'center', justifyContent: 'space-between' }}
                 >
                   <Typography variant="body2" color="text.secondary" aria-live="polite">
-                    Showing {visibleCases.length} of {cases.data?.length ?? 0} test cases
+                    Showing {visibleCases.length} of {cases.data?.totalElements ?? 0} test cases
                   </Typography>
                   {hasCaseFilters && (
                     <Button size="small" onClick={clearCaseFilters}>
@@ -629,7 +810,7 @@ export function RequirementPage() {
                 </Stack>
               </Stack>
             )}
-            {(cases.data?.length ?? 0) > 0 && visibleCases.length === 0 && (
+            {(cases.data?.items.length ?? 0) > 0 && visibleCases.length === 0 && (
               <Alert severity="info">No test cases match the current filters.</Alert>
             )}
             {visibleCases.map((testCase) => (
@@ -646,59 +827,76 @@ export function RequirementPage() {
                 projectId={req.projectId}
               />
             ))}
+            {cases.data && cases.data.totalPages > 1 && (
+              <PaginationControls
+                page={cases.data}
+                busy={cases.isFetching}
+                onPageChange={setCasePage}
+              />
+            )}
           </Box>
         )}
         {tab === 2 && (
           <CardContent sx={{ p: 0 }}>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Criterion</TableCell>
-                    <TableCell>Acceptance criterion</TableCell>
-                    <TableCell>Mapped evidence</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {traceability.data?.rows.map((row) => (
-                    <TableRow key={row.acceptanceCriterionId}>
-                      <TableCell sx={{ verticalAlign: 'top' }}>
-                        <Chip label={row.criterionKey} size="small" />
-                      </TableCell>
-                      <TableCell sx={{ maxWidth: 480, verticalAlign: 'top' }}>
-                        {row.description}
-                      </TableCell>
-                      <TableCell>
-                        {row.testCases.length ? (
-                          <Stack spacing={0.75}>
-                            {row.testCases.map((item) => (
-                              <Stack
-                                key={item.id}
-                                direction="row"
-                                spacing={1}
-                                sx={{ alignItems: 'center' }}
-                              >
-                                <MuiLink component="button" onClick={() => setTab(1)}>
-                                  {item.testCaseKey}
-                                </MuiLink>
-                                <Typography variant="body2">{item.title}</Typography>
-                                <Chip
-                                  label={item.status}
-                                  size="small"
-                                  color={item.status === 'APPROVED' ? 'success' : 'default'}
-                                />
-                              </Stack>
-                            ))}
-                          </Stack>
-                        ) : (
-                          <Typography color="error">Not covered</Typography>
-                        )}
-                      </TableCell>
+            {traceability.error ? (
+              <Alert
+                severity="error"
+                action={<Button onClick={() => void traceability.refetch()}>Retry</Button>}
+                sx={{ m: 2 }}
+              >
+                Traceability evidence is unavailable. No empty matrix is being shown.
+              </Alert>
+            ) : (
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Criterion</TableCell>
+                      <TableCell>Acceptance criterion</TableCell>
+                      <TableCell>Mapped evidence</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {traceability.data?.rows.map((row) => (
+                      <TableRow key={row.acceptanceCriterionId}>
+                        <TableCell sx={{ verticalAlign: 'top' }}>
+                          <Chip label={row.criterionKey} size="small" />
+                        </TableCell>
+                        <TableCell sx={{ maxWidth: 480, verticalAlign: 'top' }}>
+                          {row.description}
+                        </TableCell>
+                        <TableCell>
+                          {row.testCases.length ? (
+                            <Stack spacing={0.75}>
+                              {row.testCases.map((item) => (
+                                <Stack
+                                  key={item.id}
+                                  direction="row"
+                                  spacing={1}
+                                  sx={{ alignItems: 'center' }}
+                                >
+                                  <MuiLink component="button" onClick={() => setTab(1)}>
+                                    {item.testCaseKey}
+                                  </MuiLink>
+                                  <Typography variant="body2">{item.title}</Typography>
+                                  <Chip
+                                    label={item.status}
+                                    size="small"
+                                    color={item.status === 'APPROVED' ? 'success' : 'default'}
+                                  />
+                                </Stack>
+                              ))}
+                            </Stack>
+                          ) : (
+                            <Typography color="error">Not covered</Typography>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
           </CardContent>
         )}
         {tab === 3 && (
@@ -739,6 +937,18 @@ export function RequirementPage() {
                           color="success"
                         />
                       )}
+                      {!item.resolved && (
+                        <Button
+                          variant="outlined"
+                          onClick={() => {
+                            resolveAmbiguity.reset();
+                            setAmbiguityTarget(item);
+                            setAmbiguityResolution('');
+                          }}
+                        >
+                          Resolve
+                        </Button>
+                      )}
                     </Stack>
                   </CardContent>
                 </Card>
@@ -777,6 +987,143 @@ export function RequirementPage() {
             })
           }
         />
+      )}
+      <Dialog
+        open={Boolean(ambiguityTarget)}
+        onClose={() => !resolveAmbiguity.isPending && setAmbiguityTarget(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Resolve ambiguity</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography>{ambiguityTarget?.suggestedQuestion}</Typography>
+            {resolveAmbiguity.error && (
+              <Alert severity="error">
+                {resolveAmbiguity.error instanceof ApiError &&
+                resolveAmbiguity.error.code === 'stale_version'
+                  ? 'This ambiguity changed. The latest story was reloaded; reopen the dialog and retry.'
+                  : 'The ambiguity could not be resolved.'}
+              </Alert>
+            )}
+            <TextField
+              autoFocus
+              multiline
+              minRows={3}
+              label="Resolution"
+              value={ambiguityResolution}
+              onChange={(event) => setAmbiguityResolution(event.target.value)}
+              slotProps={{ htmlInput: { maxLength: 4000 } }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAmbiguityTarget(null)} disabled={resolveAmbiguity.isPending}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={!ambiguityResolution.trim() || resolveAmbiguity.isPending}
+            onClick={() => resolveAmbiguity.mutate()}
+          >
+            Save resolution
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Stack>
+  );
+}
+
+/** Presents every generation attempt, including non-success states, with reachable paging. */
+function GenerationHistory({
+  page,
+  busy,
+  failed,
+  selectedRunId,
+  onPageChange,
+  onSelectRun,
+}: {
+  page?: PageResponse<GenerationRun>;
+  busy: boolean;
+  failed: boolean;
+  selectedRunId: string;
+  onPageChange(page: number): void;
+  onSelectRun(run: GenerationRun): void;
+}) {
+  return (
+    <Stack component="section" aria-labelledby="generation-history-heading" spacing={1.5}>
+      <Box>
+        <Typography id="generation-history-heading" component="h2" variant="h2">
+          Generation history
+        </Typography>
+        <Typography color="text.secondary" variant="body2" sx={{ mt: 0.5 }}>
+          Completed, pending, failed, and validation-rejected attempts remain visible as evidence.
+        </Typography>
+      </Box>
+      {busy && !page && <LinearProgress />}
+      {!failed && page?.items.length === 0 && (
+        <Typography color="text.secondary">No generation attempts have been recorded.</Typography>
+      )}
+      {page?.items.map((run) => {
+        const activeSelection = run.setState === 'ACTIVE' && !selectedRunId;
+        const historicalSelection = selectedRunId === run.id;
+        return (
+          <Card key={run.id} variant="outlined">
+            <CardContent>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1.5}
+                sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' } }}
+              >
+                <Stack spacing={0.75}>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+                  >
+                    <Typography sx={{ fontWeight: 750 }}>
+                      {run.status === 'COMPLETED' && run.setNumber > 0
+                        ? `Set ${run.setNumber}`
+                        : `Attempt ${new Date(run.startedAt).toLocaleString()}`}
+                    </Typography>
+                    <Chip
+                      size="small"
+                      label={run.status.replaceAll('_', ' ')}
+                      color={
+                        run.status === 'COMPLETED'
+                          ? 'success'
+                          : run.status === 'PENDING'
+                            ? 'warning'
+                            : 'error'
+                      }
+                    />
+                    {run.setState && <Chip size="small" label={run.setState} variant="outlined" />}
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary">
+                    {run.generatedCaseCount} structured case
+                    {run.generatedCaseCount === 1 ? '' : 's'}
+                    {' • '}
+                    {run.provider} / {run.model}
+                  </Typography>
+                  {run.failureMessage && <Alert severity="warning">{run.failureMessage}</Alert>}
+                </Stack>
+                {run.status === 'COMPLETED' && (
+                  <Button
+                    size="small"
+                    variant={activeSelection || historicalSelection ? 'contained' : 'outlined'}
+                    disabled={activeSelection || historicalSelection}
+                    onClick={() => onSelectRun(run)}
+                  >
+                    {activeSelection || historicalSelection ? 'Viewing set' : 'View set'}
+                  </Button>
+                )}
+              </Stack>
+            </CardContent>
+          </Card>
+        );
+      })}
+      {page && page.totalPages > 1 && (
+        <PaginationControls page={page} busy={busy} onPageChange={onPageChange} />
       )}
     </Stack>
   );
@@ -952,7 +1299,20 @@ function TestCasePanel({
   readOnly: boolean;
   projectId: string;
 }) {
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyParams, setHistoryParams] = useSearchParams();
+  const historyOpen = historyParams.get('historyCase') === testCase.id;
+  /** Opens one case history and resets nested paging to a coherent first view. */
+  const setHistoryOpen = (open: boolean) => {
+    setHistoryParams((current) => {
+      const next = new URLSearchParams(current);
+      if (open) next.set('historyCase', testCase.id);
+      else next.delete('historyCase');
+      next.delete('revisionPage');
+      next.delete('reviewPage');
+      next.delete('caseAuditPage');
+      return next;
+    });
+  };
   return (
     <Accordion disableGutters>
       <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
@@ -985,10 +1345,23 @@ function TestCasePanel({
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
             <Chip label={`Priority ${testCase.priority}`} size="small" variant="outlined" />
             <Chip label={`Risk ${testCase.riskLevel}`} size="small" variant="outlined" />
+            <Chip
+              label={
+                testCase.automationCandidate ? 'Automation candidate' : 'Manual-only candidate'
+              }
+              size="small"
+              variant="outlined"
+            />
+            <Chip
+              label={`Coverage ${testCase.coverageIntent.replaceAll('_', ' ')}`}
+              size="small"
+              variant="outlined"
+            />
             {testCase.acceptanceCriteriaKeys.map((key) => (
               <Chip key={key} label={key} size="small" color="primary" variant="outlined" />
             ))}
           </Stack>
+          <Section title="Generation rationale" text={testCase.rationale} />
           <Box>
             <Typography sx={{ fontWeight: 700, mb: 1 }}>Preconditions</Typography>
             <Stack component="ul" spacing={0.5} sx={{ m: 0, pl: 3 }}>
@@ -1006,6 +1379,7 @@ function TestCasePanel({
                   <TableCell width={60}>Step</TableCell>
                   <TableCell>Action</TableCell>
                   <TableCell>Expected result</TableCell>
+                  <TableCell>Test data reference</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1014,18 +1388,49 @@ function TestCasePanel({
                     <TableCell>{step.stepNumber}</TableCell>
                     <TableCell>{step.action}</TableCell>
                     <TableCell>{step.expectedResult}</TableCell>
+                    <TableCell>{step.testDataReference || 'None'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </TableContainer>
+          <Box>
+            <Typography sx={{ fontWeight: 700, mb: 1 }}>Test data</Typography>
+            {testCase.testData.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No generated test data.
+              </Typography>
+            ) : (
+              <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                <Table size="small" aria-label={`${testCase.testCaseKey} test data`}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Name</TableCell>
+                      <TableCell>Description</TableCell>
+                      <TableCell>Example</TableCell>
+                      <TableCell>Sensitivity</TableCell>
+                      <TableCell>Generation strategy</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {testCase.testData.map((item) => (
+                      <TableRow key={item.name}>
+                        <TableCell>{item.name}</TableCell>
+                        <TableCell>{item.description}</TableCell>
+                        <TableCell>{item.exampleValue}</TableCell>
+                        <TableCell>{item.sensitivity}</TableCell>
+                        <TableCell>{item.generationStrategy}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Box>
           <Alert severity="success" icon={<FactCheckOutlinedIcon />}>
             <strong>Final outcome:</strong> {testCase.finalExpectedOutcome}
           </Alert>
-          <Button
-            onClick={() => setHistoryOpen((value) => !value)}
-            sx={{ alignSelf: 'flex-start' }}
-          >
+          <Button onClick={() => setHistoryOpen(!historyOpen)} sx={{ alignSelf: 'flex-start' }}>
             {historyOpen ? 'Hide history' : 'Show history'}
           </Button>
           {historyOpen && <TestCaseHistory testCase={testCase} projectId={projectId} />}
@@ -1132,23 +1537,51 @@ function comparisonText(snapshot: Record<string, unknown>, field: string) {
 
 /** Presents structured revisions, review evidence, and matching audit events as inert text. */
 function TestCaseHistory({ testCase, projectId }: { testCase: TestCase; projectId: string }) {
-  const [selectedRevisionId, setSelectedRevisionId] = useState('');
+  const [selectedRevision, setSelectedRevision] = useState<TestCaseRevision | null>(null);
+  const [historyParams, setHistoryParams] = useSearchParams();
+  /** Reads one non-negative nested-history page from the URL. */
+  const pageParam = (name: string) =>
+    Math.max(0, Number.parseInt(historyParams.get(name) ?? '0', 10) || 0);
+  /** Updates one nested-history page while preserving the open case and peer pages. */
+  const setPageParam = (name: string, page: number) => {
+    setHistoryParams((current) => {
+      const next = new URLSearchParams(current);
+      if (page === 0) next.delete(name);
+      else next.set(name, String(page));
+      return next;
+    });
+  };
+  const revisionPage = pageParam('revisionPage');
+  const reviewPage = pageParam('reviewPage');
+  const auditPage = pageParam('caseAuditPage');
+  /** Selects a revision-history page. */
+  const setRevisionPage = (page: number) => setPageParam('revisionPage', page);
+  /** Selects a review-history page. */
+  const setReviewPage = (page: number) => setPageParam('reviewPage', page);
+  /** Selects a case-audit-history page. */
+  const setAuditPage = (page: number) => setPageParam('caseAuditPage', page);
   const revisions = useQuery({
-    queryKey: ['test-case-revisions', testCase.id],
+    queryKey: ['test-case-revisions', testCase.id, revisionPage],
     queryFn: () =>
       apiRequest<PageResponse<TestCaseRevision>>(
-        `/api/v1/test-cases/${testCase.id}/revisions?size=20`,
+        `/api/v1/test-cases/${testCase.id}/revisions?page=${revisionPage}&size=20`,
+      ),
+  });
+  const reviewHistory = useQuery({
+    queryKey: ['test-case-reviews', testCase.id, reviewPage],
+    queryFn: () =>
+      apiRequest<PageResponse<TestCase['reviews'][number]>>(
+        `/api/v1/test-cases/${testCase.id}/reviews?page=${reviewPage}&size=20`,
       ),
   });
   const audit = useQuery({
-    queryKey: ['test-case-audit', projectId, testCase.id],
+    queryKey: ['test-case-audit', projectId, testCase.id, auditPage],
     queryFn: () =>
       apiRequest<PageResponse<AuditEvent>>(
-        `/api/v1/projects/${projectId}/audit-events?entityType=TEST_CASE&entityId=${encodeURIComponent(testCase.id)}&size=20`,
+        `/api/v1/projects/${projectId}/audit-events?entityType=TEST_CASE&entityId=${encodeURIComponent(testCase.id)}&page=${auditPage}&size=20`,
       ),
   });
-  const effectiveRevisionId = selectedRevisionId || revisions.data?.items[0]?.id || '';
-  const selectedRevision = revisions.data?.items.find((item) => item.id === effectiveRevisionId);
+  const effectiveRevision = selectedRevision ?? revisions.data?.items[0];
   const currentSnapshot = testCase as unknown as Record<string, unknown>;
   return (
     <Card variant="outlined">
@@ -1160,8 +1593,8 @@ function TestCaseHistory({ testCase, projectId }: { testCase: TestCase; projectI
               <Button
                 key={revision.id}
                 size="small"
-                variant={effectiveRevisionId === revision.id ? 'contained' : 'text'}
-                onClick={() => setSelectedRevisionId(revision.id)}
+                variant={effectiveRevision?.id === revision.id ? 'contained' : 'text'}
+                onClick={() => setSelectedRevision(revision)}
                 aria-label={`Compare revision ${revision.revisionNumber}`}
                 sx={{ mt: 1, mr: 1 }}
               >
@@ -1173,11 +1606,18 @@ function TestCaseHistory({ testCase, projectId }: { testCase: TestCase; projectI
                 No saved revisions.
               </Typography>
             )}
+            {revisions.data && revisions.data.totalPages > 1 && (
+              <PaginationControls
+                page={revisions.data}
+                busy={revisions.isFetching}
+                onPageChange={setRevisionPage}
+              />
+            )}
           </Box>
-          {selectedRevision && (
+          {effectiveRevision && (
             <Box>
               <Typography sx={{ fontWeight: 750, mb: 1 }}>
-                Revision {selectedRevision.revisionNumber} compared with current
+                Revision {effectiveRevision.revisionNumber} compared with current
               </Typography>
               <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
                 <Table size="small" aria-label="Revision comparison">
@@ -1195,7 +1635,7 @@ function TestCaseHistory({ testCase, projectId }: { testCase: TestCase; projectI
                           {label}
                         </TableCell>
                         <TableCell sx={{ whiteSpace: 'pre-wrap', verticalAlign: 'top' }}>
-                          {comparisonText(selectedRevision.snapshot, field)}
+                          {comparisonText(effectiveRevision.snapshot, field)}
                         </TableCell>
                         <TableCell sx={{ whiteSpace: 'pre-wrap', verticalAlign: 'top' }}>
                           {comparisonText(currentSnapshot, field)}
@@ -1209,15 +1649,22 @@ function TestCaseHistory({ testCase, projectId }: { testCase: TestCase; projectI
           )}
           <Box>
             <Typography sx={{ fontWeight: 750 }}>Reviews</Typography>
-            {testCase.reviews.map((review) => (
+            {reviewHistory.data?.items.map((review) => (
               <Typography key={review.id} variant="body2" sx={{ mt: 0.75 }}>
                 {review.decision.replaceAll('_', ' ')} • {review.comments || 'No comment'}
               </Typography>
             ))}
-            {testCase.reviews.length === 0 && (
+            {reviewHistory.data?.items.length === 0 && (
               <Typography variant="body2" color="text.secondary">
                 No review decisions.
               </Typography>
+            )}
+            {reviewHistory.data && reviewHistory.data.totalPages > 1 && (
+              <PaginationControls
+                page={reviewHistory.data}
+                busy={reviewHistory.isFetching}
+                onPageChange={setReviewPage}
+              />
             )}
           </Box>
           <Box>
@@ -1231,6 +1678,13 @@ function TestCaseHistory({ testCase, projectId }: { testCase: TestCase; projectI
               <Typography variant="body2" color="text.secondary">
                 No matching audit events.
               </Typography>
+            )}
+            {audit.data && audit.data.totalPages > 1 && (
+              <PaginationControls
+                page={audit.data}
+                busy={audit.isFetching}
+                onPageChange={setAuditPage}
+              />
             )}
           </Box>
         </Stack>
@@ -1263,6 +1717,7 @@ function EditTestCaseDialog({
   const watchedData = useWatch({ control, name: 'testData' });
   const watchedSteps = useWatch({ control, name: 'steps' });
   const [error, setError] = useState('');
+  /** Canonicalizes test-data names for case-insensitive reference comparison. */
   const normalizedDataName = (value: string | null | undefined) =>
     (value ?? '').trim().toLocaleLowerCase();
   /** Propagates a data-item rename to every case-insensitive matching step reference. */

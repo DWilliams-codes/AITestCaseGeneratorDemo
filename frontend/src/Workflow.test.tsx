@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createMemoryRouter } from 'react-router-dom';
+import { createMemoryRouter } from 'react-router';
 import { http, HttpResponse } from 'msw';
 import { vi } from 'vitest';
 import { App } from './App';
@@ -114,24 +114,32 @@ function authenticatedHandlers() {
       HttpResponse.json({ accessToken: 'workflow-token', expiresInSeconds: 600, user }),
     ),
     http.get(`/api/v1/projects/${project.id}`, () => HttpResponse.json(project)),
-    http.get(`/api/v1/user-stories/${requirement.id}/generation-runs`, () =>
-      HttpResponse.json([
-        {
-          id: testCase.generationRunId,
-          requirementId: requirement.id,
-          provider: 'requirement-rules',
-          model: 'testforge-rules-v2',
-          promptVersion: 'manual-test-v1',
-          status: 'COMPLETED',
-          generatedCaseCount: 1,
-          failureCode: null,
-          failureMessage: null,
-          startedAt: '2026-07-30T12:00:00Z',
-          completedAt: '2026-07-30T12:00:01Z',
-          setNumber: 1,
-          setState: 'ACTIVE',
-        },
-      ]),
+    http.get(`/api/v1/user-stories/${requirement.id}/generation-runs/page`, () =>
+      HttpResponse.json({
+        items: [
+          {
+            id: testCase.generationRunId,
+            requirementId: requirement.id,
+            provider: 'requirement-rules',
+            model: 'testforge-rules-v2',
+            promptVersion: 'manual-test-v1',
+            status: 'COMPLETED',
+            generatedCaseCount: 1,
+            failureCode: null,
+            failureMessage: null,
+            startedAt: '2026-07-30T12:00:00Z',
+            completedAt: '2026-07-30T12:00:01Z',
+            setNumber: 1,
+            setState: 'ACTIVE',
+          },
+        ],
+        page: 0,
+        size: 20,
+        totalElements: 1,
+        totalPages: 1,
+        hasNext: false,
+        activeGenerationRunId: testCase.generationRunId,
+      }),
     ),
   ];
 }
@@ -139,7 +147,7 @@ function authenticatedHandlers() {
 /** Mounts the complete application at a workflow route with an in-memory router. */
 function renderRoute(path: string) {
   const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
-  return render(<App router={router} />);
+  return { ...render(<App router={router} />), router };
 }
 
 describe('project and user-story workflow', () => {
@@ -192,11 +200,12 @@ describe('project and user-story workflow', () => {
           totalElements: 21,
           totalPages: 2,
           hasNext: page === 0,
+          activeGenerationRunId: null,
         });
       }),
     );
     const actor = userEvent.setup();
-    renderRoute(`/projects/${project.id}`);
+    const { router } = renderRoute(`/projects/${project.id}`);
 
     expect(await screen.findByRole('heading', { level: 1, name: project.name })).toBeVisible();
     expect(await screen.findByRole('heading', { level: 3, name: requirement.title })).toBeVisible();
@@ -214,6 +223,11 @@ describe('project and user-story workflow', () => {
     await actor.click(screen.getByRole('button', { name: 'Next page' }));
     expect(await screen.findByText('Project — Created')).toBeVisible();
     expect(auditRequests.at(-1)?.get('page')).toBe('1');
+    await actor.click(screen.getByRole('button', { name: 'Clear filters' }));
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('');
+      expect(screen.getByText('User story — Created')).toBeVisible();
+    });
     await actor.click(screen.getByRole('button', { name: 'New user story' }));
     expect(screen.getByRole('heading', { name: 'Add a user story' })).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'User story statement' })).toBeEnabled();
@@ -257,8 +271,15 @@ describe('project and user-story workflow', () => {
     server.use(
       ...authenticatedHandlers(),
       http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
-      http.get(`/api/v1/user-stories/${requirement.id}/test-cases`, () =>
-        HttpResponse.json(unorderedCases),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, () =>
+        HttpResponse.json({
+          items: unorderedCases,
+          page: 0,
+          size: 20,
+          totalElements: unorderedCases.length,
+          totalPages: 1,
+          hasNext: false,
+        }),
       ),
       http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
         HttpResponse.json({
@@ -346,6 +367,319 @@ describe('project and user-story workflow', () => {
     expect(screen.getByText('No test cases match the current filters.')).toBeVisible();
   }, 20_000);
 
+  it('keeps every generation outcome and its paging reachable when no cases exist', async () => {
+    const runRequests: number[] = [];
+    /** Builds one complete generation-attempt response for history-state coverage. */
+    const run = (
+      id: string,
+      status: 'PENDING' | 'FAILED' | 'REJECTED_BY_VALIDATION' | 'COMPLETED',
+      failureMessage: string | null,
+      setNumber = 0,
+      setState: 'ACTIVE' | 'SUPERSEDED' | null = null,
+    ) => ({
+      id,
+      requirementId: requirement.id,
+      provider: 'requirement-rules',
+      model: 'testforge-rules-v2',
+      promptVersion: 'manual-test-v1',
+      providerAdapterVersion: 'requirement-rules-adapter-v1',
+      resultContractVersion: 'manual-test-result-v1',
+      schemaVersion: 'manual-test-schema-v2',
+      validatorVersion: 'manual-test-validator-v2',
+      sourceRequirementVersion: 1,
+      sourceSnapshotProvenance: 'EXACT',
+      status,
+      generatedCaseCount: status === 'COMPLETED' ? 1 : 0,
+      failureCode: failureMessage ? 'safe_failure' : null,
+      failureMessage,
+      startedAt: '2026-08-05T12:00:00Z',
+      completedAt: status === 'PENDING' ? null : '2026-08-05T12:00:01Z',
+      setNumber,
+      setState,
+    });
+    server.use(
+      http.get(`/api/v1/user-stories/${requirement.id}/generation-runs/page`, ({ request }) => {
+        const page = Number(new URL(request.url).searchParams.get('page') ?? 0);
+        runRequests.push(page);
+        return HttpResponse.json({
+          items:
+            page === 0
+              ? [
+                  run('run-pending', 'PENDING', null),
+                  run('run-failed', 'FAILED', 'Provider request failed safely.'),
+                  run(
+                    'run-rejected',
+                    'REJECTED_BY_VALIDATION',
+                    'Generated output failed validation.',
+                  ),
+                ]
+              : [run('run-completed', 'COMPLETED', null, 2, 'SUPERSEDED')],
+          page,
+          size: 20,
+          totalElements: 21,
+          totalPages: 2,
+          hasNext: page === 0,
+        });
+      }),
+      ...authenticatedHandlers(),
+      http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, () =>
+        HttpResponse.json({
+          items: [],
+          page: 0,
+          size: 20,
+          totalElements: 0,
+          totalPages: 0,
+          hasNext: false,
+        }),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
+        HttpResponse.json({
+          requirementId: requirement.id,
+          totalCriteria: 1,
+          coveredCriteria: 0,
+          approvedCriteria: 0,
+          coveragePercent: 0,
+          approvedCoveragePercent: 0,
+        }),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/traceability`, () =>
+        HttpResponse.json({ requirementId: requirement.id, rows: [] }),
+      ),
+    );
+    const actor = userEvent.setup();
+    renderRoute(`/requirements/${requirement.id}`);
+
+    await actor.click(await screen.findByRole('tab', { name: 'Test cases (0)' }));
+    expect(await screen.findByRole('heading', { name: 'Generation history' })).toBeVisible();
+    expect(screen.getByText('PENDING')).toBeVisible();
+    expect(screen.getByText('FAILED')).toBeVisible();
+    expect(screen.getByText('REJECTED BY VALIDATION')).toBeVisible();
+    expect(screen.getByText('Provider request failed safely.')).toBeVisible();
+    expect(screen.getByText('Generated output failed validation.')).toBeVisible();
+    expect(screen.getByText('No test cases yet')).toBeVisible();
+    expect(screen.getByText('Page 1 of 2 • 21 items')).toBeVisible();
+
+    await actor.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(runRequests.at(-1)).toBe(1));
+    expect(await screen.findByText('Set 2')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'View set' })).toBeEnabled();
+  });
+
+  it('renders typed notice severity for every generation outcome', async () => {
+    const outcomes = [
+      {
+        status: 'PENDING',
+        failureMessage: null,
+        text: 'Generation is still pending.',
+        severityClass: 'MuiAlert-colorInfo',
+      },
+      {
+        status: 'FAILED',
+        failureMessage: 'Provider request failed safely.',
+        text: 'Provider request failed safely.',
+        severityClass: 'MuiAlert-colorError',
+      },
+      {
+        status: 'REJECTED_BY_VALIDATION',
+        failureMessage: 'Generated output failed validation.',
+        text: 'Generated output failed validation.',
+        severityClass: 'MuiAlert-colorWarning',
+      },
+      {
+        status: 'COMPLETED',
+        failureMessage: null,
+        text: 'Generation completed and passed the server-side quality gate.',
+        severityClass: 'MuiAlert-colorSuccess',
+      },
+    ] as const;
+    let outcomeIndex = 0;
+    /** Returns the next synthetic generation outcome through either compatible POST route. */
+    const nextOutcome = () => {
+      const outcome = outcomes[outcomeIndex++]!;
+      return HttpResponse.json(
+        {
+          id: `notice-run-${outcomeIndex}`,
+          requirementId: requirement.id,
+          provider: 'requirement-rules',
+          model: 'testforge-rules-v2',
+          promptVersion: 'manual-test-v1',
+          providerAdapterVersion: 'application-provider-v1',
+          resultContractVersion: 'manual-test-result-v1',
+          schemaVersion: 'manual-test-schema-v2',
+          validatorVersion: 'manual-test-validator-v2',
+          sourceRequirementVersion: 1,
+          sourceSnapshotProvenance: 'EXACT',
+          status: outcome.status,
+          generatedCaseCount: outcome.status === 'COMPLETED' ? 1 : 0,
+          failureCode: outcome.failureMessage ? 'safe_failure' : null,
+          failureMessage: outcome.failureMessage,
+          startedAt: '2026-08-05T12:00:00Z',
+          completedAt: outcome.status === 'PENDING' ? null : '2026-08-05T12:00:01Z',
+          setNumber: outcome.status === 'COMPLETED' ? 2 : 0,
+          setState: outcome.status === 'COMPLETED' ? 'ACTIVE' : null,
+        },
+        { status: 201 },
+      );
+    };
+    server.use(
+      ...authenticatedHandlers(),
+      http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, () =>
+        HttpResponse.json({
+          items: [testCase],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+          hasNext: false,
+        }),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
+        HttpResponse.json({
+          requirementId: requirement.id,
+          totalCriteria: 1,
+          coveredCriteria: 1,
+          approvedCriteria: 0,
+          coveragePercent: 100,
+          approvedCoveragePercent: 0,
+        }),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/traceability`, () =>
+        HttpResponse.json({ requirementId: requirement.id, rows: [] }),
+      ),
+      http.post(`/api/v1/user-stories/${requirement.id}/generate-test-cases`, nextOutcome),
+      http.post(`/api/v1/user-stories/${requirement.id}/regenerate`, nextOutcome),
+    );
+    const actor = userEvent.setup();
+    renderRoute(`/requirements/${requirement.id}`);
+
+    for (const outcome of outcomes) {
+      await actor.click(await screen.findByRole('button', { name: 'Regenerate' }));
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveClass(outcome.severityClass);
+      expect(within(alert).getByText(outcome.text, { exact: false })).toBeVisible();
+      await actor.click(within(alert).getByRole('button', { name: 'Close' }));
+      await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    }
+  });
+
+  it('regenerates from stable story state beyond the visible run page with one key', async () => {
+    const regenerationRequests: { url: string; idempotencyKey: string | null }[] = [];
+    let generateRequests = 0;
+    let requestedRunPage = '';
+    server.use(
+      http.get(`/api/v1/user-stories/${requirement.id}/generation-runs/page`, ({ request }) => {
+        requestedRunPage = new URL(request.url).searchParams.get('page') ?? '';
+        return HttpResponse.json({
+          items: [
+            {
+              id: 'failed-run-on-page-two',
+              requirementId: requirement.id,
+              provider: 'requirement-rules',
+              model: 'testforge-rules-v2',
+              promptVersion: 'manual-test-v1',
+              status: 'FAILED',
+              generatedCaseCount: 0,
+              failureCode: 'provider_unavailable',
+              failureMessage: 'Generation is temporarily unavailable.',
+              startedAt: '2026-08-05T12:00:00Z',
+              completedAt: '2026-08-05T12:00:01Z',
+              setNumber: 0,
+              setState: null,
+            },
+          ],
+          page: 2,
+          size: 20,
+          totalElements: 41,
+          totalPages: 3,
+          hasNext: false,
+          activeGenerationRunId: testCase.generationRunId,
+        });
+      }),
+      ...authenticatedHandlers(),
+      http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, () =>
+        HttpResponse.json({
+          items: [],
+          page: 0,
+          size: 20,
+          totalElements: 0,
+          totalPages: 0,
+          hasNext: false,
+        }),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
+        HttpResponse.json({
+          requirementId: requirement.id,
+          totalCriteria: 1,
+          coveredCriteria: 0,
+          approvedCriteria: 0,
+          coveragePercent: 0,
+          approvedCoveragePercent: 0,
+        }),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/traceability`, () =>
+        HttpResponse.json({ requirementId: requirement.id, rows: [] }),
+      ),
+      http.post(`/api/v1/user-stories/${requirement.id}/generate-test-cases`, () => {
+        generateRequests += 1;
+        return HttpResponse.error();
+      }),
+      http.post(`/api/v1/user-stories/${requirement.id}/regenerate`, ({ request }) => {
+        const url = new URL(request.url);
+        regenerationRequests.push({
+          url: `${url.pathname}${url.search}`,
+          idempotencyKey: request.headers.get('Idempotency-Key'),
+        });
+        if (url.searchParams.get('confirmSupersede') !== 'true') {
+          return HttpResponse.json(
+            {
+              status: 409,
+              code: 'supersede_confirmation_required',
+              detail: 'Confirm superseding the active generation set.',
+            },
+            { status: 409 },
+          );
+        }
+        return HttpResponse.json(
+          {
+            id: 'confirmed-regeneration',
+            requirementId: requirement.id,
+            provider: 'requirement-rules',
+            model: 'testforge-rules-v2',
+            promptVersion: 'manual-test-v1',
+            status: 'COMPLETED',
+            generatedCaseCount: 1,
+            failureCode: null,
+            failureMessage: null,
+            startedAt: '2026-08-05T12:00:00Z',
+            completedAt: '2026-08-05T12:00:01Z',
+            setNumber: 2,
+            setState: 'ACTIVE',
+          },
+          { status: 201 },
+        );
+      }),
+    );
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const actor = userEvent.setup();
+    renderRoute(`/user-stories/${requirement.id}?runPage=2`);
+
+    await actor.click(await screen.findByRole('button', { name: 'Regenerate' }));
+    await waitFor(() => expect(regenerationRequests).toHaveLength(2));
+
+    expect(requestedRunPage).toBe('2');
+    expect(generateRequests).toBe(0);
+    expect(regenerationRequests.map((request) => request.url)).toEqual([
+      `/api/v1/user-stories/${requirement.id}/regenerate?confirmSupersede=false`,
+      `/api/v1/user-stories/${requirement.id}/regenerate?confirmSupersede=true`,
+    ]);
+    expect(regenerationRequests[0]?.idempotencyKey).toBeTruthy();
+    expect(regenerationRequests[1]?.idempotencyKey).toBe(regenerationRequests[0]?.idempotencyKey);
+    confirm.mockRestore();
+  });
+
   it('collects required human evidence before reopening or requesting changes', async () => {
     let currentCase = { ...testCase, status: 'APPROVED', version: 4 } as typeof testCase;
     let reopenRequests = 0;
@@ -355,8 +689,15 @@ describe('project and user-story workflow', () => {
     server.use(
       ...authenticatedHandlers(),
       http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
-      http.get(`/api/v1/user-stories/${requirement.id}/test-cases`, () =>
-        HttpResponse.json([currentCase]),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, () =>
+        HttpResponse.json({
+          items: [currentCase],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+          hasNext: false,
+        }),
       ),
       http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
         HttpResponse.json({
@@ -437,8 +778,15 @@ describe('project and user-story workflow', () => {
     server.use(
       ...authenticatedHandlers(),
       http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
-      http.get(`/api/v1/user-stories/${requirement.id}/test-cases`, () =>
-        HttpResponse.json([currentCase]),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, () =>
+        HttpResponse.json({
+          items: [currentCase],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+          hasNext: false,
+        }),
       ),
       http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
         HttpResponse.json({
@@ -508,6 +856,16 @@ describe('project and user-story workflow', () => {
           size: 20,
           totalElements: 1,
           totalPages: 1,
+          hasNext: false,
+        }),
+      ),
+      http.get(`/api/v1/test-cases/${testCase.id}/reviews`, () =>
+        HttpResponse.json({
+          items: currentCase.reviews,
+          page: 0,
+          size: 20,
+          totalElements: currentCase.reviews.length,
+          totalPages: currentCase.reviews.length ? 1 : 0,
           hasNext: false,
         }),
       ),

@@ -2,15 +2,13 @@ name: testforge-ai
 
 services:
   postgres:
-    image: postgres:18.4-trixie
+    image: postgres:18.4-trixie@sha256:d129b9577d274bb96cbd44d902bdeb1b935c89247d161241e9154cba64e13df4
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-testforge}
       POSTGRES_USER: ${POSTGRES_USER:-testforge_app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env and set POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
@@ -21,6 +19,8 @@ services:
       start_period: 10s
     security_opt:
       - no-new-privileges:true
+    networks:
+      - data
 
   backend:
     build:
@@ -33,15 +33,14 @@ services:
       DB_NAME: ${POSTGRES_DB:-testforge}
       DB_USERNAME: ${POSTGRES_USER:-testforge_app}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env and set POSTGRES_PASSWORD}
-      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-true}
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-false}
       JWT_ACCESS_TOKEN_SECRET: ${JWT_ACCESS_TOKEN_SECRET:?Copy .env.example to .env and set JWT_ACCESS_TOKEN_SECRET}
       ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
+      TRUSTED_PROXY_CIDRS: 172.16.0.0/12
       TEST_GENERATION_PROVIDER: ${TEST_GENERATION_PROVIDER:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-sol}
       TESTFORGE_DEMO_SEED_ENABLED: ${TESTFORGE_DEMO_SEED_ENABLED:-false}
-    ports:
-      - "${BACKEND_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,6 +52,9 @@ services:
       start_period: 30s
     security_opt:
       - no-new-privileges:true
+    networks:
+      - edge
+      - data
 
   frontend:
     build:
@@ -70,6 +72,13 @@ services:
       retries: 6
     security_opt:
       - no-new-privileges:true
+    networks:
+      - edge
 
 volumes:
   postgres_data:
+
+networks:
+  edge:
+  data:
+    internal: true

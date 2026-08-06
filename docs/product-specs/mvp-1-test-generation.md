@@ -23,29 +23,41 @@ and [API.md](../API.md). Submitted text is untrusted data, not model instruction
 
 Generation requires a nonblank idempotency key. The application minimizes the
 provider request to requirement fields and keyed acceptance criteria. The
-versioned `manual-test-v1` developer prompt requires only application-owned
-structured JSON; the JSON schema defines requirement summary, ambiguities, and
-test cases.
+versioned `manual-test-v2` developer prompt requires only application-owned
+structured JSON. New runs record `manual-test-result-v1`,
+`manual-test-schema-v2`, `manual-test-validator-v2`, and provider-adapter
+evidence with exact source criterion snapshots before provider work.
+The current OpenAI adapter evidence is `openai-responses-v3`; it rejects
+provider-authored transport metadata and JSON scalar/enum coercion without
+changing the prompt, result, schema, or semantic-validator contracts.
 
 Each generated test case contains a distinct title and objective, category,
 priority, risk, automation-candidate hint, coverage intent, preconditions,
 synthetic test data, ordered action/result steps, final outcome, criterion keys,
-and rationale. A direct case maps to at least one supplied criterion. Supporting
-exploratory coverage maps only to supplied keys when a mapping is claimed.
+and rationale. Before drafting, the prompt internally decomposes every supplied
+criterion into atomic testable obligations, then requires the smallest coherent
+suite that realizes them without emitting hidden reasoning or an obligation
+inventory. A direct case maps to one or more supplied criteria when one
+realistic workflow independently proves them together; it must not split shared
+workflow/data merely to increase case count. Supporting exploratory coverage
+maps only to supplied keys when a mapping is claimed.
 
 The semantic validator rejects empty or oversized output, unsupported enums,
 duplicate titles, missing or non-contiguous steps, blank or vague text,
 executable content, unknown criterion keys, incomplete synthetic test data,
 normalized duplicate data names, and dangling step data references.
-The service permits one controlled retry, persists only validated output in one
-transaction, and records safe run metadata and failure state.
+The service permits one controlled retry only for incomplete, empty, malformed,
+or semantically invalid structured output. It invokes the provider outside a
+database transaction, then persists only the complete validated output in one
+short finalization transaction and records safe run metadata/failure state.
 
 ## Acceptance criteria
 
 1. An authenticated owner can create a requirement with at least one acceptance
    criterion and retrieve it without exposing another owner's data.
 2. Reusing the same idempotency key for the same owner and User Story returns
-   the original generation run rather than duplicating evidence.
+   the reconciled original generation run rather than duplicating evidence or
+   invoking the provider again.
 3. Every direct generated case maps only to acceptance-criterion keys supplied
    with the source requirement.
 4. Generated steps start at one, remain contiguous, and pair one concrete tester
@@ -64,6 +76,20 @@ transaction, and records safe run metadata and failure state.
 11. The latest successful run is the active generation set; failures do not
     supersede it, historical sets are read-only, and reviewed/revised evidence
     requires confirmation before regeneration.
+12. Every source criterion has at least one DIRECT mapping. Supporting mappings
+    are reported separately and cannot satisfy direct or approved-direct
+    coverage.
+13. Criterion edits/deletes after generation do not alter that run's
+    traceability; the response exposes source version and exact/reconstructed
+    provenance.
+14. Every canonical history is bounded and paged; failed evidence requests are
+    retryable errors rather than false zero/empty states.
+15. The selected set, workflow tab, filters, sort, and pages survive navigation
+    through URL state, and every structured case field is visible before review.
+16. A criterion renamed while generation is in flight retains its legacy link
+    by captured source identity; deletion safely fails the run without cases.
+17. Generation notices expose success only for `COMPLETED`; pending, failed,
+    and validation-rejected outcomes have distinct semantic severity.
 
 ## Quality bar
 

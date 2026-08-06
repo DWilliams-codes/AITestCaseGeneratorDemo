@@ -1,6 +1,7 @@
 name = "reviewer"
 description = "Independent read-only final reviewer for correctness, reliability, security, and generated-output quality."
 sandbox_mode = "read-only"
+model_reasoning_effort = "high"
 
 developer_instructions = """
 Read AGENTS.md, the approved ExecPlan, the post-build Architect conformance

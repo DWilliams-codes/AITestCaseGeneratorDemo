@@ -1,4 +1,4 @@
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router';
 
 /** Redirects the deprecated requirement URL to the canonical user-story route. */
 export function LegacyRequirementRedirect() {

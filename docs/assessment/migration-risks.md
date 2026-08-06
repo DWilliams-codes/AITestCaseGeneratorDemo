@@ -1,6 +1,6 @@
 # Migration risks
 
-## TF-001 expand/backfill risks
+## TF-001 workspace expand/backfill risks
 
 | Risk | Detection | Mitigation / rollback |
 | --- | --- | --- |
@@ -33,3 +33,17 @@ schema mismatch. A missing membership during new project creation is repaired
 only for a valid existing user. Orphaned memberships are treated as invalid
 server state, not silently omitted. No membership mutation is exposed in
 TF-001, limiting the reachable inconsistency surface.
+
+## TF-005 generation-evidence expansion — 2026-08-05
+
+| Risk | Detection | Mitigation / rollback |
+| --- | --- | --- |
+| Prior run lacks exact source criteria | Snapshot reconciliation compares every successful run with snapshot rows | V6 backfills then-current criteria and marks them `LEGACY_RECONSTRUCTED`; never represent them as exact |
+| Old binary writes only legacy links after V6 | Reconcile successful runs missing snapshot links/snapshots | New binary reconstructs visibly and continues dual-write; old binary ignores nullable columns/new tables |
+| Criterion mutation races generation claim | Concurrent lock test and stale `If-Match` API test | Both operations lock the owning User Story; mutation stores a complete pre-change revision and advances aggregate version |
+| New binary fails after provider response | Assert terminal run and child evidence are atomic | One short finalization transaction persists all cases/parts/links/audit/state or rolls back all of them |
+| Rollback binary cannot write V6 schema | V5-shaped insert fixture against V6 | All new columns remain nullable, no prior column/table is removed, and legacy traceability remains writable |
+
+V6 is expand/backfill/dual-write/read-switch only. Contracting legacy links,
+making release fields non-null, or removing array compatibility routes requires
+a later observed reconciliation release and a separately approved ExecPlan.

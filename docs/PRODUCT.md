@@ -32,22 +32,37 @@ canonical in [API.md](API.md).
 
 Manual generation derives coverage from the supplied actor, behavior, business
 rules, assumptions, boundaries, authorization and failure behavior, and
-acceptance criteria. A direct case maps to supplied `AC-#` keys; supporting
-exploratory cases may cover relevant boundaries, negative paths, security,
-recovery, concurrency, or accessibility.
+acceptance criteria. The `manual-test-v2` prompt internally decomposes each
+criterion into testable obligations and produces the smallest coherent suite:
+a direct case maps to one or more supplied `AC-#` keys when one realistic
+workflow independently proves them together, while supporting exploratory cases
+may cover relevant boundaries, negative paths, security, recovery, concurrency,
+or accessibility. It does not expose hidden reasoning or an obligation inventory.
 
 Each successful generation run is an immutable generation set. The most recent
 successful completion (completion time then UUID) is active; failed attempts do
 not supersede it. Default cases, coverage, traceability, review, and export use
-only that set, while explicitly selected historical sets remain read-only.
+only that set, while explicitly selected historical sets remain read-only. Each
+new run preserves the exact source User Story version and ordered criterion
+snapshots; pre-V6 reconstructed evidence is visibly labeled rather than claimed
+as exact. Primary coverage is DIRECT-only, with partial/supporting evidence
+reported separately.
+Pending, failed, and validation-rejected attempts remain visible in bounded
+generation history even when no test-case set exists. Only completed generation
+uses success notice semantics; the other outcomes remain informational,
+warning, or error states.
 
 Provider output is not accepted merely because it is valid JSON. It must satisfy
-the application-owned JSON schema and semantic validator: supported enums,
+exact application-owned JSON types, the JSON schema, and semantic validator:
+no provider-authored transport fields or scalar/enum coercion, supported enums,
 unique case titles, bounded and contiguous steps, concrete text, valid criterion
 mappings, stripped case-insensitive unique synthetic test-data names, resolvable
-step data references, and no prohibited executable content. Invalid
-output receives one controlled regeneration attempt and otherwise becomes a safe
-run failure without partial persistence.
+step data references, and no prohibited executable content. Incomplete, empty,
+malformed, or semantically invalid output receives one
+controlled regeneration attempt and otherwise becomes a safe run failure
+without partial persistence. Provider refusal, configuration/authentication,
+and transport failure do not retry. No database transaction spans provider
+latency.
 
 ## Product quality principles
 
@@ -79,7 +94,7 @@ user's projects, requirements, test cases, generation evidence, exports, or
 audit records. Those resources remain owner-isolated and inaccessible IDs
 continue to return `404`.
 
-Workspace invitations, role-based collaboration, immutable artifact snapshots,
+Workspace invitations, role-based collaboration, generalized artifact snapshots,
 restoration/retention, queued generation, and automation drafts are future
 roadmap capabilities. See the [gap analysis](assessment/gap-analysis.md) and
 [target domain model](architecture/domain-model.md). Planning uses both

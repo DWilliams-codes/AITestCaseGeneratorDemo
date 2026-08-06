@@ -1,7 +1,10 @@
 package com.testforge.audit.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.testforge.audit.application.AuditMetadata;
+import com.testforge.audit.application.LegacyReopenAuditReconciler;
 import com.testforge.audit.dto.AuditEventResponse;
 import com.testforge.audit.repository.AuditEventRepository;
 import com.testforge.common.dto.PageResponse;
@@ -35,17 +38,20 @@ public class AuditController {
   private final ProjectService projectService;
   private final CurrentUser currentUser;
   private final ObjectMapper objectMapper;
+  private final LegacyReopenAuditReconciler legacyReopens;
 
   /** Initializes AuditController with its required collaborators and domain state. */
   public AuditController(
       AuditEventRepository events,
       ProjectService projectService,
       CurrentUser currentUser,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      LegacyReopenAuditReconciler legacyReopens) {
     this.events = events;
     this.projectService = projectService;
     this.currentUser = currentUser;
     this.objectMapper = objectMapper;
+    this.legacyReopens = legacyReopens;
   }
 
   /** Handles the authenticated HTTP request to list. */
@@ -65,6 +71,9 @@ public class AuditController {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
           Instant to) {
     projectService.requireOwned(currentUser.id(authentication), projectId);
+    for (int batch = 0; batch < LegacyReopenAuditReconciler.MAX_READ_BATCHES; batch++) {
+      if (legacyReopens.reconcileProject(projectId) == 0) break;
+    }
     if (from != null && to != null) {
       if (from.isAfter(to)) {
         throw ApiExceptions.badRequest(
@@ -120,13 +129,19 @@ public class AuditController {
                         event.getEntityType(),
                         event.getEntityId(),
                         event.getAction(),
-                        structuredMetadata(event.getMetadata()),
+                        structuredMetadata(event),
                         event.getTimestamp(),
                         event.getCorrelationId())));
   }
 
   /** Parses persisted audit metadata into structured JSON without executing content. */
-  private com.fasterxml.jackson.databind.JsonNode structuredMetadata(String metadata) {
+  private JsonNode structuredMetadata(com.testforge.audit.domain.AuditEventEntity event) {
+    String metadata = event.getMetadata();
+    if ("TEST_CASE".equals(event.getEntityType())
+        && "REOPENED".equals(event.getAction())
+        && metadata.contains("\"reason\"")) {
+      return objectMapper.valueToTree(AuditMetadata.pendingLegacyReopenRedaction().values());
+    }
     try {
       var value = objectMapper.readTree(metadata);
       return value == null ? objectMapper.createObjectNode() : value;

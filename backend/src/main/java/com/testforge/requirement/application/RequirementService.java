@@ -2,6 +2,7 @@ package com.testforge.requirement.application;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.testforge.audit.application.AuditMetadata;
 import com.testforge.audit.application.AuditService;
 import com.testforge.common.dto.PageResponse;
 import com.testforge.common.error.ApiExceptions;
@@ -26,10 +27,12 @@ import com.testforge.requirement.repository.RequirementRepository;
 import com.testforge.requirement.repository.RequirementRevisionRepository;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -73,10 +76,23 @@ public class RequirementService {
   public PageResponse<RequirementSummaryResponse> list(
       UUID ownerId, UUID projectId, int page, int size) {
     projectService.requireOwned(ownerId, projectId);
+    var requirementPage =
+        requirements.findAllByProjectIdOrderByUpdatedAtDesc(projectId, PageRequest.of(page, size));
+    Map<UUID, Long> counts =
+        requirementPage.isEmpty()
+            ? Map.of()
+            : criteria
+                .countByRequirementIds(
+                    requirementPage.getContent().stream().map(RequirementEntity::getId).toList())
+                .stream()
+                .collect(
+                    Collectors.toMap(
+                        item -> item.getRequirementId(),
+                        item -> item.getCriterionCount(),
+                        (left, right) -> left));
     return PageResponse.from(
-        requirements
-            .findAllByProjectIdOrderByUpdatedAtDesc(projectId, PageRequest.of(page, size))
-            .map(this::toSummary));
+        requirementPage.map(
+            requirement -> toSummary(requirement, counts.getOrDefault(requirement.getId(), 0L))));
   }
 
   /** Returns the owned resource identified by the request. */
@@ -112,7 +128,7 @@ public class RequirementService {
       order++;
     }
     auditService.record(
-        ownerId, projectId, "REQUIREMENT", requirement.getId(), "CREATED", Map.of());
+        ownerId, projectId, "REQUIREMENT", requirement.getId(), "CREATED", AuditMetadata.empty());
     return toResponse(requirement);
   }
 
@@ -139,15 +155,19 @@ public class RequirementService {
         "REQUIREMENT",
         requirementId,
         "UPDATED",
-        Map.of("newStatus", request.status().name()));
+        AuditMetadata.requirementStatus(request.status().name()));
     return toResponse(requirement);
   }
 
   /** Executes the add criterion operation for RequirementService. */
   @Transactional
   public AcceptanceCriterionResponse addCriterion(
-      UUID ownerId, UUID requirementId, AcceptanceCriterionRequest request) {
-    RequirementEntity requirement = requireOwned(ownerId, requirementId);
+      UUID ownerId,
+      UUID requirementId,
+      long expectedRequirementVersion,
+      AcceptanceCriterionRequest request) {
+    RequirementEntity requirement = requireOwnedForUpdate(ownerId, requirementId);
+    assertVersion(requirement.getVersion(), expectedRequirementVersion, "User Story");
     List<AcceptanceCriterionEntity> existing =
         criteria.findAllByRequirementIdOrderBySortOrder(requirementId);
     if (existing.size() >= 50) {
@@ -155,6 +175,7 @@ public class RequirementService {
           "criteria_limit_exceeded", "A requirement may have at most 50 acceptance criteria.");
     }
     ensureCriterionUnique(existing, null, request);
+    saveRevision(requirement, ownerId, existing);
     AcceptanceCriterionEntity criterion =
         criteria.save(
             AcceptanceCriterionEntity.create(
@@ -163,63 +184,86 @@ public class RequirementService {
                 request.description().strip(),
                 request.sortOrder(),
                 clock.instant()));
+    requirement.markCriteriaChanged(clock.instant());
     auditService.record(
         ownerId,
         requirement.getProjectId(),
         "ACCEPTANCE_CRITERION",
         criterion.getId(),
         "CREATED",
-        Map.of("criterionKey", criterion.getCriterionKey()));
+        AuditMetadata.criterion(criterion.getCriterionKey()));
     return toCriterion(criterion);
   }
 
   /** Executes the update criterion operation for RequirementService. */
   @Transactional
   public AcceptanceCriterionResponse updateCriterion(
-      UUID ownerId, UUID criterionId, AcceptanceCriterionRequest request) {
+      UUID ownerId,
+      UUID criterionId,
+      long expectedRequirementVersion,
+      AcceptanceCriterionRequest request) {
+    UUID requirementId =
+        criteria
+            .findOwnedRequirementId(criterionId, ownerId)
+            .orElseThrow(() -> ApiExceptions.notFound("Acceptance criterion not found."));
+    RequirementEntity requirement = requireOwnedForUpdate(ownerId, requirementId);
+    assertVersion(requirement.getVersion(), expectedRequirementVersion, "User Story");
     AcceptanceCriterionEntity criterion =
         criteria
-            .findOwned(criterionId, ownerId)
+            .findById(criterionId)
+            .filter(item -> item.getRequirementId().equals(requirementId))
             .orElseThrow(() -> ApiExceptions.notFound("Acceptance criterion not found."));
-    RequirementEntity requirement = requireOwned(ownerId, criterion.getRequirementId());
-    ensureCriterionUnique(
-        criteria.findAllByRequirementIdOrderBySortOrder(requirement.getId()), criterionId, request);
+    List<AcceptanceCriterionEntity> existing =
+        criteria.findAllByRequirementIdOrderBySortOrder(requirementId);
+    ensureCriterionUnique(existing, criterionId, request);
+    saveRevision(requirement, ownerId, existing);
     criterion.update(
         normalizeKey(request.criterionKey()),
         request.description().strip(),
         request.sortOrder(),
         clock.instant());
+    requirement.markCriteriaChanged(clock.instant());
     auditService.record(
         ownerId,
         requirement.getProjectId(),
         "ACCEPTANCE_CRITERION",
         criterionId,
         "UPDATED",
-        Map.of("criterionKey", criterion.getCriterionKey()));
+        AuditMetadata.criterion(criterion.getCriterionKey()));
     return toCriterion(criterion);
   }
 
   /** Deletes criterion from persistent storage. */
   @Transactional
-  public void deleteCriterion(UUID ownerId, UUID criterionId) {
+  public void deleteCriterion(UUID ownerId, UUID criterionId, long expectedRequirementVersion) {
+    UUID requirementId =
+        criteria
+            .findOwnedRequirementId(criterionId, ownerId)
+            .orElseThrow(() -> ApiExceptions.notFound("Acceptance criterion not found."));
+    RequirementEntity requirement = requireOwnedForUpdate(ownerId, requirementId);
+    assertVersion(requirement.getVersion(), expectedRequirementVersion, "User Story");
     AcceptanceCriterionEntity criterion =
         criteria
-            .findOwned(criterionId, ownerId)
+            .findById(criterionId)
+            .filter(item -> item.getRequirementId().equals(requirementId))
             .orElseThrow(() -> ApiExceptions.notFound("Acceptance criterion not found."));
-    RequirementEntity requirement = requireOwned(ownerId, criterion.getRequirementId());
-    if (criteria.countByRequirementId(requirement.getId()) <= 1) {
+    List<AcceptanceCriterionEntity> existing =
+        criteria.findAllByRequirementIdOrderBySortOrder(requirementId);
+    if (existing.size() <= 1) {
       throw ApiExceptions.badRequest(
           "minimum_criteria_required",
           "A requirement must keep at least one acceptance criterion.");
     }
+    saveRevision(requirement, ownerId, existing);
     criteria.delete(criterion);
+    requirement.markCriteriaChanged(clock.instant());
     auditService.record(
         ownerId,
         requirement.getProjectId(),
         "ACCEPTANCE_CRITERION",
         criterionId,
         "DELETED",
-        Map.of("criterionKey", criterion.getCriterionKey()));
+        AuditMetadata.criterion(criterion.getCriterionKey()));
   }
 
   /** Resolves ambiguity for the current operation. */
@@ -239,7 +283,7 @@ public class RequirementService {
         "REQUIREMENT_AMBIGUITY",
         ambiguityId,
         "RESOLVED",
-        Map.of());
+        AuditMetadata.empty());
     return toAmbiguity(ambiguity);
   }
 
@@ -248,6 +292,13 @@ public class RequirementService {
   public RequirementEntity requireOwned(UUID ownerId, UUID requirementId) {
     return requirements
         .findOwned(requirementId, ownerId)
+        .orElseThrow(() -> ApiExceptions.notFound("Requirement not found."));
+  }
+
+  /** Requires owned for update for the current operation. */
+  private RequirementEntity requireOwnedForUpdate(UUID ownerId, UUID requirementId) {
+    return requirements
+        .findOwnedForUpdate(requirementId, ownerId)
         .orElseThrow(() -> ApiExceptions.notFound("Requirement not found."));
   }
 
@@ -275,8 +326,9 @@ public class RequirementService {
         requirement.getVersion());
   }
 
-  /** Maps the source data to summary. */
-  private RequirementSummaryResponse toSummary(RequirementEntity requirement) {
+  /** Maps one list summary using a criterion count already loaded for the page. */
+  private RequirementSummaryResponse toSummary(
+      RequirementEntity requirement, long acceptanceCriteriaCount) {
     return new RequirementSummaryResponse(
         requirement.getId(),
         requirement.getWorkItemNumber(),
@@ -284,7 +336,7 @@ public class RequirementService {
         requirement.getTitle(),
         requirement.getStatus(),
         requirement.getPriority(),
-        Math.toIntExact(criteria.countByRequirementId(requirement.getId())),
+        Math.toIntExact(acceptanceCriteriaCount),
         requirement.getUpdatedAt(),
         requirement.getVersion());
   }
@@ -336,16 +388,33 @@ public class RequirementService {
 
   /** Persists revision and returns its stored representation. */
   private void saveRevision(RequirementEntity requirement, UUID userId) {
-    Map<String, Object> snapshot =
-        Map.of(
-            "title", requirement.getTitle(),
-            "userStory", requirement.getUserStory(),
-            "businessRequirements", requirement.getBusinessRequirements(),
-            "assumptions", requirement.getAssumptions(),
-            "sourceReference", requirement.getSourceReference(),
-            "status", requirement.getStatus().name(),
-            "priority", requirement.getPriority().name(),
-            "version", requirement.getVersion());
+    saveRevision(
+        requirement, userId, criteria.findAllByRequirementIdOrderBySortOrder(requirement.getId()));
+  }
+
+  /** Captures the complete pre-change story and ordered criterion aggregate. */
+  private void saveRevision(
+      RequirementEntity requirement, UUID userId, List<AcceptanceCriterionEntity> orderedCriteria) {
+    Map<String, Object> snapshot = new LinkedHashMap<>();
+    snapshot.put("title", requirement.getTitle());
+    snapshot.put("userStory", requirement.getUserStory());
+    snapshot.put("businessRequirements", requirement.getBusinessRequirements());
+    snapshot.put("assumptions", requirement.getAssumptions());
+    snapshot.put("sourceReference", requirement.getSourceReference());
+    snapshot.put("status", requirement.getStatus().name());
+    snapshot.put("priority", requirement.getPriority().name());
+    snapshot.put("version", requirement.getVersion());
+    snapshot.put(
+        "acceptanceCriteria",
+        orderedCriteria.stream()
+            .map(
+                item ->
+                    Map.of(
+                        "id", item.getId().toString(),
+                        "criterionKey", item.getCriterionKey(),
+                        "description", item.getDescription(),
+                        "sortOrder", item.getSortOrder()))
+            .toList());
     try {
       revisions.save(
           RequirementRevisionEntity.create(

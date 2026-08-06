@@ -163,6 +163,7 @@ public class SecurityConfiguration {
             "Authorization",
             "Content-Type",
             "Idempotency-Key",
+            "If-Match",
             "X-XSRF-TOKEN",
             "X-Correlation-ID"));
     configuration.setExposedHeaders(java.util.List.of("X-Correlation-ID", "Content-Disposition"));
