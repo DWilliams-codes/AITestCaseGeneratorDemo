@@ -184,11 +184,28 @@ has no advisory allowlist.
 - Generation quality depends on the configured model and must be evaluated with representative, organization-specific requirements before production rollout.
 - Docker Compose is suitable for local evaluation, not a complete cloud landing zone. Public deployment still needs managed secrets, TLS, backups, monitoring, SIEM integration, and artifact signing.
 
-## Stage 2 Copado roadmap
+## Stage 2 roadmap (proposed; implementation not authorized)
 
-This release delivers Stage 1 manual-test design. It intentionally does not generate or execute Copado Robotic Testing automation. A later `AutomationDraftGenerator` boundary can translate approved cases only after organization-specific selectors, reusable actions, environments, test data, and review rules are available.
+Stage 1 remains manual-test design and does not currently execute automation.
+The proposed first Stage 2 slice is controlled agentic testing of TestForge
+itself in an isolated non-production environment: the current owner authorizes
+one approved manual test, its current content is captured as an immutable
+run-bound snapshot, and the agent performs only its basic semantic browser steps
+while recording action, observation, assertion, and bounded evidence. It does
+not depend on future workspace-sharing or general snapshot work.
+The execution model will be configuration-selected; Terra is the first
+manually evaluated candidate, not a hard-coded default or routing decision.
 
-The future slice can add suitability scoring, action mapping, selector placeholders, parameterized data, assertions, setup and cleanup actions, draft export, imported execution results, and failure classification. Every generated draft must remain reviewable; TestForge does not assume a manual case can become reliable automation without that organization-specific context.
+The plan keeps `AutomationDraftGenerator` and Copado as a later secondary,
+non-executing capability. It can translate approved cases only after
+organization-specific selectors, reusable actions, environments, test data, and
+review rules are available. That future slice may add suitability scoring,
+action mapping, selector placeholders, parameterized data, assertions, setup
+and cleanup actions, draft export, imported execution results, and failure
+classification. Generated drafts remain reviewable and are never executed by
+TestForge.
+
+See the active [TF-007 Stage 2 execution plan](docs/exec-plans/active/TF-007-stage-two-agentic-test-execution.md) for containment, architecture, evaluation, and pilot decisions.
 
 ## Architecture reset references
 

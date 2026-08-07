@@ -79,11 +79,23 @@ latency.
 Stage 1 does not provide organization sharing, enterprise SSO, administrative
 UI, asynchronous generation, or a production cloud landing zone. It does not
 generate or execute Playwright, Copado Robotic Testing, or other automation.
-`AutomationDraftGenerator` is only a Stage 2 extension point; automation
-evaluation fixtures are roadmap-only and non-blocking.
+
+The proposed, not-yet-authorized Stage 2 first tests TestForge itself in an
+isolated non-production environment. The current owner selects an approved test
+case; the system captures it as an immutable run-bound snapshot and authorizes a
+bounded semantic-browser click-through. It records action, observation,
+assertion, and evidence without accepting page content as agent instruction.
+This smallest pilot reuses owner-scoped authorization rather than depending on
+future workspace-sharing or general snapshot work. The execution model is
+configuration-selected. Terra is the first candidate for manual evaluation, and
+no routing or escalation policy is decided until evaluation evidence exists.
+`AutomationDraftGenerator` remains a separate, later non-executing extension
+point; automation evaluation fixtures remain roadmap-only and non-blocking.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [the MVP specification](product-specs/mvp-1-test-generation.md),
 and [the security policy](../SECURITY.md) for implementation and trust details.
+The active [TF-007 execution plan](exec-plans/active/TF-007-stage-two-agentic-test-execution.md)
+is the canonical Stage 2 proposal.
 ## Workspace foundation and product direction
 
 Each registered user receives a personal workspace and OWNER membership. New
