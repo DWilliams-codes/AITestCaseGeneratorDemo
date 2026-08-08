@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState, type PropsWithChildren } from 'react';
-import { apiRequest, resetApiClient, restoreSession, setAccessTokenForEpoch } from '../api/client';
+import {
+  apiRequest,
+  resetApiClient,
+  restoreSession,
+  setAccessTokenForEpoch,
+  subscribeSessionInvalidated,
+} from '../api/client';
 import type { TokenResponse, User } from '../types/api';
 import { AuthContext, type AuthContextValue } from './auth-context';
 
@@ -10,6 +16,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let active = true;
+    const unsubscribe = subscribeSessionInvalidated(() => {
+      if (active) {
+        setUser(null);
+        setLoading(false);
+      }
+    });
     void restoreSession().then((outcome) => {
       if (active && outcome.current) {
         setUser(outcome.session?.user ?? null);
@@ -18,6 +30,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     });
     return () => {
       active = false;
+      unsubscribe();
     };
   }, []);
 

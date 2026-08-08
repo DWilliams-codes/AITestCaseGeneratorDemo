@@ -7,6 +7,8 @@ test('seeded analyst workflow is navigable and has no serious accessibility viol
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+  await page.getByLabel('Email address').fill('demo@testforge.local');
+  await page.getByLabel('Password').fill('TestForge!Demo2026');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Projects' })).toBeVisible();
   await expect(page.getByText('Commerce Returns Platform')).toBeVisible();

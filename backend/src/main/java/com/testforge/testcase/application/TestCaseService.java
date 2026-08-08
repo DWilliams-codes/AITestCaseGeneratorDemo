@@ -2,13 +2,17 @@ package com.testforge.testcase.application;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.testforge.audit.application.AuditMetadata;
 import com.testforge.audit.application.AuditService;
+import com.testforge.audit.application.LegacyReopenAuditReconciler;
 import com.testforge.common.dto.PageResponse;
 import com.testforge.common.error.ApiExceptions;
 import com.testforge.generation.application.ActiveGenerationSetResolver;
+import com.testforge.generation.application.LegacyGenerationEvidenceReconciler;
+import com.testforge.generation.domain.GenerationRunEntity;
+import com.testforge.generation.repository.GenerationRunRepository;
 import com.testforge.requirement.application.RequirementService;
 import com.testforge.requirement.domain.RequirementEntity;
-import com.testforge.requirement.repository.AcceptanceCriterionRepository;
 import com.testforge.testcase.domain.ReviewDecision;
 import com.testforge.testcase.domain.TestCaseEntity;
 import com.testforge.testcase.domain.TestCasePreconditionEntity;
@@ -21,9 +25,7 @@ import com.testforge.testcase.dto.TestCaseDtos.ReopenRequest;
 import com.testforge.testcase.dto.TestCaseDtos.ReviewRequest;
 import com.testforge.testcase.dto.TestCaseDtos.ReviewResponse;
 import com.testforge.testcase.dto.TestCaseDtos.RevisionResponse;
-import com.testforge.testcase.dto.TestCaseDtos.StepResponse;
 import com.testforge.testcase.dto.TestCaseDtos.TestCaseResponse;
-import com.testforge.testcase.dto.TestCaseDtos.TestDataResponse;
 import com.testforge.testcase.dto.TestCaseDtos.UpdateTestCaseRequest;
 import com.testforge.testcase.repository.TestCasePreconditionRepository;
 import com.testforge.testcase.repository.TestCaseRepository;
@@ -32,11 +34,9 @@ import com.testforge.testcase.repository.TestCaseRevisionRepository;
 import com.testforge.testcase.repository.TestDataItemRepository;
 import com.testforge.testcase.repository.TestStepRepository;
 import com.testforge.testcase.validation.TestDataReferencePolicy;
-import com.testforge.traceability.repository.TraceabilityLinkRepository;
 import java.time.Clock;
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
@@ -51,12 +51,14 @@ public class TestCaseService {
   private final TestDataItemRepository testData;
   private final TestCaseReviewRepository reviews;
   private final TestCaseRevisionRepository revisions;
-  private final TraceabilityLinkRepository links;
-  private final AcceptanceCriterionRepository criteria;
   private final RequirementService requirementService;
   private final ActiveGenerationSetResolver activeSets;
+  private final LegacyGenerationEvidenceReconciler legacyEvidence;
+  private final GenerationRunRepository generationRuns;
+  private final TestCaseResponseAssembler responseAssembler;
   private final TestDataReferencePolicy testDataReferences;
   private final AuditService auditService;
+  private final LegacyReopenAuditReconciler legacyReopens;
   private final ObjectMapper objectMapper;
   private final Clock clock;
 
@@ -68,12 +70,14 @@ public class TestCaseService {
       TestDataItemRepository testData,
       TestCaseReviewRepository reviews,
       TestCaseRevisionRepository revisions,
-      TraceabilityLinkRepository links,
-      AcceptanceCriterionRepository criteria,
       RequirementService requirementService,
       ActiveGenerationSetResolver activeSets,
+      LegacyGenerationEvidenceReconciler legacyEvidence,
+      GenerationRunRepository generationRuns,
+      TestCaseResponseAssembler responseAssembler,
       TestDataReferencePolicy testDataReferences,
       AuditService auditService,
+      LegacyReopenAuditReconciler legacyReopens,
       ObjectMapper objectMapper,
       Clock clock) {
     this.testCases = testCases;
@@ -82,12 +86,14 @@ public class TestCaseService {
     this.testData = testData;
     this.reviews = reviews;
     this.revisions = revisions;
-    this.links = links;
-    this.criteria = criteria;
     this.requirementService = requirementService;
     this.activeSets = activeSets;
+    this.legacyEvidence = legacyEvidence;
+    this.generationRuns = generationRuns;
+    this.responseAssembler = responseAssembler;
     this.testDataReferences = testDataReferences;
     this.auditService = auditService;
+    this.legacyReopens = legacyReopens;
     this.objectMapper = objectMapper;
     this.clock = clock;
   }
@@ -96,21 +102,46 @@ public class TestCaseService {
   @Transactional(readOnly = true)
   public List<TestCaseResponse> list(UUID ownerId, UUID requirementId, UUID generationRunId) {
     requirementService.requireOwned(ownerId, requirementId);
-    UUID selectedRunId = selectReadableRun(requirementId, generationRunId);
-    if (selectedRunId == null) {
+    GenerationRunEntity selectedRun = selectReadableRun(requirementId, generationRunId);
+    if (selectedRun == null) {
       return List.of();
     }
-    return testCases
-        .findAllByRequirementIdAndGenerationRunIdOrderByWorkItemNumber(requirementId, selectedRunId)
-        .stream()
-        .map(this::toResponse)
-        .toList();
+    ensureLegacyEvidence(selectedRun);
+    return responseAssembler.assembleAll(
+        testCases
+            .findAllByRequirementIdAndGenerationRunIdOrderByWorkItemNumber(
+                requirementId, selectedRun.getId(), PageRequest.of(0, 100))
+            .getContent());
+  }
+
+  /** Returns a canonical bounded page for one selected immutable generation set. */
+  @Transactional(readOnly = true)
+  public PageResponse<TestCaseResponse> listPage(
+      UUID ownerId, UUID requirementId, UUID generationRunId, int page, int size) {
+    requirementService.requireOwned(ownerId, requirementId);
+    GenerationRunEntity selectedRun = selectReadableRun(requirementId, generationRunId);
+    if (selectedRun == null) {
+      return new PageResponse<>(List.of(), page, size, 0, 0, false);
+    }
+    ensureLegacyEvidence(selectedRun);
+    var testCasePage =
+        testCases.findAllByRequirementIdAndGenerationRunIdOrderByWorkItemNumber(
+            requirementId, selectedRun.getId(), PageRequest.of(page, size));
+    return new PageResponse<>(
+        responseAssembler.assembleAll(testCasePage.getContent()),
+        testCasePage.getNumber(),
+        testCasePage.getSize(),
+        testCasePage.getTotalElements(),
+        testCasePage.getTotalPages(),
+        testCasePage.hasNext());
   }
 
   /** Returns the owned resource identified by the request. */
   @Transactional(readOnly = true)
   public TestCaseResponse get(UUID ownerId, UUID testCaseId) {
-    return toResponse(requireOwned(ownerId, testCaseId));
+    TestCaseEntity testCase = requireOwned(ownerId, testCaseId);
+    generationRuns.findById(testCase.getGenerationRunId()).ifPresent(this::ensureLegacyEvidence);
+    return toResponse(testCase);
   }
 
   /** Applies a validated update while preserving concurrency guarantees. */
@@ -127,6 +158,9 @@ public class TestCaseService {
     RequirementEntity requirement =
         requirementService.requireOwned(ownerId, testCase.getRequirementId());
     boolean actualChange = hasActualChange(testCase, request, canonicalReferences);
+    if (!actualChange) {
+      return toResponse(testCase);
+    }
     saveRevision(testCase, ownerId);
     try {
       testCase.update(
@@ -150,7 +184,7 @@ public class TestCaseService {
         "TEST_CASE",
         testCaseId,
         "UPDATED",
-        Map.of("testCaseKey", testCase.getTestCaseKey()));
+        AuditMetadata.testCase(testCase.getTestCaseKey()));
     testCases.flush();
     return toResponse(testCase);
   }
@@ -178,7 +212,7 @@ public class TestCaseService {
         "TEST_CASE",
         testCaseId,
         "REVIEWED",
-        Map.of("decision", decision.name(), "testCaseKey", testCase.getTestCaseKey()));
+        AuditMetadata.reviewed(decision.name(), testCase.getTestCaseKey()));
     reviews.flush();
     testCases.flush();
     return toResponse(testCase);
@@ -192,6 +226,7 @@ public class TestCaseService {
     assertVersion(testCase, request.version());
     RequirementEntity requirement =
         requirementService.requireOwned(ownerId, testCase.getRequirementId());
+    saveReopenRevision(testCase, ownerId, request.reason().strip());
     try {
       testCase.reopen(request.reason().strip(), clock.instant());
     } catch (TestCaseEntity.InvalidTransition exception) {
@@ -203,7 +238,7 @@ public class TestCaseService {
         "TEST_CASE",
         testCaseId,
         "REOPENED",
-        Map.of("reason", request.reason().strip(), "testCaseKey", testCase.getTestCaseKey()));
+        AuditMetadata.reopened(testCase.getTestCaseKey()));
     testCases.flush();
     return toResponse(testCase);
   }
@@ -213,6 +248,9 @@ public class TestCaseService {
   public PageResponse<RevisionResponse> revisions(
       UUID ownerId, UUID testCaseId, int page, int size) {
     requireOwned(ownerId, testCaseId);
+    for (int batch = 0; batch < LegacyReopenAuditReconciler.MAX_READ_BATCHES; batch++) {
+      if (legacyReopens.reconcileTestCase(testCaseId) == 0) break;
+    }
     return PageResponse.from(
         revisions
             .findAllByTestCaseIdOrderByChangedAtDescIdDesc(testCaseId, PageRequest.of(page, size))
@@ -223,7 +261,19 @@ public class TestCaseService {
                         revision.getRevisionNumber(),
                         normalizeSnapshot(revision.getSnapshotJson()),
                         revision.getChangedBy(),
-                        revision.getChangedAt())));
+                        revision.getChangedAt(),
+                        revision.getChangeType(),
+                        revision.getChangeReason())));
+  }
+
+  /** Returns review evidence independently from the capped embedded compatibility field. */
+  @Transactional(readOnly = true)
+  public PageResponse<ReviewResponse> reviews(UUID ownerId, UUID testCaseId, int page, int size) {
+    requireOwned(ownerId, testCaseId);
+    return PageResponse.from(
+        reviews
+            .findAllByTestCaseIdOrderByCreatedAtDesc(testCaseId, PageRequest.of(page, size))
+            .map(this::toReviewResponse));
   }
 
   /** Loads the requested resource and verifies that it belongs to the current owner. */
@@ -236,69 +286,17 @@ public class TestCaseService {
 
   /** Maps the source data to response. */
   public TestCaseResponse toResponse(TestCaseEntity testCase) {
-    Map<UUID, String> keyById = new HashMap<>();
-    criteria
-        .findAllByRequirementIdOrderBySortOrder(testCase.getRequirementId())
-        .forEach(item -> keyById.put(item.getId(), item.getCriterionKey()));
-    List<String> criterionKeys =
-        links.findAllByTestCaseId(testCase.getId()).stream()
-            .map(link -> keyById.get(link.getAcceptanceCriterionId()))
-            .filter(java.util.Objects::nonNull)
-            .distinct()
-            .sorted()
-            .toList();
-    return new TestCaseResponse(
-        testCase.getId(),
-        testCase.getWorkItemNumber(),
-        testCase.getRequirementId(),
-        testCase.getGenerationRunId(),
-        testCase.getTestCaseKey(),
-        testCase.getTitle(),
-        testCase.getObjective(),
-        testCase.getCategory(),
-        testCase.getPriority(),
-        testCase.getRiskLevel(),
-        testCase.isAutomationCandidate(),
-        testCase.getStatus(),
-        testCase.getCoverageIntent(),
-        testCase.getRationale(),
-        testCase.getFinalExpectedOutcome(),
-        preconditions.findAllByTestCaseIdOrderBySortOrder(testCase.getId()).stream()
-            .map(item -> new PreconditionResponse(item.getSortOrder(), item.getDescription()))
-            .toList(),
-        steps.findAllByTestCaseIdOrderByStepNumber(testCase.getId()).stream()
-            .map(
-                item ->
-                    new StepResponse(
-                        item.getStepNumber(),
-                        item.getAction(),
-                        item.getExpectedResult(),
-                        item.getTestDataReference()))
-            .toList(),
-        testData.findAllByTestCaseIdOrderByName(testCase.getId()).stream()
-            .map(
-                item ->
-                    new TestDataResponse(
-                        item.getName(),
-                        item.getDescription(),
-                        item.getExampleValue(),
-                        item.getSensitivity(),
-                        item.getGenerationStrategy()))
-            .toList(),
-        criterionKeys,
-        reviews.findAllByTestCaseIdOrderByCreatedAtDesc(testCase.getId()).stream()
-            .map(
-                item ->
-                    new ReviewResponse(
-                        item.getId(),
-                        item.getReviewerId(),
-                        item.getDecision(),
-                        item.getComments(),
-                        item.getCreatedAt()))
-            .toList(),
-        testCase.getCreatedAt(),
-        testCase.getUpdatedAt(),
-        testCase.getVersion());
+    return responseAssembler.assemble(testCase);
+  }
+
+  /** Maps the source data to review response. */
+  private ReviewResponse toReviewResponse(TestCaseReviewEntity item) {
+    return new ReviewResponse(
+        item.getId(),
+        item.getReviewerId(),
+        item.getDecision(),
+        item.getComments(),
+        item.getCreatedAt());
   }
 
   /** Executes the replace parts operation for TestCaseService. */
@@ -386,34 +384,48 @@ public class TestCaseService {
         return true;
       }
     }
-    if (current.testData().size() != request.testData().size()) {
-      return true;
-    }
-    for (int index = 0; index < request.testData().size(); index++) {
-      var persisted = current.testData().get(index);
-      var requested = request.testData().get(index);
-      if (!Objects.equals(persisted.name(), requested.name().strip())
-          || !Objects.equals(persisted.description(), requested.description().strip())
-          || !Objects.equals(persisted.exampleValue(), requested.exampleValue().strip())
-          || persisted.sensitivity() != requested.sensitivity()
-          || !Objects.equals(
-              persisted.generationStrategy(), requested.generationStrategy().strip())) {
-        return true;
-      }
-    }
-    return false;
+    List<TestDataComparable> persistedData =
+        current.testData().stream()
+            .map(
+                item ->
+                    new TestDataComparable(
+                        testDataReferences.key(item.name()),
+                        item.description(),
+                        item.exampleValue(),
+                        item.sensitivity().name(),
+                        item.generationStrategy()))
+            .sorted(Comparator.comparing(TestDataComparable::normalizedName))
+            .toList();
+    List<TestDataComparable> requestedData =
+        request.testData().stream()
+            .map(
+                item ->
+                    new TestDataComparable(
+                        testDataReferences.key(item.name()),
+                        item.description().strip(),
+                        item.exampleValue().strip(),
+                        item.sensitivity().name(),
+                        item.generationStrategy().strip()))
+            .sorted(Comparator.comparing(TestDataComparable::normalizedName))
+            .toList();
+    return !persistedData.equals(requestedData);
   }
 
   /** Selects the active set by default and validates an explicit historical selector. */
-  private UUID selectReadableRun(UUID requirementId, UUID requestedRunId) {
+  private GenerationRunEntity selectReadableRun(UUID requirementId, UUID requestedRunId) {
     if (requestedRunId == null) {
-      return activeSets.resolve(requirementId).map(item -> item.getId()).orElse(null);
+      return activeSets.resolve(requirementId).orElse(null);
     }
-    return activeSets.successful(requirementId).stream()
-        .filter(run -> run.getId().equals(requestedRunId))
-        .findFirst()
-        .map(run -> run.getId())
+    return activeSets
+        .successful(requirementId, requestedRunId)
         .orElseThrow(() -> ApiExceptions.notFound("Successful generation set not found."));
+  }
+
+  /** Reconciles one authorized bridge-era run before its immutable evidence is read. */
+  private void ensureLegacyEvidence(GenerationRunEntity run) {
+    if (run.getSourceSnapshotProvenance() == null) {
+      legacyEvidence.reconcile(List.of(run));
+    }
   }
 
   /** Rejects mutation when the case is not part of the active successful set. */
@@ -492,8 +504,31 @@ public class TestCaseService {
     }
   }
 
+  /** Preserves the terminal state and controlled reason before reopening. */
+  private void saveReopenRevision(TestCaseEntity testCase, UUID ownerId, String reason) {
+    try {
+      revisions.save(
+          TestCaseRevisionEntity.reopen(
+              testCase.getId(),
+              revisions.countByTestCaseId(testCase.getId()) + 1,
+              objectMapper.writeValueAsString(toResponse(testCase)),
+              ownerId,
+              clock.instant(),
+              reason));
+    } catch (JsonProcessingException exception) {
+      throw new IllegalStateException("Could not save test-case reopen revision.", exception);
+    }
+  }
+
   /** Normalizes optional text before it is compared or persisted. */
   private String clean(String value) {
     return value == null ? "" : value.strip();
   }
+
+  private record TestDataComparable(
+      String normalizedName,
+      String description,
+      String exampleValue,
+      String sensitivity,
+      String generationStrategy) {}
 }

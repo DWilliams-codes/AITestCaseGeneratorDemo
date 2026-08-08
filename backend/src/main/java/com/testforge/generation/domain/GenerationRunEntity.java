@@ -29,6 +29,25 @@ public class GenerationRunEntity {
   @Column(name = "prompt_version", nullable = false, length = 50)
   private String promptVersion;
 
+  @Column(name = "provider_adapter_version", length = 100)
+  private String providerAdapterVersion;
+
+  @Column(name = "result_contract_version", length = 100)
+  private String resultContractVersion;
+
+  @Column(name = "schema_version", length = 100)
+  private String schemaVersion;
+
+  @Column(name = "validator_version", length = 100)
+  private String validatorVersion;
+
+  @Column(name = "source_requirement_version")
+  private Long sourceRequirementVersion;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "source_snapshot_provenance", length = 30)
+  private GenerationSnapshotProvenance sourceSnapshotProvenance;
+
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 40)
   private GenerationStatus status;
@@ -169,6 +188,64 @@ public class GenerationRunEntity {
   /** Returns the current prompt version value. */
   public String getPromptVersion() {
     return promptVersion;
+  }
+
+  /** Returns the current provider adapter version value. */
+  public String getProviderAdapterVersion() {
+    return providerAdapterVersion;
+  }
+
+  /** Returns the current result contract version value. */
+  public String getResultContractVersion() {
+    return resultContractVersion;
+  }
+
+  /** Returns the current schema version value. */
+  public String getSchemaVersion() {
+    return schemaVersion;
+  }
+
+  /** Returns the current validator version value. */
+  public String getValidatorVersion() {
+    return validatorVersion;
+  }
+
+  /** Returns the current source requirement version value. */
+  public Long getSourceRequirementVersion() {
+    return sourceRequirementVersion;
+  }
+
+  /** Returns the current source snapshot provenance value. */
+  public GenerationSnapshotProvenance getSourceSnapshotProvenance() {
+    return sourceSnapshotProvenance;
+  }
+
+  /** Records the application-owned release tuple and exact source version for a new run. */
+  public void recordRelease(
+      String providerAdapterVersion,
+      String resultContractVersion,
+      String schemaVersion,
+      String validatorVersion,
+      long sourceRequirementVersion) {
+    this.providerAdapterVersion = providerAdapterVersion;
+    this.resultContractVersion = resultContractVersion;
+    this.schemaVersion = schemaVersion;
+    this.validatorVersion = validatorVersion;
+    this.sourceRequirementVersion = sourceRequirementVersion;
+    this.sourceSnapshotProvenance = GenerationSnapshotProvenance.EXACT;
+  }
+
+  /** Marks bridge-era evidence honestly when an old binary writes after the V6 migration. */
+  public void recordLegacyRelease(long currentRequirementVersion) {
+    if (sourceSnapshotProvenance != null) {
+      return;
+    }
+    this.providerAdapterVersion = "legacy-unknown";
+    this.resultContractVersion = "legacy-unknown";
+    this.schemaVersion = "manual-test-schema-v1";
+    this.validatorVersion = "legacy-unknown";
+    this.sourceRequirementVersion = currentRequirementVersion;
+    this.sourceSnapshotProvenance = GenerationSnapshotProvenance.LEGACY_RECONSTRUCTED;
   }
 
   /** Returns the current status value. */

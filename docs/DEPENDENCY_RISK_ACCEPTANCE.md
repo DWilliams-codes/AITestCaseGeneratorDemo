@@ -1,19 +1,98 @@
-# Dependency Risk Acceptance Register
+# Dependency Risk and Immutable-Reference Register
 
-## React Router RSC action CSRF advisory
+## React Router advisory closure
 
-| Field | Value |
-| --- | --- |
-| Advisory | `GHSA-qwww-vcr4-c8h2` |
-| Dependency | `react-router` through `react-router-dom@7.18.2` |
-| Severity | High |
-| Status | Temporarily accepted; no patched stable release is published |
-| Owner | TestForge AI maintainers |
-| Accepted | 2026-07-30 |
-| Expires | 2026-08-30 or immediately when a fixed stable version is available |
+The former temporary acceptance for `GHSA-qwww-vcr4-c8h2` is closed. On
+2026-08-05, official npm registry metadata showed that `react-router@8.3.0`
+exists while `react-router-dom@8.3.0` does not. The SPA imports directly from
+and locks exact `react-router@8.3.0`; `react-router-dom` and the advisory
+allowlist were removed.
 
-The advisory affects React Server Components mode by allowing an action to execute before an invalid-content-type request is rejected. TestForge AI is a client-only Vite single-page application. It does not enable React Server Components, framework actions, server actions, server-side rendering, or React Router's RSC request handlers. The Spring Boot API is a separate origin boundary with bearer authentication, rotating refresh cookies, exact credentialed CORS, and CSRF protection for cookie-authenticated mutations.
+The reviewed lockfile was generated, never hand-edited, with:
 
-The current stable `7.18.2` release is retained because older 7.x versions contain multiple applicable router, redirect, denial-of-service, and deserialization advisories. CI uses `frontend/scripts/audit.mjs` to allow only this advisory, only for `react-router`, and only through the expiration date. Every other high or critical npm advisory fails the build.
+```text
+npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+```
 
-Required follow-up: check for a patched stable React Router release on every dependency update and remove both the acceptance and allowlist entry as soon as one is available.
+`frontend/scripts/audit-policy.mjs` now fails closed for process failures,
+signals, unexpected exits, invalid JSON, report errors, unsupported report
+versions, missing metadata/vulnerability sections, or any high/critical
+vulnerability. There is no package/advisory exception path.
+
+## Temporary Tomcat WebSocket chat-example acceptances
+
+**Advisory:** `CVE-2026-66299`
+**Exact affected PURLs and rules:**
+
+- `pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@10.1.57` — one exact
+  non-regex PURL plus one exact CVE rule.
+- `pkg:maven/org.apache.tomcat.embed/tomcat-embed-websocket@10.1.57` — one
+  sibling exact non-regex PURL plus one exact CVE rule.
+
+**Owner:** TestForge AI maintainers
+**Accepted:** 2026-08-07
+**Expires:** 2026-08-22T00:00:00Z
+
+### Applicability and acceptance
+
+Candidate `9095482` used the existing exact core rule and then surfaced the
+WebSocket finding. Dependency-Check associates the advisory with both embedded
+artifacts. Applicability is supported by both exact affected PURLs, the official
+Apache examples-only advisory, and unchanged embedded-application packaging
+configuration. The historical 2026-08-06 TestForge JAR observation contains
+both embedded Tomcat artifacts and found no Tomcat example or WebSocket chat
+resources. These are temporary, exact-PURL and exact-CVE acceptances only; they
+are not a CVSS threshold reduction or general Tomcat suppressions.
+
+### Evidence and compensating controls
+
+- Apache advisory and download evidence: [Tomcat 10 security notices](https://tomcat.apache.org/security-10.html) and [Tomcat 10 downloads](https://tomcat.apache.org/download-10.cgi).
+- Local gaps: Maven verification and fresh candidate packaging were unavailable
+  locally because Maven is not on PATH.
+- Existing CI closes the Maven verify, OWASP security-profile, candidate
+  container-build, and container-scan gaps. The seven exact-SHA CI jobs are
+  publication gates after implementation completion, not completion prerequisites.
+- Existing-artifact observation (not fresh candidate or CI evidence):
+  `backend/target/testforge-backend.jar` dated 2026-08-06 contains
+  `BOOT-INF/lib/tomcat-embed-core-10.1.57.jar` and
+  `BOOT-INF/lib/tomcat-embed-websocket-10.1.57.jar`; `jar tf` found no Tomcat
+  example web application or chat-example resources. TF-008 does not change
+  packaging source.
+- Compensating controls: each suppression matches one exact non-regex Maven PURL
+  and one CVE, has the same hard expiry, fails the build when unused, keeps CVSS
+  7 and every other dependency scan in force, and the embedded application does
+  not ship the affected example.
+
+### Removal and expiry policy
+
+Remove both acceptances and suppressions immediately on Tomcat 10.1.58 or later.
+If either exact dependency is no longer present, the unused-suppression rule
+fails closed. If the date expires first, neither suppression applies and the
+security build must fail closed until the dependencies are upgraded or newly
+approved acceptances replace them.
+
+## Verified immutable references
+
+All values below were resolved on 2026-08-05 from the named publisher's
+official GitHub tag/ref API or the official Docker Hub Registry v2 manifest API.
+Version comments/tags remain beside immutable values for update readability.
+
+| Reference | Immutable value | Verification source |
+| --- | --- | --- |
+| `actions/checkout` v5 | `fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09` | GitHub `actions/checkout` v5 ref |
+| `actions/setup-python` v6 | `ece7cb06caefa5fff74198d8649806c4678c61a1` | GitHub `actions/setup-python` v6 ref |
+| `actions/setup-java` v5 | `b6effb05e454b25005698d916606bdc6ffcbf961` | GitHub `actions/setup-java` v5 ref |
+| `actions/setup-node` v6 | `249970729cb0ef3589644e2896645e5dc5ba9c38` | GitHub `actions/setup-node` v6 ref |
+| `actions/cache` v5 | `caa296126883cff596d87d8935842f9db880ef25` | GitHub `actions/cache` v5 ref |
+| `aquasecurity/trivy-action` v0.36.0 | `ed142fd0673e97e23eac54620cfb913e5ce36c25` | GitHub `aquasecurity/trivy-action` v0.36.0 ref |
+| `postgres:18.4-trixie` | `sha256:d129b9577d274bb96cbd44d902bdeb1b935c89247d161241e9154cba64e13df4` | Docker Hub manifest |
+| `node:24.12.0-alpine` | `sha256:c921b97d4b74f51744057454b306b418cf693865e73b8100559189605f6955b8` | Docker Hub manifest |
+| `nginxinc/nginx-unprivileged:1.29-alpine3.23` | `sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6` | Docker Hub manifest |
+| `maven:3.9.11-eclipse-temurin-21-alpine` | `sha256:922927df2c662cdd47ddb116443d6bec4696cfae3de1a0ddac8fcc7b87ce61ae` | Docker Hub manifest |
+| `eclipse-temurin:21-jre-alpine-3.23` | `sha256:3f08b13888f595cc49edabea7250ba69499ba25602b267da591720769400e08c` | Docker Hub manifest |
+
+Tags and version comments are descriptive only; execution resolves the commit
+or digest. Future updates must repeat publisher-source verification and update
+this table with the review date. SBOM generation, artifact signing, and an
+automated reviewed digest-update workflow remain deferred work, not accepted
+exceptions.

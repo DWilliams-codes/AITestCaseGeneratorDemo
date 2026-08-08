@@ -6,7 +6,6 @@ import com.testforge.audit.domain.AuditEventEntity;
 import com.testforge.audit.repository.AuditEventRepository;
 import com.testforge.common.correlation.CorrelationIds;
 import java.time.Clock;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -30,7 +29,7 @@ public class AuditService {
       String entityType,
       UUID entityId,
       String action,
-      Map<String, ?> safeMetadata) {
+      AuditMetadata safeMetadata) {
     repository.save(
         AuditEventEntity.create(
             actorId,
@@ -38,13 +37,13 @@ public class AuditService {
             entityType,
             entityId,
             action,
-            serialize(safeMetadata),
+            serialize(safeMetadata.values()),
             clock.instant(),
             CorrelationIds.current()));
   }
 
   /** Executes the serialize operation for AuditService. */
-  private String serialize(Map<String, ?> metadata) {
+  private String serialize(Object metadata) {
     try {
       return objectMapper.writeValueAsString(metadata);
     } catch (JsonProcessingException exception) {

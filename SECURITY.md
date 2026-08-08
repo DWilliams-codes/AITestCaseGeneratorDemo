@@ -14,19 +14,23 @@ Do not open a public issue. Use the repository owner's private security-reportin
 - Generate at least 32 random bytes for `JWT_ACCESS_TOKEN_SECRET`, Base64 encode them, and store all secrets in a managed secret store.
 - Use a dedicated least-privilege PostgreSQL role, private database networking, backups, and tested restoration.
 - Set exact `ALLOWED_ORIGINS`; never use wildcard credentialed CORS.
+- Configure `TRUSTED_PROXY_CIDRS` only for actual ingress peers. Ignore caller
+  forwarding headers at any untrusted socket boundary.
 - Leave OpenAPI and demo seeding disabled unless the environment is isolated and intentional.
 - Send requirement data to an external provider only after an approved data-processing review.
 - Centralize logs while preserving the application's exclusion of credentials, tokens, and requirement bodies.
 
 ## Implemented controls
 
-Authentication uses Argon2id, short-lived audience-bound HS256 JWT access tokens, rotating opaque refresh tokens hashed at rest, refresh-token family reuse detection, cookie hardening, CSRF protection, generic authentication failures, and rate limits. The SPA's epoch-based reset clears bearer, CSRF, and coalesced promise state so stale refresh/CSRF completions cannot restore an older session. Authorization is owner-scoped and cross-owner access is deliberately indistinguishable from a missing object. Personal workspace memberships are now recorded, but membership does not grant shared-content access; owner predicates remain authoritative.
+Authentication uses Argon2id, short-lived audience-bound HS256 JWT access tokens, rotating opaque refresh tokens hashed at rest, locked predecessor consumption, committed refresh-family replay revocation, cookie hardening, CSRF protection, generic authentication failures, and client-plus-bounded-subject rate limits. The SPA's epoch-based reset clears bearer, CSRF, and coalesced promise state so stale refresh/CSRF completions cannot restore an older session. Forwarded addresses are accepted only as one sanitized literal from a configured trusted socket peer, and Nginx overwrites inbound forwarding data. Authorization is owner-scoped and cross-owner access is deliberately indistinguishable from a missing object. Personal workspace memberships are now recorded, but membership does not grant shared-content access; owner predicates remain authoritative.
 
 All JSON requests reject unknown properties and enforce field and collection bounds. Correlation IDs are parsed and normalized as UUIDs before being returned in a response header. Security headers deny framing and restrict browser capabilities. The Nginx frontend applies a restrictive CSP; inline styles remain allowed because Material UI's Emotion runtime injects styles.
 
-Generation minimizes provider-bound data, marks User Story content as untrusted, stores no OpenAI Response object, validates strict schema and business semantics (including normalized test-data names and references), rejects vague or executable output, allows one controlled retry, and persists only validated structured data. Superseded generation sets are read-only and default exports are active-set approved cases only. Exports defend against CSV formula injection and Markdown/HTML control injection.
+Generation minimizes provider-bound data, marks User Story content as untrusted, stores no OpenAI Response object, commits no database transaction across the provider call, rejects provider-authored transport metadata and scalar/enum coercion, validates strict schema and business semantics (including direct coverage, normalized test-data names/references, hard bounds, and every provider-authored text field), and retries only incomplete/malformed/empty or semantic output once. Complete evidence and dual traceability links persist atomically against immutable source snapshots; captured criterion identity preserves rename compatibility, while deletion fails before a generated graph write. Superseded generation sets are read-only and default exports are active-set approved cases only. Exports defend against CSV formula injection and conservatively encode all untrusted Markdown punctuation.
 
-Audit events capture actor, project, resource, action, time, correlation ID, and non-sensitive metadata. They do not capture passwords, tokens, provider keys, full requirements, or generated case bodies.
+Audit events capture actor, project, resource, action, time, correlation ID, and
+closed, bounded scalar metadata. They do not capture passwords, tokens,
+provider keys, full requirements, generated case bodies, or reopen reasons.
 
 ## Residual risks
 

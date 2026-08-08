@@ -154,6 +154,14 @@ export interface Coverage {
   approvedCriteria: number;
   coveragePercent: number;
   approvedCoveragePercent: number;
+  partialCriteria: number;
+  approvedPartialCriteria: number;
+  partialCoveragePercent: number;
+  approvedPartialCoveragePercent: number;
+  supportingCriteria: number;
+  approvedSupportingCriteria: number;
+  supportingCoveragePercent: number;
+  approvedSupportingCoveragePercent: number;
 }
 
 export interface GenerationRun {
@@ -162,6 +170,12 @@ export interface GenerationRun {
   provider: string;
   model: string;
   promptVersion: string;
+  providerAdapterVersion: string | null;
+  resultContractVersion: string | null;
+  schemaVersion: string | null;
+  validatorVersion: string | null;
+  sourceRequirementVersion: number | null;
+  sourceSnapshotProvenance: 'EXACT' | 'LEGACY_RECONSTRUCTED' | null;
   status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'REJECTED_BY_VALIDATION';
   generatedCaseCount: number;
   failureCode: string | null;
@@ -172,12 +186,18 @@ export interface GenerationRun {
   setState: 'ACTIVE' | 'SUPERSEDED' | null;
 }
 
+export interface GenerationRunPage extends PageResponse<GenerationRun> {
+  activeGenerationRunId: string | null;
+}
+
 export interface TestCaseRevision {
   id: string;
   revisionNumber: number;
   snapshot: Record<string, unknown>;
   changedBy: string;
   changedAt: string;
+  changeType: 'EDIT' | 'REOPEN' | 'LEGACY_REOPEN' | null;
+  changeReason: string | null;
 }
 
 export interface AuditEvent {
@@ -195,9 +215,12 @@ export interface AuditEvent {
 export interface Traceability {
   requirementId: string;
   rows: {
+    criterionSnapshotId: number | null;
     acceptanceCriterionId: string;
     criterionKey: string;
     description: string;
+    sourceRequirementVersion: number;
+    provenance: 'EXACT' | 'LEGACY_RECONSTRUCTED' | null;
     testCases: {
       id: string;
       testCaseKey: string;

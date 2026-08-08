@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.22.0"
   },
   "scripts": {
     "dev": "vite",
@@ -17,6 +17,7 @@
     "e2e": "playwright test --grep-invert @live-generation",
     "e2e:live": "playwright test --grep @live-generation",
     "audit:ci": "node scripts/audit.mjs",
+    "test:audit-policy": "node --test scripts/audit-policy.test.mjs",
     "comments:check": "node scripts/check-comments.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -31,7 +32,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.83.0",
-    "react-router-dom": "^7.18.2",
+    "react-router": "8.3.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

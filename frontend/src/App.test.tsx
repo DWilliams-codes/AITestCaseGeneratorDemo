@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
-import { createMemoryRouter } from 'react-router-dom';
+import { createMemoryRouter } from 'react-router';
 import { http, HttpResponse } from 'msw';
 import { App } from './App';
 import { appRoutes } from './routes/routes';
@@ -26,8 +26,8 @@ describe('TestForge application', () => {
     const { container } = renderRoute('/login');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeVisible();
-    expect(screen.getByLabelText('Email address')).toHaveValue('demo@testforge.local');
-    expect(screen.getByLabelText('Password')).toHaveValue('TestForge!Demo2026');
+    expect(screen.getByLabelText('Email address')).toHaveValue('');
+    expect(screen.getByLabelText('Password')).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
     const accessibilityResults = await axe(container);
     expect(accessibilityResults.violations).toEqual([]);
@@ -90,6 +90,8 @@ describe('TestForge application', () => {
     );
     const user = userEvent.setup();
     renderRoute('/login');
+    await user.type(screen.getByLabelText('Email address'), 'demo@testforge.local');
+    await user.type(screen.getByLabelText('Password'), 'TestForge!Demo2026');
     await user.click(await screen.findByRole('button', { name: 'Sign in' }));
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Projects' })).toBeVisible();
@@ -263,6 +265,7 @@ describe('TestForge application', () => {
     const email = screen.getByLabelText('Email address');
     await actor.clear(email);
     await actor.type(email, 'analyst@testforge.local');
+    await actor.type(screen.getByLabelText('Password'), 'Synthetic!Passphrase2026');
     await actor.click(screen.getByRole('button', { name: 'Create account' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Projects' })).toBeVisible();
     expect(window.localStorage).toHaveLength(0);

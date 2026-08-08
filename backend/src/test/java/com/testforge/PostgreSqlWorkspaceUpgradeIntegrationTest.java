@@ -18,13 +18,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class PostgreSqlWorkspaceUpgradeIntegrationTest {
   @Container
   static final PostgreSQLContainer<?> POSTGRES =
-      new PostgreSQLContainer<>("postgres:18.4-trixie")
+      new PostgreSQLContainer<>(PostgreSqlTestImage.POSTGRES)
           .withDatabaseName("testforge_workspace_upgrade")
           .withUsername("testforge_app")
           .withPassword("integration-only-password");
 
   /**
-   * Proves V3-to-V5 upgrades preserve owner mapping and backfill legacy priority deterministically.
+   * Proves V3-to-V6 upgrades preserve owner mapping and backfill legacy priority deterministically.
    */
   @Test
   void upgradesLegacyUsersAndProjectsThroughV4WithoutCrossUserMapping() {
@@ -52,7 +52,7 @@ class PostgreSqlWorkspaceUpgradeIntegrationTest {
         jdbc.queryForList(
             "select version from testforge.flyway_schema_history where success and version is not null order by installed_rank",
             String.class);
-    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5");
+    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6");
     assertThat(
             jdbc.queryForObject(
                 "select priority from testforge.requirements where id = ?",

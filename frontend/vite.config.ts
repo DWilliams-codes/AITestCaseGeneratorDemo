@@ -25,7 +25,7 @@ export default defineConfig({
           groups: [
             {
               name: 'react-vendor',
-              test: /node_modules[\\/](?:react|react-dom|react-router|react-router-dom)[\\/]/,
+              test: /node_modules[\\/](?:react|react-dom|react-router)[\\/]/,
               priority: 40,
             },
             {

@@ -1,0 +1,91 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "requirementSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actor": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "goal": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "businessValue": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "assumptions": { "type": "array", "maxItems": 30, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } }
+      },
+      "required": ["actor", "goal", "businessValue", "assumptions"]
+    },
+    "ambiguities": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": ["MISSING_PRECONDITION", "UNCLEAR_BUSINESS_RULE", "MISSING_ERROR_BEHAVIOR", "MISSING_PERMISSION_RULE", "MISSING_DATA_CONSTRAINT", "CONTRADICTORY_REQUIREMENT", "UNDEFINED_TERM", "OTHER"]
+          },
+          "severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "description": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "suggestedQuestion": { "type": "string", "minLength": 1, "maxLength": 4000 }
+        },
+        "required": ["category", "severity", "description", "suggestedQuestion"]
+      }
+    },
+    "testCases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 25,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "objective": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "category": { "type": "string", "enum": ["HAPPY_PATH", "NEGATIVE", "BOUNDARY", "VALIDATION", "PERMISSION", "DATA_INTEGRITY", "ERROR_HANDLING", "ACCESSIBILITY", "INTEGRATION", "SECURITY", "RECOVERY", "OTHER"] },
+          "priority": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "riskLevel": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "automationCandidate": { "type": "boolean" },
+          "coverageIntent": { "type": "string", "enum": ["ACCEPTANCE_CRITERIA", "SUPPORTING_EXPLORATORY"] },
+          "preconditions": { "type": "array", "maxItems": 30, "items": { "type": "string", "minLength": 1, "maxLength": 4000 } },
+          "testData": {
+            "type": "array",
+            "maxItems": 30,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+                "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+                "exampleValue": { "type": "string", "minLength": 1, "maxLength": 1000 },
+                "sensitivity": { "type": "string", "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"] },
+                "generationStrategy": { "type": "string", "minLength": 1, "maxLength": 100 }
+              },
+              "required": ["name", "description", "exampleValue", "sensitivity", "generationStrategy"]
+            }
+          },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 30,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "stepNumber": { "type": "integer", "minimum": 1, "maximum": 30 },
+                "action": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                "expectedResult": { "type": "string", "minLength": 1, "maxLength": 4000 },
+                "testDataReference": { "type": ["string", "null"], "maxLength": 1000 }
+              },
+              "required": ["stepNumber", "action", "expectedResult", "testDataReference"]
+            }
+          },
+          "finalExpectedOutcome": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "acceptanceCriteriaKeys": { "type": "array", "maxItems": 50, "items": { "type": "string", "minLength": 1, "maxLength": 20 } },
+          "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 }
+        },
+        "required": ["title", "objective", "category", "priority", "riskLevel", "automationCandidate", "coverageIntent", "preconditions", "testData", "steps", "finalExpectedOutcome", "acceptanceCriteriaKeys", "rationale"]
+      }
+    }
+  },
+  "required": ["requirementSummary", "ambiguities", "testCases"]
+}

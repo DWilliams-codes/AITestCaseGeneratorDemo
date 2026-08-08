@@ -28,9 +28,10 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { ApiError, apiRequest } from '../api/client';
+import { PaginationControls } from '../components/PaginationControls';
 import type {
   AuditEvent,
   PageResponse,
@@ -102,19 +103,63 @@ export function ProjectPage() {
   const { projectId = '' } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [open, setOpen] = useState(false);
-  const [auditPage, setAuditPage] = useState(0);
-  const [auditDraft, setAuditDraft] = useState<AuditFilters>(emptyAuditFilters);
-  const [auditFilters, setAuditFilters] = useState<AuditFilters>(emptyAuditFilters);
+  const userStoryPage = Math.max(
+    0,
+    Number.parseInt(searchParams.get('storiesPage') ?? '0', 10) || 0,
+  );
+  const auditPage = Math.max(0, Number.parseInt(searchParams.get('auditPage') ?? '0', 10) || 0);
+  const auditFilters: AuditFilters = {
+    entityType: searchParams.get('auditEntityType') ?? '',
+    entityId: searchParams.get('auditEntityId') ?? '',
+    actorId: searchParams.get('auditActorId') ?? '',
+    action: searchParams.get('auditAction') ?? '',
+    from: searchParams.get('auditFrom') ?? '',
+    to: searchParams.get('auditTo') ?? '',
+  };
+  const [auditDraft, setAuditDraft] = useState<AuditFilters>(() => auditFilters);
+  /** Updates one project-view page without discarding unrelated URL state. */
+  const setPageParam = (name: string, page: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (page === 0) next.delete(name);
+    else next.set(name, String(page));
+    setSearchParams(next);
+  };
+  /** Selects a shareable User Story results page. */
+  const setUserStoryPage = (page: number) => setPageParam('storiesPage', page);
+  /** Selects a shareable project-audit results page. */
+  const setAuditPage = (page: number) => setPageParam('auditPage', page);
+  /** Applies the closed audit-filter set to the URL and returns to its first page. */
+  const setAuditFilters = (filters: AuditFilters) => {
+    const next = new URLSearchParams(searchParams);
+    const entries: Array<[keyof AuditFilters, string]> = [
+      ['entityType', 'auditEntityType'],
+      ['entityId', 'auditEntityId'],
+      ['actorId', 'auditActorId'],
+      ['action', 'auditAction'],
+      ['from', 'auditFrom'],
+      ['to', 'auditTo'],
+    ];
+    entries.forEach(([field, name]) => {
+      const value = filters[field].trim();
+      if (value) next.set(name, value);
+      else next.delete(name);
+    });
+    next.delete('auditPage');
+    setSearchParams(next);
+  };
   const project = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => apiRequest<Project>(`/api/v1/projects/${projectId}`),
     enabled: Boolean(projectId),
   });
   const userStories = useQuery({
-    queryKey: ['user-stories', projectId],
+    queryKey: ['user-stories', projectId, userStoryPage],
     queryFn: () =>
-      apiRequest<PageResponse<RequirementSummary>>(`/api/v1/projects/${projectId}/user-stories`),
+      apiRequest<PageResponse<RequirementSummary>>(
+        `/api/v1/projects/${projectId}/user-stories?page=${userStoryPage}&size=20`,
+      ),
     enabled: Boolean(projectId),
   });
   const auditEvents = useQuery({
@@ -267,6 +312,13 @@ export function ProjectPage() {
           </CardContent>
         </Card>
       )}
+      {userStories.data && userStories.data.totalPages > 1 && (
+        <PaginationControls
+          page={userStories.data}
+          busy={userStories.isFetching}
+          onPageChange={setUserStoryPage}
+        />
+      )}
 
       <Box>
         <Typography component="h2" variant="h2">
@@ -284,7 +336,6 @@ export function ProjectPage() {
               aria-label="Audit filters"
               onSubmit={(event) => {
                 event.preventDefault();
-                setAuditPage(0);
                 setAuditFilters(auditDraft);
               }}
               sx={{
@@ -368,7 +419,6 @@ export function ProjectPage() {
                   onClick={() => {
                     setAuditDraft(emptyAuditFilters);
                     setAuditFilters(emptyAuditFilters);
-                    setAuditPage(0);
                   }}
                 >
                   Clear filters
@@ -410,14 +460,14 @@ export function ProjectPage() {
                 <Button
                   size="small"
                   disabled={auditPage === 0 || auditEvents.isFetching}
-                  onClick={() => setAuditPage((page) => Math.max(page - 1, 0))}
+                  onClick={() => setAuditPage(Math.max(auditPage - 1, 0))}
                 >
                   Previous page
                 </Button>
                 <Button
                   size="small"
                   disabled={!auditEvents.data?.hasNext || auditEvents.isFetching}
-                  onClick={() => setAuditPage((page) => page + 1)}
+                  onClick={() => setAuditPage(auditPage + 1)}
                 >
                   Next page
                 </Button>

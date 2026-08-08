@@ -1,5 +1,5 @@
 import { Box, Button, Container, Stack, Typography } from '@mui/material';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 /** Provides an accessible recovery destination for routes outside the application map. */
 export function NotFoundPage() {

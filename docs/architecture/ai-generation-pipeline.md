@@ -8,20 +8,48 @@ and persistence. Requirement content is untrusted data, never instructions.
 
 ## Implemented synchronous pipeline
 
-1. Authorize the caller through the existing owner predicate.
+1. Lock and authorize the User Story through the existing owner predicate.
 2. Validate request bounds and hash the idempotency key.
-3. Load only the required requirement and criterion fields.
-4. Create generation-run evidence with provider, model, prompt version, input
-   hash, correlation ID, and start time.
-5. Invoke the configured provider through `TestGenerationProvider`. Runtime
-   uses the Responses API; deterministic fake output is test-scope only.
-6. Parse strict structured output and apply application-owned semantic checks:
-   enum/size/order constraints, criterion mapping, uniqueness, meaningful
-   expected results, safe synthetic data, and prohibited executable content.
-7. Permit one controlled regeneration after validation rejection.
-8. Persist cases and traceability only after the complete response validates;
-   otherwise persist a safe terminal run state without partial test evidence.
-9. Require human review before approval and approved-only export.
+3. In one short claim transaction, return an existing key or persist one
+   `PENDING` run, immutable exact criterion snapshots, source User Story
+   version, captured source criterion UUIDs, and the complete release tuple.
+   Existing bridge-shaped runs are reconciled before the POST response.
+4. Commit the claim before provider work. A stale `PENDING` claim becomes a safe
+   terminal failure rather than invoking the same key again.
+5. Invoke the configured provider outside a database transaction through
+   `TestGenerationProvider`. Runtime uses the Responses API; deterministic fake
+   output is test-scope only.
+6. Parse only the three schema-owned root fields with exact JSON scalar and enum
+   types, then apply application-owned semantic checks: enum/size/order
+   constraints, criterion mapping, uniqueness, meaningful expected results,
+   safe synthetic data, and prohibited executable content. Provider-authored
+   usage metadata, scalar coercion, and fractional integers are rejected.
+7. Retry exactly once for incomplete, empty, malformed, or semantically invalid
+   structured output. Do not retry refusal, configuration/authentication, or
+   transport failure.
+8. Lock/reload `PENDING` state and atomically persist cases, parts, ambiguity,
+   legacy and snapshot traceability, requirement state, audit evidence, and the
+   terminal run. A renamed criterion dual-writes by its captured owned UUID; a
+   deleted criterion produces `FAILED/source_criteria_changed` before any case
+   graph write. Late responses cannot change terminal evidence.
+9. Read traceability/coverage/export from immutable snapshots, require direct
+   evidence for every source criterion, and require human review before
+   approved-only export.
+
+The implemented Stage 1 tuple is provider/model plus `manual-test-v2`,
+`manual-test-result-v1`, `manual-test-schema-v2`,
+`manual-test-validator-v2`, and `openai-responses-v3`. Pre-V6 source evidence is
+reconstructed only from then-current criteria and labeled
+`LEGACY_RECONSTRUCTED`; exact lost history is never inferred. The v2 prompt
+internally decomposes supplied acceptance criteria into atomic testable
+obligations and asks for the smallest coherent nonredundant suite, allowing one
+direct case to map multiple criteria only when a realistic workflow proves them
+independently. It emits neither the decomposition nor a coverage inventory and
+does not alter the result/schema/validator/provider/persistence/API/frontend
+contracts. This includes
+bounded runtime reconciliation of V5-shaped rows created by an old binary after
+V6 is already installed. The bridge locks each affected run, fills only missing
+release/snapshot/link evidence, and is idempotent.
 
 ## Target durable pipeline
 
@@ -37,10 +65,10 @@ provider adapter, but they do not share an unversioned “do everything” promp
 | `AutomationAssessmentService` | Readiness prompt/schema | Approved manual suite/case snapshots plus approved application-map metadata | Suitability score, blockers, unsupported steps, context requirements; validator cannot turn missing selectors or credentials into READY |
 | `AutomationPlanService` | Neutral-draft prompt/schema | Approved readiness decision and exact manual snapshots | Declarative neutral IR only; validator allowlists actions, bounds retry/loops, verifies assertions/cleanup/secret references, and rejects code |
 
-Each stage has its own provider/model/prompt/schema/validator release tuple and
-sanitized fixture set. A downstream prompt receives only accepted immutable
-upstream snapshots. Changing one stage cannot silently reinterpret already
-approved upstream evidence.
+Each stage has its own provider/model/prompt/result-contract/schema/validator
+release tuple and sanitized fixture set. A downstream prompt receives only
+accepted immutable upstream snapshots. Changing one stage cannot silently
+reinterpret already approved upstream evidence.
 
 ```mermaid
 stateDiagram-v2
@@ -102,9 +130,10 @@ source bodies.
 ## Release and evaluation contract
 
 A generation release is the tuple of provider adapter, model identifier,
-prompt version, output schema version, and semantic-validator version. Any
-change to that tuple runs sanitized fixtures against the versioned rubric,
-compares a pinned baseline, blocks on hard failures, and records the result.
+prompt version, result-contract version, output-schema version, and
+semantic-validator version. Any change to that tuple runs sanitized fixtures
+against the versioned rubric, compares a pinned baseline, blocks on hard
+failures, and records the result.
 Live evaluations require explicit authorization and must not contain customer
 requirements or credentials. No generation contract changes are part of TF-001.
 

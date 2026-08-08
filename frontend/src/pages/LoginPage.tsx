@@ -16,10 +16,11 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router';
 import { z } from 'zod';
 import { ApiError } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { safeReturnLocation } from '../auth/returnLocation';
 
 const schema = z.object({
   email: z.email('Enter a valid email address.'),
@@ -42,9 +43,9 @@ export function LoginPage() {
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      email: 'demo@testforge.local',
+      email: '',
       displayName: '',
-      password: 'TestForge!Demo2026',
+      password: '',
     },
   });
 
@@ -55,7 +56,7 @@ export function LoginPage() {
     try {
       if (mode === 'login') await login(values.email, values.password);
       else await registerAccount(values.email, values.displayName ?? '', values.password);
-      const destination = (location.state as { from?: string } | null)?.from ?? '/';
+      const destination = safeReturnLocation((location.state as { from?: unknown } | null)?.from);
       navigate(destination, { replace: true });
     } catch (error) {
       setServerError(error instanceof ApiError ? error.message : 'Sign in could not be completed.');
@@ -158,11 +159,6 @@ export function LoginPage() {
               </Tabs>
               <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
                 <Stack component="form" onSubmit={submit} spacing={2.25} noValidate>
-                  {mode === 'login' && (
-                    <Alert severity="info">
-                      Demo access is prefilled so you can explore the complete workflow.
-                    </Alert>
-                  )}
                   {serverError && <Alert severity="error">{serverError}</Alert>}
                   {mode === 'register' && (
                     <TextField

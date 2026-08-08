@@ -11,6 +11,9 @@ public interface TestCaseRevisionRepository extends JpaRepository<TestCaseRevisi
   /** Counts by test case id matching the supplied criteria. */
   long countByTestCaseId(UUID testCaseId);
 
+  /** Reports whether one legacy audit event has already been transferred. */
+  boolean existsBySourceAuditEventId(UUID sourceAuditEventId);
+
   /** Counts revision evidence attached to cases produced by a generation set. */
   @Query(
       "select count(revision) from TestCaseRevisionEntity revision join TestCaseEntity testCase on testCase.id = revision.testCaseId where testCase.generationRunId = :runId")

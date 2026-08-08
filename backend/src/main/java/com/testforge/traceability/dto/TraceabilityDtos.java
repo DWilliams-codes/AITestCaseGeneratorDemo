@@ -1,5 +1,6 @@
 package com.testforge.traceability.dto;
 
+import com.testforge.generation.domain.GenerationSnapshotProvenance;
 import com.testforge.testcase.domain.CoverageType;
 import com.testforge.testcase.domain.TestCaseStatus;
 import java.math.BigDecimal;
@@ -19,9 +20,12 @@ public final class TraceabilityDtos {
       BigDecimal confidence) {}
 
   public record TraceabilityRow(
+      Long criterionSnapshotId,
       UUID acceptanceCriterionId,
       String criterionKey,
       String description,
+      long sourceRequirementVersion,
+      GenerationSnapshotProvenance provenance,
       List<LinkedTestCase> testCases) {
     /** Initializes TraceabilityRow with its required collaborators and domain state. */
     public TraceabilityRow {
@@ -42,5 +46,13 @@ public final class TraceabilityDtos {
       int coveredCriteria,
       int approvedCriteria,
       double coveragePercent,
-      double approvedCoveragePercent) {}
+      double approvedCoveragePercent,
+      int partialCriteria,
+      int approvedPartialCriteria,
+      double partialCoveragePercent,
+      double approvedPartialCoveragePercent,
+      int supportingCriteria,
+      int approvedSupportingCriteria,
+      double supportingCoveragePercent,
+      double approvedSupportingCoveragePercent) {}
 }

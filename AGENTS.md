@@ -35,6 +35,20 @@ their contracts.
   `APPROVE` or `BLOCK`, Lead implementation-completion decision, then optional
   separately authorized publication.
 
+### Model-routing overlay
+
+Model routing applies only after the workflow above already authorizes a role;
+it adds no agent, capability, permission, or gate. The primary coordinator and
+ordinary review inherit `gpt-5.6-terra` at medium and high reasoning
+respectively; Builder uses Terra high, and Architect uses `gpt-5.6-sol` high.
+An explicitly temporary security or high-risk generation Reviewer may use Sol
+high. Persistent concurrency remains three. This configuration does not claim
+that an already-running parent thread switches models.
+When repository exploration is authorized, use the built-in read-only explorer
+with `$repository-audit` on the Terra-medium default; do not create a persistent
+explorer profile. Max reasoning is never persisted and may be selected manually
+only for exceptional work.
+
 Do not use parallel writers on overlapping files. Architect and Reviewer are
 read-only. The Architect returns an approved plan handoff without writing it;
 the Lead immediately assigns one Builder and never writes overlapping feature

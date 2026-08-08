@@ -1,6 +1,11 @@
 package com.testforge;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -16,18 +21,41 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.testforge.audit.domain.AuditEventEntity;
 import com.testforge.audit.repository.AuditEventRepository;
+import com.testforge.generation.application.GenerationService;
 import com.testforge.generation.domain.GenerationRunEntity;
 import com.testforge.generation.domain.GenerationStatus;
+import com.testforge.generation.provider.FakeTestGenerationProvider;
+import com.testforge.generation.provider.TestGenerationRequest;
+import com.testforge.generation.provider.TestGenerationResult;
+import com.testforge.generation.provider.TestGenerationResult.GeneratedTestCase;
 import com.testforge.generation.repository.GenerationRunRepository;
+import com.testforge.project.application.ProjectService;
+import com.testforge.requirement.application.RequirementService;
+import com.testforge.testcase.application.TestCaseService;
 import com.testforge.user.repository.UserRepository;
 import com.testforge.workspace.domain.WorkspaceMembershipEntity;
 import com.testforge.workspace.domain.WorkspaceRole;
 import com.testforge.workspace.repository.WorkspaceMembershipRepository;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.servlet.http.Cookie;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -37,9 +65,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -52,6 +83,13 @@ class StageOneApiIntegrationTest {
   @Autowired private GenerationRunRepository generationRuns;
   @Autowired private UserRepository users;
   @Autowired private WorkspaceMembershipRepository workspaceMemberships;
+  @Autowired private JdbcTemplate jdbcTemplate;
+  @Autowired private EntityManagerFactory entityManagerFactory;
+  @Autowired private ProjectService projectService;
+  @Autowired private RequirementService requirementService;
+  @Autowired private GenerationService generationService;
+  @Autowired private TestCaseService testCaseService;
+  @MockitoSpyBean private FakeTestGenerationProvider generationProvider;
 
   private String ownerToken;
   private String outsiderToken;
@@ -134,6 +172,8 @@ class StageOneApiIntegrationTest {
                         .header("Idempotency-Key", "integration-generation-" + projectId))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.promptVersion").value("manual-test-v2"))
+                .andExpect(jsonPath("$.resultContractVersion").value("manual-test-result-v1"))
                 .andExpect(jsonPath("$.setNumber").value(1))
                 .andExpect(jsonPath("$.setState").value("ACTIVE"))
                 .andReturn());
@@ -329,7 +369,7 @@ class StageOneApiIntegrationTest {
         .andExpect(jsonPath("$.code").value("malformed_request"));
   }
 
-  /** Covers the rotates refresh tokens and detects reuse scenario. */
+  /** Proves concurrent predecessor reuse revokes the single successful successor. */
   @Test
   @Order(3)
   void rotatesRefreshTokensAndDetectsReuse() throws Exception {
@@ -343,20 +383,92 @@ class StageOneApiIntegrationTest {
                         "{\"email\":\"rotation@testforge.local\",\"displayName\":\"Token Rotation\",\"password\":\"TestForge!Rotation2026\"}"))
             .andExpect(status().isCreated())
             .andReturn();
+    UUID rotationUserId = UUID.fromString(json(registration).path("user").path("id").asText());
     Cookie first = registration.getResponse().getCookie("testforge_refresh");
     assertThat(first).isNotNull();
-    MvcResult refresh =
-        mockMvc
-            .perform(post("/api/v1/auth/refresh").with(csrf()).cookie(first))
-            .andExpect(status().isOk())
-            .andReturn();
-    Cookie replacement = refresh.getResponse().getCookie("testforge_refresh");
-    assertThat(replacement).isNotNull();
-    assertThat(replacement.getValue()).isNotEqualTo(first.getValue());
-    mockMvc
-        .perform(post("/api/v1/auth/refresh").with(csrf()).cookie(first))
-        .andExpect(status().isUnauthorized());
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    Callable<MvcResult> concurrentRefresh =
+        () -> {
+          ready.countDown();
+          start.await();
+          return mockMvc
+              .perform(post("/api/v1/auth/refresh").with(csrf()).cookie(first))
+              .andReturn();
+        };
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<MvcResult> firstAttempt = executor.submit(concurrentRefresh);
+      Future<MvcResult> secondAttempt = executor.submit(concurrentRefresh);
+      ready.await();
+      start.countDown();
+      List<MvcResult> results = List.of(firstAttempt.get(), secondAttempt.get());
+
+      assertThat(results.stream().map(result -> result.getResponse().getStatus()).toList())
+          .containsExactlyInAnyOrder(200, 401);
+      MvcResult success =
+          results.stream()
+              .filter(result -> result.getResponse().getStatus() == 200)
+              .findFirst()
+              .orElseThrow();
+      Cookie replacement = success.getResponse().getCookie("testforge_refresh");
+      assertThat(replacement).isNotNull();
+      assertThat(replacement.getValue()).isNotEqualTo(first.getValue());
+      List<RefreshSessionRow> sessions = refreshSessions(rotationUserId);
+      assertThat(sessions).hasSize(2);
+      assertThat(sessions.stream().map(RefreshSessionRow::familyId).distinct()).hasSize(1);
+      RefreshSessionRow predecessor =
+          sessions.stream()
+              .filter(row -> row.replacedByTokenId() != null)
+              .findFirst()
+              .orElseThrow();
+      RefreshSessionRow successor =
+          sessions.stream()
+              .filter(row -> row.replacedByTokenId() == null)
+              .findFirst()
+              .orElseThrow();
+      assertThat(predecessor.replacedByTokenId()).isEqualTo(successor.id());
+      assertThat(sessions).allMatch(row -> row.revokedAt() != null);
+      assertThat(predecessor.reuseDetected()).isTrue();
+      assertThat(successor.reuseDetected()).isFalse();
+      assertThat(auditActionCount(rotationUserId, "TOKEN_REFRESHED")).isEqualTo(1);
+      assertThat(auditActionCount(rotationUserId, "TOKEN_REUSE_DETECTED")).isEqualTo(1);
+
+      mockMvc
+          .perform(post("/api/v1/auth/refresh").with(csrf()).cookie(replacement))
+          .andExpect(status().isUnauthorized());
+      assertThat(refreshSessions(rotationUserId)).allMatch(RefreshSessionRow::reuseDetected);
+      assertThat(auditActionCount(rotationUserId, "TOKEN_REUSE_DETECTED")).isEqualTo(2);
+    } finally {
+      executor.shutdownNow();
+    }
   }
+
+  /** Reads refresh lineage directly so the H2 integration path proves containment persistence. */
+  private List<RefreshSessionRow> refreshSessions(UUID userId) {
+    return jdbcTemplate.query(
+        "select id, family_id, replaced_by_token_id, revoked_at, reuse_detected from testforge.refresh_token_sessions where user_id = ? order by created_at, id",
+        (resultSet, rowNumber) ->
+            new RefreshSessionRow(
+                resultSet.getObject("id", UUID.class),
+                resultSet.getObject("family_id", UUID.class),
+                resultSet.getObject("replaced_by_token_id", UUID.class),
+                resultSet.getObject("revoked_at", Instant.class),
+                resultSet.getBoolean("reuse_detected")),
+        userId);
+  }
+
+  /** Counts one security audit action for the refresh-token actor. */
+  private int auditActionCount(UUID actorId, String action) {
+    return jdbcTemplate.queryForObject(
+        "select count(*) from testforge.audit_events where actor_id = ? and action = ?",
+        Integer.class,
+        actorId,
+        action);
+  }
+
+  private record RefreshSessionRow(
+      UUID id, UUID familyId, UUID replacedByTokenId, Instant revokedAt, boolean reuseDetected) {}
 
   /** Covers the manages requirement criteria ambiguities and optimistic versions scenario. */
   @Test
@@ -369,6 +481,15 @@ class StageOneApiIntegrationTest {
                     get("/api/v1/requirements/{requirementId}", requirementId)
                         .header("Authorization", bearer(ownerToken)))
                 .andExpect(status().isOk())
+                .andReturn());
+    JsonNode immutableTraceabilityBefore =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/user-stories/{requirementId}/traceability", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows[0].provenance").value("EXACT"))
                 .andReturn());
     mockMvc
         .perform(
@@ -412,22 +533,45 @@ class StageOneApiIntegrationTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("invalid_status_transition"));
 
+    long currentRequirementVersion = requirement.get("version").asLong() + 1;
+    mockMvc
+        .perform(
+            post("/api/v1/requirements/{requirementId}/acceptance-criteria", requirementId)
+                .header("Authorization", bearer(ownerToken))
+                .header("If-Match", "\"" + (currentRequirementVersion - 1) + "\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"criterionKey\":\"AC-99\",\"description\":\"Must not persist.\",\"sortOrder\":2}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("stale_version"));
     JsonNode added =
         json(
             mockMvc
                 .perform(
                     post("/api/v1/requirements/{requirementId}/acceptance-criteria", requirementId)
                         .header("Authorization", bearer(ownerToken))
+                        .header("If-Match", "\"" + currentRequirementVersion + "\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(
                             "{\"criterionKey\":\"ac-3\",\"description\":\"The status is visible.\",\"sortOrder\":2}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.criterionKey").value("AC-3"))
                 .andReturn());
+    JsonNode preChangeRevision =
+        objectMapper.readTree(
+            jdbcTemplate.queryForObject(
+                "select snapshot_json from testforge.requirement_revisions where requirement_id = ? order by revision_number desc limit 1",
+                String.class,
+                UUID.fromString(requirementId)));
+    assertThat(preChangeRevision.get("acceptanceCriteria")).hasSize(2);
+    assertThat(preChangeRevision.get("acceptanceCriteria").toString())
+        .contains("AC-1", "AC-2")
+        .doesNotContain("AC-3");
     mockMvc
         .perform(
             post("/api/v1/requirements/{requirementId}/acceptance-criteria", requirementId)
                 .header("Authorization", bearer(ownerToken))
+                .header("If-Match", "\"" + (currentRequirementVersion + 1) + "\"")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"criterionKey\":\"AC-3\",\"description\":\"Duplicate.\",\"sortOrder\":3}"))
@@ -437,6 +581,7 @@ class StageOneApiIntegrationTest {
         .perform(
             patch("/api/v1/acceptance-criteria/{criterionId}", added.get("id").asText())
                 .header("Authorization", bearer(ownerToken))
+                .header("If-Match", "\"" + (currentRequirementVersion + 1) + "\"")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     "{\"criterionKey\":\"AC-4\",\"description\":\"The status is visible.\",\"sortOrder\":3}"))
@@ -445,8 +590,20 @@ class StageOneApiIntegrationTest {
     mockMvc
         .perform(
             delete("/api/v1/acceptance-criteria/{criterionId}", added.get("id").asText())
-                .header("Authorization", bearer(ownerToken)))
+                .header("Authorization", bearer(ownerToken))
+                .header("If-Match", "\"" + (currentRequirementVersion + 2) + "\""))
         .andExpect(status().isNoContent());
+
+    JsonNode immutableTraceabilityAfter =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/user-stories/{requirementId}/traceability", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    assertThat(immutableTraceabilityAfter.get("rows"))
+        .isEqualTo(immutableTraceabilityBefore.get("rows"));
 
     JsonNode refreshed =
         json(
@@ -688,6 +845,16 @@ class StageOneApiIntegrationTest {
 
     mockMvc
         .perform(
+            get("/api/v1/user-stories/{requirementId}/generation-runs/page", requirementId)
+                .param("page", "0")
+                .param("size", "1")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].id").value(failedRun.getId().toString()))
+        .andExpect(jsonPath("$.activeGenerationRunId").value(newRun.get("id").asText()));
+
+    mockMvc
+        .perform(
             get("/api/v1/user-stories/{requirementId}/test-cases", requirementId)
                 .header("Authorization", bearer(ownerToken)))
         .andExpect(status().isOk())
@@ -847,8 +1014,8 @@ class StageOneApiIntegrationTest {
                 .header("Authorization", bearer(ownerToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(unchanged)))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.code").value("invalid_test_case_transition"));
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.version").value(needsRevision.get("version").asLong()));
 
     ObjectNode stale = unchanged.deepCopy();
     stale.put("version", generated.get("version").asLong());
@@ -903,6 +1070,10 @@ class StageOneApiIntegrationTest {
                       .put("testDataReference", canonicalName.toUpperCase(java.util.Locale.ROOT));
                 }
               });
+      ObjectNode secondaryData = ((ObjectNode) firstData.deepCopy());
+      secondaryData.put("name", "secondarySyntheticData");
+      secondaryData.put("exampleValue", "synthetic-secondary-value");
+      corrected.withArray("testData").add(secondaryData);
     }
     JsonNode inReview =
         json(
@@ -916,6 +1087,25 @@ class StageOneApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_REVIEW"))
                 .andReturn());
+
+    ObjectNode reorderedOnly = editableUpdate(inReview);
+    ArrayNode reorderedData = reorderedOnly.withArray("testData");
+    if (reorderedData.size() > 1) {
+      JsonNode firstItem = reorderedData.get(0).deepCopy();
+      JsonNode secondItem = reorderedData.get(1).deepCopy();
+      reorderedData.removeAll();
+      reorderedData.add(secondItem);
+      reorderedData.add(firstItem);
+    }
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(reorderedOnly)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.version").value(inReview.get("version").asLong()));
 
     mockMvc
         .perform(
@@ -972,6 +1162,23 @@ class StageOneApiIntegrationTest {
                 .andReturn());
     mockMvc
         .perform(
+            get("/api/v1/test-cases/{testCaseId}/revisions", testCaseId)
+                .queryParam("size", "1")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].changeType").value("REOPEN"))
+        .andExpect(jsonPath("$.items[0].changeReason").value("New evidence"));
+    AuditEventEntity reopenAudit =
+        auditEvents.findAll().stream()
+            .filter(event -> "REOPENED".equals(event.getAction()))
+            .filter(event -> UUID.fromString(testCaseId).equals(event.getEntityId()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(reopenAudit.getMetadata())
+        .contains("\"reasonRecorded\":true")
+        .doesNotContain("New evidence");
+    mockMvc
+        .perform(
             post("/api/v1/test-cases/{testCaseId}/reject", testCaseId)
                 .with(csrf())
                 .header("Authorization", bearer(ownerToken))
@@ -985,6 +1192,882 @@ class StageOneApiIntegrationTest {
                             reopened.get("version").asLong()))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("REJECTED"));
+  }
+
+  /** Proves provider latency is transaction-free and same-key claims invoke it only once. */
+  @Test
+  @Order(9)
+  void keepsProviderWorkOutsideTransactionsAndDeduplicatesConcurrentClaims() throws Exception {
+    reset(generationProvider);
+    CountDownLatch providerEntered = new CountDownLatch(1);
+    CountDownLatch releaseProvider = new CountDownLatch(1);
+    AtomicBoolean providerTransactionActive = new AtomicBoolean(true);
+    doAnswer(
+            invocation -> {
+              providerTransactionActive.set(
+                  TransactionSynchronizationManager.isActualTransactionActive());
+              providerEntered.countDown();
+              if (!releaseProvider.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Provider latch timed out.");
+              }
+              return invocation.callRealMethod();
+            })
+        .when(generationProvider)
+        .generate(any());
+
+    String idempotencyKey = "concurrent-generation-key";
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      Future<MvcResult> first =
+          executor.submit(
+              () ->
+                  mockMvc
+                      .perform(
+                          post(
+                                  "/api/v1/user-stories/{requirementId}/generate-test-cases",
+                                  requirementId)
+                              .with(csrf())
+                              .header("Authorization", bearer(ownerToken))
+                              .header("Idempotency-Key", idempotencyKey))
+                      .andReturn());
+      assertThat(providerEntered.await(10, TimeUnit.SECONDS)).isTrue();
+      assertThat(providerTransactionActive.get()).isFalse();
+
+      mockMvc
+          .perform(
+              get("/api/v1/projects/{projectId}", projectId)
+                  .header("Authorization", bearer(ownerToken)))
+          .andExpect(status().isOk());
+      mockMvc
+          .perform(
+              post("/api/v1/user-stories/{requirementId}/generate-test-cases", requirementId)
+                  .with(csrf())
+                  .header("Authorization", bearer(ownerToken))
+                  .header("Idempotency-Key", idempotencyKey))
+          .andExpect(status().isCreated())
+          .andExpect(jsonPath("$.status").value("PENDING"));
+      verify(generationProvider, times(1)).generate(any());
+
+      releaseProvider.countDown();
+      assertThat(first.get(10, TimeUnit.SECONDS).getResponse().getStatus()).isEqualTo(201);
+      verify(generationProvider, times(1)).generate(any());
+    } finally {
+      releaseProvider.countDown();
+      executor.shutdownNow();
+      reset(generationProvider);
+    }
+  }
+
+  /** Proves collection SQL counts remain constant when page size grows from one to twenty. */
+  @Test
+  @Order(10)
+  void keepsCollectionQueryCountsIndependentOfPageSize() throws Exception {
+    UUID ownerId = users.findByEmailNormalized("owner@testforge.local").orElseThrow().getId();
+    UUID projectUuid = UUID.fromString(projectId);
+    UUID requirementUuid = UUID.fromString(requirementId);
+    Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+    statistics.setStatisticsEnabled(true);
+
+    assertConstantStatementCount(
+        statistics,
+        () -> projectService.list(ownerId, 0, 1),
+        () -> projectService.list(ownerId, 0, 20));
+    assertConstantStatementCount(
+        statistics,
+        () -> requirementService.list(ownerId, projectUuid, 0, 1),
+        () -> requirementService.list(ownerId, projectUuid, 0, 20));
+    assertConstantStatementCount(
+        statistics,
+        () -> generationService.listPage(ownerId, requirementUuid, 0, 1),
+        () -> generationService.listPage(ownerId, requirementUuid, 0, 20));
+    assertConstantStatementCount(
+        statistics,
+        () -> testCaseService.listPage(ownerId, requirementUuid, null, 0, 1),
+        () -> testCaseService.listPage(ownerId, requirementUuid, null, 0, 20));
+
+    UUID activeRunId =
+        jdbcTemplate.queryForObject(
+            "select generation_run_id from testforge.test_cases where id = ?",
+            UUID.class,
+            UUID.fromString(testCaseId));
+    jdbcTemplate.update(
+        "update testforge.test_cases set status = 'GENERATED' where generation_run_id = ?",
+        activeRunId);
+    jdbcTemplate.update(
+        "update testforge.test_cases set status = 'APPROVED' where id = ?",
+        UUID.fromString(testCaseId));
+
+    statistics.clear();
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/export", requirementId)
+                .param("generationRunId", activeRunId.toString())
+                .param("format", "json")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk());
+    long oneCaseExportCount = statistics.getPrepareStatementCount();
+
+    jdbcTemplate.update(
+        "update testforge.test_cases set status = 'APPROVED' where generation_run_id = ?",
+        activeRunId);
+    int existingCases =
+        jdbcTemplate.queryForObject(
+            "select count(*) from testforge.test_cases where generation_run_id = ?",
+            Integer.class,
+            activeRunId);
+    Instant createdAt = Instant.parse("2026-08-05T19:00:00Z");
+    for (int index = existingCases; index < 20; index++) {
+      UUID syntheticCaseId = UUID.randomUUID();
+      jdbcTemplate.update(
+          "insert into testforge.test_cases (id, requirement_id, generation_run_id, test_case_key, title, objective, category, priority, risk_level, automation_candidate, status, coverage_intent, rationale, final_expected_outcome, created_by, created_at, updated_at, version) values (?, ?, ?, ?, 'Export query case', 'Verify bounded export assembly.', 'HAPPY_PATH', 'MEDIUM', 'MEDIUM', false, 'APPROVED', 'ACCEPTANCE_CRITERIA', 'Synthetic query-count evidence.', 'Export remains bounded.', ?, ?, ?, 0)",
+          syntheticCaseId,
+          requirementUuid,
+          activeRunId,
+          "TC-Q-" + syntheticCaseId.toString().substring(0, 8),
+          ownerId,
+          createdAt.plusSeconds(index),
+          createdAt.plusSeconds(index));
+    }
+
+    statistics.clear();
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/export", requirementId)
+                .param("generationRunId", activeRunId.toString())
+                .param("format", "json")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk());
+    long twentyCaseExportCount = statistics.getPrepareStatementCount();
+
+    assertThat(twentyCaseExportCount)
+        .isLessThanOrEqualTo(oneCaseExportCount)
+        .isLessThanOrEqualTo(12);
+  }
+
+  /** Reconciles a V5-shaped post-migration write before direct export reads snapshot evidence. */
+  @Test
+  @Order(11)
+  void reconcilesGenerationEvidenceWrittenByABridgeBinaryBeforeDirectExport() throws Exception {
+    UUID ownerId = users.findByEmailNormalized("owner@testforge.local").orElseThrow().getId();
+    UUID requirementUuid = UUID.fromString(requirementId);
+    UUID runId = UUID.randomUUID();
+    UUID caseId = UUID.randomUUID();
+    UUID criterionId =
+        jdbcTemplate.queryForObject(
+            "select id from testforge.acceptance_criteria where requirement_id = ? order by sort_order fetch first 1 row only",
+            UUID.class,
+            requirementUuid);
+    Instant completedAt = Instant.parse("2026-08-05T20:00:00Z");
+    jdbcTemplate.update(
+        "insert into testforge.generation_runs (id, requirement_id, requested_by, provider, model, prompt_version, status, input_hash, idempotency_key_hash, started_at, completed_at, latency_ms, generated_case_count, input_tokens, output_tokens, correlation_id) values (?, ?, ?, 'legacy-provider', 'legacy-model', 'legacy-prompt', 'COMPLETED', ?, ?, ?, ?, 10, 1, 1, 1, 'legacy-correlation')",
+        runId,
+        requirementUuid,
+        ownerId,
+        "a".repeat(64),
+        "b".repeat(64),
+        completedAt.minusSeconds(1),
+        completedAt);
+    jdbcTemplate.update(
+        "insert into testforge.test_cases (id, requirement_id, generation_run_id, test_case_key, title, objective, category, priority, risk_level, automation_candidate, status, coverage_intent, rationale, final_expected_outcome, created_by, created_at, updated_at, version) values (?, ?, ?, ?, 'Legacy bridge case', 'Verify reconstructed evidence.', 'HAPPY_PATH', 'HIGH', 'HIGH', false, 'APPROVED', 'ACCEPTANCE_CRITERIA', 'Legacy bridge evidence.', 'Evidence remains traceable.', ?, ?, ?, 0)",
+        caseId,
+        requirementUuid,
+        runId,
+        "TC-LG-" + runId.toString().substring(0, 8),
+        ownerId,
+        completedAt,
+        completedAt);
+    jdbcTemplate.update(
+        "insert into testforge.traceability_links (id, acceptance_criterion_id, test_case_id, coverage_type, confidence, created_at) values (?, ?, ?, 'DIRECT', 0.9500, ?)",
+        UUID.randomUUID(),
+        criterionId,
+        caseId,
+        completedAt);
+
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/export", requirementId)
+                .param("generationRunId", runId.toString())
+                .param("format", "json")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].id").value(caseId.toString()))
+        .andExpect(jsonPath("$[0].acceptanceCriteriaKeys[0]").value("AC-1"));
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select source_snapshot_provenance from testforge.generation_runs where id = ?",
+                String.class,
+                runId))
+        .isEqualTo("LEGACY_RECONSTRUCTED");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.snapshot_traceability_links where test_case_id = ?",
+                Integer.class,
+                caseId))
+        .isEqualTo(1);
+
+    mockMvc
+        .perform(
+            get("/api/v1/generation-runs/{runId}", runId)
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.providerAdapterVersion").value("legacy-unknown"))
+        .andExpect(jsonPath("$.resultContractVersion").value("legacy-unknown"))
+        .andExpect(jsonPath("$.schemaVersion").value("manual-test-schema-v1"))
+        .andExpect(jsonPath("$.validatorVersion").value("legacy-unknown"))
+        .andExpect(jsonPath("$.sourceSnapshotProvenance").value("LEGACY_RECONSTRUCTED"));
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/traceability", requirementId)
+                .param("generationRunId", runId.toString())
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.rows[0].provenance").value("LEGACY_RECONSTRUCTED"))
+        .andExpect(jsonPath("$.rows[0].testCases[0].id").value(caseId.toString()));
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.generation_criterion_snapshots where generation_run_id = ?",
+                Integer.class,
+                runId))
+        .isPositive();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.snapshot_traceability_links where test_case_id = ?",
+                Integer.class,
+                caseId))
+        .isEqualTo(1);
+  }
+
+  /**
+   * Transfers a legacy reopen reason to controlled revision history and scrubs broad audit data.
+   */
+  @Test
+  @Order(12)
+  void reconcilesLegacyReopenReasonWithoutDiscardingItsEvidence() throws Exception {
+    UUID ownerId = users.findByEmailNormalized("owner@testforge.local").orElseThrow().getId();
+    UUID pendingEventId = null;
+    Instant bridgeTimestamp = Instant.parse("2026-08-05T20:05:00Z");
+    for (int index = 0; index <= 100; index++) {
+      UUID eventId = UUID.randomUUID();
+      pendingEventId = eventId;
+      jdbcTemplate.update(
+          "insert into testforge.audit_events (id, actor_id, project_id, entity_type, entity_id, action, metadata, event_timestamp, correlation_id) values (?, ?, ?, 'TEST_CASE', ?, 'REOPENED', ?, ?, ?)",
+          eventId,
+          ownerId,
+          UUID.fromString(projectId),
+          UUID.fromString(testCaseId),
+          "{\"testCaseKey\":\"legacy-case\",\"reason\":\"New evidence "
+              + index
+              + " requires controlled review.\"}",
+          bridgeTimestamp.plusSeconds(index),
+          "legacy-reopen-correlation-" + index);
+    }
+
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}/audit-events", projectId)
+                .param("entityType", "TEST_CASE")
+                .param("entityId", testCaseId)
+                .param("action", "REOPENED")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].metadata.reason").doesNotExist())
+        .andExpect(jsonPath("$.items[0].metadata.legacyReasonMigrated").doesNotExist())
+        .andExpect(jsonPath("$.items[0].metadata.legacyReasonRedacted").value(true))
+        .andExpect(jsonPath("$.items[0].metadata.pendingReconciliation").value(true));
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.audit_events where correlation_id like 'legacy-reopen-correlation-%' and metadata like '%\"reason\"%'",
+                Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.test_case_revisions r join testforge.audit_events a on a.id = r.source_audit_event_id where a.correlation_id like 'legacy-reopen-correlation-%'",
+                Integer.class))
+        .isEqualTo(100);
+
+    UUID interleavedEventId = UUID.randomUUID();
+    jdbcTemplate.update(
+        "insert into testforge.audit_events (id, actor_id, project_id, entity_type, entity_id, action, metadata, event_timestamp, correlation_id) values (?, ?, ?, 'TEST_CASE', ?, 'REOPENED', ?, ?, 'legacy-reopen-interleaved')",
+        interleavedEventId,
+        ownerId,
+        UUID.fromString(projectId),
+        UUID.fromString(testCaseId),
+        "{\"testCaseKey\":\"legacy-case\",\"reason\":\"Interleaved bridge write.\"}",
+        bridgeTimestamp.plusSeconds(200));
+
+    MvcResult revisions =
+        mockMvc
+            .perform(
+                get("/api/v1/test-cases/{testCaseId}/revisions", testCaseId)
+                    .param("size", "100")
+                    .header("Authorization", bearer(ownerToken)))
+            .andExpect(status().isOk())
+            .andReturn();
+    assertThat(json(revisions).path("items").findValuesAsText("changeType"))
+        .contains("LEGACY_REOPEN");
+    assertThat(json(revisions).path("items").findValuesAsText("changeReason"))
+        .contains("New evidence 100 requires controlled review.", "Interleaved bridge write.");
+
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}/audit-events", projectId)
+                .param("entityType", "TEST_CASE")
+                .param("entityId", testCaseId)
+                .param("action", "REOPENED")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].metadata.reason").doesNotExist())
+        .andExpect(jsonPath("$.items[0].metadata.legacyReasonMigrated").value(true));
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.test_case_revisions where source_audit_event_id in (?, ?)",
+                Integer.class,
+                pendingEventId,
+                interleavedEventId))
+        .isEqualTo(2);
+
+    UUID orphanCaseId = UUID.randomUUID();
+    UUID orphanEventId = UUID.randomUUID();
+    jdbcTemplate.update(
+        "insert into testforge.audit_events (id, actor_id, project_id, entity_type, entity_id, action, metadata, event_timestamp, correlation_id) values (?, ?, ?, 'TEST_CASE', ?, 'REOPENED', ?, ?, 'legacy-reopen-orphan')",
+        orphanEventId,
+        ownerId,
+        UUID.fromString(projectId),
+        orphanCaseId,
+        "{\"testCaseKey\":\"missing-case\",\"reason\":\"Preserve for operator repair.\"}",
+        bridgeTimestamp.plusSeconds(300));
+
+    mockMvc
+        .perform(
+            get("/api/v1/projects/{projectId}/audit-events", projectId)
+                .param("entityType", "TEST_CASE")
+                .param("entityId", orphanCaseId.toString())
+                .param("action", "REOPENED")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].metadata.legacyReasonMigrated").doesNotExist())
+        .andExpect(jsonPath("$.items[0].metadata.legacyReasonRedacted").value(true))
+        .andExpect(jsonPath("$.items[0].metadata.pendingReconciliation").value(true));
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select metadata from testforge.audit_events where id = ?",
+                String.class,
+                orphanEventId))
+        .contains("\"reason\":\"Preserve for operator repair.\"")
+        .doesNotContain("legacyReasonMigrated");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.test_case_revisions where source_audit_event_id = ?",
+                Integer.class,
+                orphanEventId))
+        .isZero();
+  }
+
+  /** Uses UUID as the documented deterministic tie-break when completion timestamps match. */
+  @Test
+  @Order(13)
+  void numbersEqualCompletionTimesByUuid() {
+    UUID ownerId = users.findByEmailNormalized("owner@testforge.local").orElseThrow().getId();
+    UUID requirementUuid = UUID.fromString(requirementId);
+    UUID lower = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    UUID higher = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    Instant completed = Instant.parse("2026-08-05T21:00:00Z");
+    insertCompletedRun(lower, requirementUuid, ownerId, "c".repeat(64), completed);
+    insertCompletedRun(higher, requirementUuid, ownerId, "d".repeat(64), completed);
+
+    Map<UUID, Long> numbers =
+        generationRuns.findSetNumbersByRunIds(List.of(lower, higher)).stream()
+            .collect(
+                java.util.stream.Collectors.toMap(
+                    item -> UUID.fromString(item.getRunId()),
+                    com.testforge.generation.repository.GenerationRunRepository.GenerationSetNumber
+                        ::getSetNumber));
+    assertThat(numbers.get(higher)).isEqualTo(numbers.get(lower) + 1);
+  }
+
+  /**
+   * Keeps missing, invalid, expired, unavailable-account, and replay failures indistinguishable.
+   */
+  @Test
+  @Order(14)
+  void returnsOneGenericRefreshFailureContractForEveryFailureClass() throws Exception {
+    List<MvcResult> failures = new java.util.ArrayList<>();
+    failures.add(mockMvc.perform(post("/api/v1/auth/refresh").with(csrf())).andReturn());
+    failures.add(
+        mockMvc
+            .perform(
+                post("/api/v1/auth/refresh")
+                    .with(csrf())
+                    .cookie(new Cookie("testforge_refresh", "invalid-refresh-token")))
+            .andReturn());
+
+    MvcResult expiredRegistration =
+        mockMvc
+            .perform(
+                post("/api/v1/auth/register")
+                    .with(csrf())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"email\":\"expired-refresh@testforge.local\",\"displayName\":\"Expired Refresh\",\"password\":\"TestForge!Expired2026\"}"))
+            .andExpect(status().isCreated())
+            .andReturn();
+    Cookie expiredCookie = expiredRegistration.getResponse().getCookie("testforge_refresh");
+    UUID expiredUser = UUID.fromString(json(expiredRegistration).path("user").path("id").asText());
+    jdbcTemplate.update(
+        "update testforge.refresh_token_sessions set expires_at = ? where user_id = ?",
+        Instant.parse("2020-01-01T00:00:00Z"),
+        expiredUser);
+    failures.add(
+        mockMvc
+            .perform(post("/api/v1/auth/refresh").with(csrf()).cookie(expiredCookie))
+            .andReturn());
+
+    MvcResult disabledRegistration =
+        mockMvc
+            .perform(
+                post("/api/v1/auth/register")
+                    .with(csrf())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"email\":\"disabled-refresh@testforge.local\",\"displayName\":\"Disabled Refresh\",\"password\":\"TestForge!Disabled2026\"}"))
+            .andExpect(status().isCreated())
+            .andReturn();
+    Cookie disabledCookie = disabledRegistration.getResponse().getCookie("testforge_refresh");
+    UUID disabledUser =
+        UUID.fromString(json(disabledRegistration).path("user").path("id").asText());
+    jdbcTemplate.update("update testforge.users set enabled = false where id = ?", disabledUser);
+    failures.add(
+        mockMvc
+            .perform(post("/api/v1/auth/refresh").with(csrf()).cookie(disabledCookie))
+            .andReturn());
+
+    for (MvcResult failure : failures) {
+      assertThat(failure.getResponse().getStatus()).isEqualTo(401);
+      JsonNode problem = json(failure);
+      assertThat(problem.path("code").asText()).isEqualTo("authentication_failed");
+      assertThat(problem.path("detail").asText())
+          .isEqualTo("The session is invalid. Sign in again.");
+      assertThat(failure.getResponse().getHeader("Set-Cookie"))
+          .contains("testforge_refresh=")
+          .contains("Max-Age=0");
+    }
+  }
+
+  /** Keeps a valid refresh cookie intact when the request is rejected before authentication. */
+  @Test
+  @Order(15)
+  void rateLimitedRefreshDoesNotClearTheValidCookie() throws Exception {
+    MvcResult registration =
+        mockMvc
+            .perform(
+                post("/api/v1/auth/register")
+                    .with(csrf())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"email\":\"limited-refresh@testforge.local\",\"displayName\":\"Limited Refresh\",\"password\":\"TestForge!Limited2026\"}"))
+            .andExpect(status().isCreated())
+            .andReturn();
+    Cookie validCookie = registration.getResponse().getCookie("testforge_refresh");
+    assertThat(validCookie).isNotNull();
+
+    for (int index = 0; index < 100; index++) {
+      mockMvc
+          .perform(
+              post("/api/v1/auth/refresh")
+                  .with(csrf())
+                  .with(
+                      request -> {
+                        request.setRemoteAddr("198.51.100.200");
+                        return request;
+                      })
+                  .cookie(new Cookie("testforge_refresh", "invalid-limited-token-" + index)))
+          .andExpect(status().isUnauthorized());
+    }
+
+    mockMvc
+        .perform(
+            post("/api/v1/auth/refresh")
+                .with(csrf())
+                .with(
+                    request -> {
+                      request.setRemoteAddr("198.51.100.200");
+                      return request;
+                    })
+                .cookie(validCookie))
+        .andExpect(status().isTooManyRequests())
+        .andExpect(header().doesNotExist("Set-Cookie"));
+  }
+
+  /** Rejects fenced provider output without persisting any partial generated evidence graph. */
+  @Test
+  @Order(16)
+  void rejectsCodeFenceOutputWithoutPartialPersistence() throws Exception {
+    reset(generationProvider);
+    doAnswer(
+            invocation ->
+                withUnsafeCodeFence(
+                    new FakeTestGenerationProvider()
+                        .generate(invocation.getArgument(0, TestGenerationRequest.class))))
+        .when(generationProvider)
+        .generate(any());
+    try {
+      JsonNode rejected =
+          json(
+              mockMvc
+                  .perform(
+                      post("/api/v1/user-stories/{requirementId}/regenerate", requirementId)
+                          .with(csrf())
+                          .param("confirmSupersede", "true")
+                          .header("Authorization", bearer(ownerToken))
+                          .header("Idempotency-Key", "unsafe-code-fence-generation"))
+                  .andExpect(status().isCreated())
+                  .andExpect(jsonPath("$.status").value("REJECTED_BY_VALIDATION"))
+                  .andReturn());
+      UUID rejectedRunId = UUID.fromString(rejected.path("id").asText());
+      assertTerminalRunHasNoPartialGeneratedGraph(rejectedRunId);
+    } finally {
+      reset(generationProvider);
+    }
+  }
+
+  /** Rejects a missing automation-candidate decision without persisting generated case evidence. */
+  @Test
+  @Order(17)
+  void rejectsMissingAutomationCandidateWithoutPartialPersistence() throws Exception {
+    reset(generationProvider);
+    doAnswer(
+            invocation ->
+                withMissingAutomationCandidate(
+                    new FakeTestGenerationProvider()
+                        .generate(invocation.getArgument(0, TestGenerationRequest.class))))
+        .when(generationProvider)
+        .generate(any());
+    try {
+      JsonNode rejected =
+          json(
+              mockMvc
+                  .perform(
+                      post("/api/v1/user-stories/{requirementId}/regenerate", requirementId)
+                          .with(csrf())
+                          .param("confirmSupersede", "true")
+                          .header("Authorization", bearer(ownerToken))
+                          .header("Idempotency-Key", "missing-automation-candidate"))
+                  .andExpect(status().isCreated())
+                  .andExpect(jsonPath("$.status").value("REJECTED_BY_VALIDATION"))
+                  .andReturn());
+      assertTerminalRunHasNoPartialGeneratedGraph(UUID.fromString(rejected.path("id").asText()));
+    } finally {
+      reset(generationProvider);
+    }
+  }
+
+  /** Reconciles a same-key V5-shaped POST response without invoking the provider again. */
+  @Test
+  @Order(18)
+  void reconcilesExistingBridgeRunOnGenerationPost() throws Exception {
+    UUID ownerId = users.findByEmailNormalized("owner@testforge.local").orElseThrow().getId();
+    String idempotencyKey = "existing-bridge-generation";
+    UUID runId = UUID.randomUUID();
+    insertCompletedRun(
+        runId,
+        UUID.fromString(requirementId),
+        ownerId,
+        sha256(idempotencyKey),
+        Instant.parse("2026-08-05T22:00:00Z"));
+    reset(generationProvider);
+
+    mockMvc
+        .perform(
+            post("/api/v1/user-stories/{requirementId}/generate-test-cases", requirementId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .header("Idempotency-Key", idempotencyKey))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value(runId.toString()))
+        .andExpect(jsonPath("$.status").value("COMPLETED"))
+        .andExpect(jsonPath("$.providerAdapterVersion").value("legacy-unknown"))
+        .andExpect(jsonPath("$.resultContractVersion").value("legacy-unknown"))
+        .andExpect(jsonPath("$.schemaVersion").value("manual-test-schema-v1"))
+        .andExpect(jsonPath("$.validatorVersion").value("legacy-unknown"))
+        .andExpect(jsonPath("$.sourceSnapshotProvenance").value("LEGACY_RECONSTRUCTED"));
+    verify(generationProvider, times(0)).generate(any());
+  }
+
+  /** Preserves the captured criterion identity when its key changes during provider work. */
+  @Test
+  @Order(19)
+  void dualWritesLegacyTraceabilityByIdentityAfterInFlightCriterionRename() throws Exception {
+    JsonNode source = ownedRequirement();
+    JsonNode criterion = source.path("acceptanceCriteria").get(0);
+    UUID criterionId = UUID.fromString(criterion.path("id").asText());
+    ProviderGate gate = blockProvider();
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      Future<MvcResult> generation = submitGeneration(executor, "in-flight-criterion-rename");
+      assertThat(gate.entered().await(10, TimeUnit.SECONDS)).isTrue();
+
+      mockMvc
+          .perform(
+              patch("/api/v1/acceptance-criteria/{criterionId}", criterionId)
+                  .with(csrf())
+                  .header("Authorization", bearer(ownerToken))
+                  .header("If-Match", '"' + source.path("version").asText() + '"')
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      objectMapper.writeValueAsString(
+                          Map.of(
+                              "criterionKey",
+                              "AC-9",
+                              "description",
+                              criterion.path("description").asText(),
+                              "sortOrder",
+                              criterion.path("sortOrder").asInt()))))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.id").value(criterionId.toString()))
+          .andExpect(jsonPath("$.criterionKey").value("AC-9"));
+
+      gate.release().countDown();
+      JsonNode completed = json(generation.get(10, TimeUnit.SECONDS));
+      UUID runId = UUID.fromString(completed.path("id").asText());
+      assertThat(completed.path("status").asText()).isEqualTo("COMPLETED");
+      assertThat(
+              jdbcTemplate.queryForObject(
+                  "select count(*) from testforge.traceability_links l join testforge.test_cases c on c.id = l.test_case_id where c.generation_run_id = ? and l.acceptance_criterion_id = ?",
+                  Integer.class,
+                  runId,
+                  criterionId))
+          .isPositive();
+      assertThat(
+              jdbcTemplate.queryForObject(
+                  "select count(*) from testforge.generation_criterion_snapshots where generation_run_id = ? and source_acceptance_criterion_id = ? and criterion_key = 'AC-1'",
+                  Integer.class,
+                  runId,
+                  criterionId))
+          .isEqualTo(1);
+    } finally {
+      gate.release().countDown();
+      executor.shutdownNow();
+      reset(generationProvider);
+    }
+  }
+
+  /** Fails atomically when a captured criterion is deleted during provider work. */
+  @Test
+  @Order(20)
+  void failsWithoutCasesAfterInFlightCriterionDeletion() throws Exception {
+    JsonNode source = ownedRequirement();
+    UUID criterionId =
+        UUID.fromString(source.path("acceptanceCriteria").get(0).path("id").asText());
+    ProviderGate gate = blockProvider();
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      Future<MvcResult> generation = submitGeneration(executor, "in-flight-criterion-deletion");
+      assertThat(gate.entered().await(10, TimeUnit.SECONDS)).isTrue();
+
+      mockMvc
+          .perform(
+              delete("/api/v1/acceptance-criteria/{criterionId}", criterionId)
+                  .with(csrf())
+                  .header("Authorization", bearer(ownerToken))
+                  .header("If-Match", '"' + source.path("version").asText() + '"'))
+          .andExpect(status().isNoContent());
+
+      gate.release().countDown();
+      JsonNode failed = json(generation.get(10, TimeUnit.SECONDS));
+      UUID runId = UUID.fromString(failed.path("id").asText());
+      assertThat(failed.path("status").asText()).isEqualTo("FAILED");
+      assertThat(failed.path("failureCode").asText()).isEqualTo("source_criteria_changed");
+      assertThat(failed.path("failureMessage").asText())
+          .isEqualTo("Source acceptance criteria changed while generation was in progress.");
+      assertTerminalRunHasNoPartialGeneratedGraph(runId);
+    } finally {
+      gate.release().countDown();
+      executor.shutdownNow();
+      reset(generationProvider);
+    }
+  }
+
+  /** Rejects whitespace-only idempotency keys before either generation path reaches a provider. */
+  @Test
+  @Order(21)
+  void rejectsBlankGenerationIdempotencyKeysBeforeProviderInvocation() throws Exception {
+    reset(generationProvider);
+
+    mockMvc
+        .perform(
+            post("/api/v1/user-stories/{requirementId}/generate-test-cases", requirementId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .header("Idempotency-Key", "        "))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            post("/api/v1/user-stories/{requirementId}/regenerate", requirementId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .header("Idempotency-Key", "        "))
+        .andExpect(status().isBadRequest());
+
+    verify(generationProvider, times(0)).generate(any());
+  }
+
+  /** Injects one fenced rationale while preserving an otherwise valid provider result. */
+  private TestGenerationResult withUnsafeCodeFence(TestGenerationResult valid) {
+    GeneratedTestCase base = valid.testCases().getFirst();
+    GeneratedTestCase unsafe =
+        new GeneratedTestCase(
+            base.title(),
+            base.objective(),
+            base.category(),
+            base.priority(),
+            base.riskLevel(),
+            base.automationCandidate(),
+            base.coverageIntent(),
+            base.preconditions(),
+            base.testData(),
+            base.steps(),
+            base.finalExpectedOutcome(),
+            base.acceptanceCriteriaKeys(),
+            "```javascript\nfetch('https://example.invalid')\n```");
+    List<GeneratedTestCase> cases = new java.util.ArrayList<>(valid.testCases());
+    cases.set(0, unsafe);
+    return new TestGenerationResult(
+        valid.requirementSummary(), valid.ambiguities(), cases, valid.usage());
+  }
+
+  /** Removes one required automation-candidate value from an otherwise valid candidate. */
+  private TestGenerationResult withMissingAutomationCandidate(TestGenerationResult valid) {
+    GeneratedTestCase base = valid.testCases().getFirst();
+    GeneratedTestCase missing =
+        new GeneratedTestCase(
+            base.title(),
+            base.objective(),
+            base.category(),
+            base.priority(),
+            base.riskLevel(),
+            null,
+            base.coverageIntent(),
+            base.preconditions(),
+            base.testData(),
+            base.steps(),
+            base.finalExpectedOutcome(),
+            base.acceptanceCriteriaKeys(),
+            base.rationale());
+    List<GeneratedTestCase> cases = new java.util.ArrayList<>(valid.testCases());
+    cases.set(0, missing);
+    return new TestGenerationResult(
+        valid.requirementSummary(), valid.ambiguities(), cases, valid.usage());
+  }
+
+  /** Proves a safe terminal generation retains only claim-time source snapshots. */
+  private void assertTerminalRunHasNoPartialGeneratedGraph(UUID rejectedRunId) {
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.test_cases where generation_run_id = ?",
+                Integer.class,
+                rejectedRunId))
+        .isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.traceability_links l join testforge.test_cases c on c.id = l.test_case_id where c.generation_run_id = ?",
+                Integer.class,
+                rejectedRunId))
+        .isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.snapshot_traceability_links l join testforge.test_cases c on c.id = l.test_case_id where c.generation_run_id = ?",
+                Integer.class,
+                rejectedRunId))
+        .isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.generation_criterion_snapshots where generation_run_id = ?",
+                Integer.class,
+                rejectedRunId))
+        .isPositive();
+  }
+
+  /** Loads the current owner-scoped User Story aggregate for mutation-race assertions. */
+  private JsonNode ownedRequirement() throws Exception {
+    return json(
+        mockMvc
+            .perform(
+                get("/api/v1/user-stories/{requirementId}", requirementId)
+                    .header("Authorization", bearer(ownerToken)))
+            .andExpect(status().isOk())
+            .andReturn());
+  }
+
+  /** Blocks the deterministic provider after claim commit until a test releases it. */
+  private ProviderGate blockProvider() throws Exception {
+    reset(generationProvider);
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              entered.countDown();
+              if (!release.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Provider latch timed out.");
+              }
+              return invocation.callRealMethod();
+            })
+        .when(generationProvider)
+        .generate(any());
+    return new ProviderGate(entered, release);
+  }
+
+  /** Starts one generation request on a worker so source criteria can change in flight. */
+  private Future<MvcResult> submitGeneration(ExecutorService executor, String idempotencyKey) {
+    return executor.submit(
+        () ->
+            mockMvc
+                .perform(
+                    post("/api/v1/user-stories/{requirementId}/generate-test-cases", requirementId)
+                        .with(csrf())
+                        .header("Authorization", bearer(ownerToken))
+                        .header("Idempotency-Key", idempotencyKey))
+                .andExpect(status().isCreated())
+                .andReturn());
+  }
+
+  /** Hashes the raw synthetic idempotency key exactly as the generation service does. */
+  private String sha256(String value) {
+    try {
+      return HexFormat.of()
+          .formatHex(
+              MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException exception) {
+      throw new IllegalStateException("SHA-256 is not available.", exception);
+    }
+  }
+
+  /** Synchronizes deterministic provider entry and release in mutation-race tests. */
+  private record ProviderGate(CountDownLatch entered, CountDownLatch release) {}
+
+  /** Inserts one completed bridge-shaped run for deterministic repository ordering tests. */
+  private void insertCompletedRun(
+      UUID runId, UUID requirementUuid, UUID ownerId, String idempotencyHash, Instant completed) {
+    jdbcTemplate.update(
+        "insert into testforge.generation_runs (id, requirement_id, requested_by, provider, model, prompt_version, status, input_hash, idempotency_key_hash, started_at, completed_at, latency_ms, generated_case_count, input_tokens, output_tokens, correlation_id) values (?, ?, ?, 'legacy-provider', 'legacy-model', 'legacy-prompt', 'COMPLETED', ?, ?, ?, ?, 10, 0, 1, 1, 'tie-correlation')",
+        runId,
+        requirementUuid,
+        ownerId,
+        "e".repeat(64),
+        idempotencyHash,
+        completed.minusSeconds(1),
+        completed);
+  }
+
+  /** Compares prepared-statement counts for equivalent small and large page reads. */
+  private void assertConstantStatementCount(
+      Statistics statistics, Supplier<?> smallPage, Supplier<?> largePage) {
+    statistics.clear();
+    smallPage.get();
+    long smallCount = statistics.getPrepareStatementCount();
+    statistics.clear();
+    largePage.get();
+    long largeCount = statistics.getPrepareStatementCount();
+    assertThat(largeCount).isLessThanOrEqualTo(smallCount).isLessThanOrEqualTo(10);
   }
 
   /** Asserts that an unconfirmed generation alias cannot supersede protected evidence. */

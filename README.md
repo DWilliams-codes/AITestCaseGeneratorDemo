@@ -43,37 +43,28 @@ The API is one deployable with explicit domain packages for `auth`, `workspace`,
 
 ## Technology
 
-- Java 21, Spring Boot 3.5, Spring Security, OAuth2 resource server, Spring Data JPA, Hibernate, Flyway, PostgreSQL, H2 demo profile, Actuator, and OpenAPI.
-- React 19, TypeScript 6, Vite 8, Material UI 9, React Router 7, TanStack Query, React Hook Form, and Zod.
+- Java 21, Spring Boot 3.5, Spring Security, OAuth2 resource server, Spring Data JPA, Hibernate, Flyway, PostgreSQL, test-scoped H2, Actuator, and OpenAPI.
+- React 19, TypeScript 6, Vite 8, Material UI 9, React Router 8, TanStack Query, React Hook Form, and Zod.
 - JUnit 5, MockMvc, AssertJ, Vitest, React Testing Library, MSW, Playwright, and axe-core.
 - Spotless, SpotBugs, JaCoCo, OWASP Dependency-Check, ESLint, Prettier, npm audit policy, Docker, Nginx, and GitHub Actions.
 
-## Fastest demo
+## Fastest seeded demo
 
-Prerequisites: Java 21, Maven 3.9+, Node.js 24, npm 11, and an OpenAI API key.
-
-Start the seeded backend:
-
-```powershell
-Set-Location backend
-$env:OPENAI_API_KEY = '<server-side-secret>'
-mvn spring-boot:run -Dspring-boot.run.profiles=demo
-```
-
-Start the frontend in a second terminal:
+Prerequisites: Docker Compose and an OpenAI API key. Copy `.env.example` to
+`.env`, replace the secrets, set `TESTFORGE_DEMO_SEED_ENABLED=true`, and start
+the PostgreSQL-backed topology:
 
 ```powershell
-Set-Location frontend
-npm ci
-npm run dev
+Copy-Item .env.example .env
+docker compose up --build --wait
 ```
 
-Open `http://127.0.0.1:5173` and use the prefilled account:
+Open `http://localhost:3000` and enter the seeded account explicitly:
 
 - Email: `demo@testforge.local`
 - Password: `TestForge!Demo2026`
 
-The demo contains a Commerce Returns Platform project with four professionally specified user stories covering customer workflows, authorization, boundary conditions, idempotency, concurrency, failure atomicity, auditability, and accessibility. It intentionally seeds no test cases or steps: every test artifact must be generated from a story through the configured provider. The demo profile uses a local H2 file and fixed non-production credentials; never enable it in a shared or production environment.
+The demo contains a Commerce Returns Platform project with four professionally specified user stories covering customer workflows, authorization, boundary conditions, idempotency, concurrency, failure atomicity, auditability, and accessibility. It intentionally seeds no test cases or steps: every test artifact must be generated from a story through the configured provider. The demo uses PostgreSQL and fixed non-production credentials; never enable it in a shared or production environment.
 
 ## Docker Compose
 
@@ -85,11 +76,9 @@ Copy-Item .env.example .env
 docker compose up --build --wait
 ```
 
-Open:
-
-- Application: `http://localhost:3000`
-- API readiness: `http://localhost:8080/actuator/health/readiness`
-- Swagger UI when enabled: `http://localhost:8080/swagger-ui.html`
+Open the application at `http://localhost:3000`. Default Compose publishes only
+the Nginx frontend; the API and PostgreSQL remain on private container networks
+and API traffic is same-origin through `/api`.
 
 The default Compose environment does not seed a shared demo account. Register through the UI, or set `TESTFORGE_DEMO_SEED_ENABLED=true` only for an isolated disposable environment. Stop with `docker compose down`; add `--volumes` only when you intentionally want to delete local database data.
 
@@ -116,6 +105,7 @@ The model does not assign identity. A single database sequence assigns every use
 | `POSTGRES_PASSWORD` | Yes outside demo | none | Database secret |
 | `JWT_ACCESS_TOKEN_SECRET` | Yes outside demo | none | Base64-encoded key containing at least 32 bytes |
 | `ALLOWED_ORIGINS` | No | `http://localhost:5173` | Exact credentialed CORS origins |
+| `TRUSTED_PROXY_CIDRS` | No | empty | Socket-peer CIDRs allowed to supply one forwarded client IP |
 | `SECURE_COOKIES` | No | `true` | Requires HTTPS for refresh cookies |
 | `TEST_GENERATION_PROVIDER` | No | `openai` | Runtime generation provider; `fake` is test-scope only |
 | `OPENAI_API_KEY` | Yes for generation | none | Server-side provider key |
@@ -166,7 +156,10 @@ npm run audit:ci
 npm run e2e
 ```
 
-The Playwright scenario signs into the seeded workspace, traverses project, requirement, test-case, and traceability views, verifies keyboard focus, and rejects serious or critical axe violations.
+The default Playwright suite signs into the seeded workspace, generates through
+the synthetic external Responses stub, traverses review/traceability/export,
+exercises a safe terminal failure, verifies keyboard focus, and rejects serious
+or critical axe violations. It does not call a live provider.
 
 ## Security posture
 
@@ -178,7 +171,10 @@ The Playwright scenario signs into the seeded workspace, traverses project, requ
 - Approved-only exports neutralize spreadsheet formulas and Markdown control characters.
 - Secrets and sensitive request bodies are excluded from audit records and application logs.
 
-See [SECURITY.md](SECURITY.md) and [the STRIDE threat model](docs/THREAT_MODEL.md). A narrow, expiring React Router RSC advisory exception is documented in [the dependency risk register](docs/DEPENDENCY_RISK_ACCEPTANCE.md); the affected RSC feature is not present in this SPA.
+See [SECURITY.md](SECURITY.md), [the STRIDE threat model](docs/THREAT_MODEL.md),
+and [the dependency provenance register](docs/DEPENDENCY_RISK_ACCEPTANCE.md).
+React Router is locked to the verified fixed `8.3.0` release and the audit gate
+has no advisory allowlist.
 
 ## Known limitations
 
@@ -188,11 +184,28 @@ See [SECURITY.md](SECURITY.md) and [the STRIDE threat model](docs/THREAT_MODEL.m
 - Generation quality depends on the configured model and must be evaluated with representative, organization-specific requirements before production rollout.
 - Docker Compose is suitable for local evaluation, not a complete cloud landing zone. Public deployment still needs managed secrets, TLS, backups, monitoring, SIEM integration, and artifact signing.
 
-## Stage 2 Copado roadmap
+## Stage 2 roadmap (proposed; implementation not authorized)
 
-This release delivers Stage 1 manual-test design. It intentionally does not generate or execute Copado Robotic Testing automation. A later `AutomationDraftGenerator` boundary can translate approved cases only after organization-specific selectors, reusable actions, environments, test data, and review rules are available.
+Stage 1 remains manual-test design and does not currently execute automation.
+The proposed first Stage 2 slice is controlled agentic testing of TestForge
+itself in an isolated non-production environment: the current owner authorizes
+one approved manual test, its current content is captured as an immutable
+run-bound snapshot, and the agent performs only its basic semantic browser steps
+while recording action, observation, assertion, and bounded evidence. It does
+not depend on future workspace-sharing or general snapshot work.
+The execution model will be configuration-selected; Terra is the first
+manually evaluated candidate, not a hard-coded default or routing decision.
 
-The future slice can add suitability scoring, action mapping, selector placeholders, parameterized data, assertions, setup and cleanup actions, draft export, imported execution results, and failure classification. Every generated draft must remain reviewable; TestForge does not assume a manual case can become reliable automation without that organization-specific context.
+The plan keeps `AutomationDraftGenerator` and Copado as a later secondary,
+non-executing capability. It can translate approved cases only after
+organization-specific selectors, reusable actions, environments, test data, and
+review rules are available. That future slice may add suitability scoring,
+action mapping, selector placeholders, parameterized data, assertions, setup
+and cleanup actions, draft export, imported execution results, and failure
+classification. Generated drafts remain reviewable and are never executed by
+TestForge.
+
+See the active [TF-007 Stage 2 execution plan](docs/exec-plans/active/TF-007-stage-two-agentic-test-execution.md) for containment, architecture, evaluation, and pilot decisions.
 
 ## Architecture reset references
 

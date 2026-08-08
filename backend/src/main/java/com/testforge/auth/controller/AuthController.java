@@ -7,10 +7,12 @@ import com.testforge.auth.dto.AuthDtos.LoginRequest;
 import com.testforge.auth.dto.AuthDtos.RegisterRequest;
 import com.testforge.auth.dto.AuthDtos.TokenResponse;
 import com.testforge.auth.dto.AuthDtos.UserResponse;
+import com.testforge.common.error.ApiExceptionHandler;
 import com.testforge.config.AuthProperties;
 import com.testforge.config.SecurityProperties;
 import com.testforge.security.CurrentUser;
 import com.testforge.security.RateLimitService;
+import com.testforge.security.TrustedClientAddressResolver;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -35,6 +37,7 @@ public class AuthController {
   private final SecurityProperties securityProperties;
   private final RateLimitService rateLimitService;
   private final CurrentUser currentUser;
+  private final TrustedClientAddressResolver clientAddresses;
 
   /** Initializes AuthController with its required collaborators and domain state. */
   public AuthController(
@@ -42,12 +45,14 @@ public class AuthController {
       AuthProperties authProperties,
       SecurityProperties securityProperties,
       RateLimitService rateLimitService,
-      CurrentUser currentUser) {
+      CurrentUser currentUser,
+      TrustedClientAddressResolver clientAddresses) {
     this.authService = authService;
     this.authProperties = authProperties;
     this.securityProperties = securityProperties;
     this.rateLimitService = rateLimitService;
     this.currentUser = currentUser;
+    this.clientAddresses = clientAddresses;
   }
 
   /** Handles the authenticated HTTP request to csrf. */
@@ -60,7 +65,8 @@ public class AuthController {
   @PostMapping("/register")
   ResponseEntity<TokenResponse> register(
       @Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
-    checkAuthRate(httpRequest);
+    checkAuthRate(
+        httpRequest, "account:" + request.email().strip().toLowerCase(java.util.Locale.ROOT));
     return sessionResponse(authService.register(request), HttpStatus.CREATED);
   }
 
@@ -68,15 +74,19 @@ public class AuthController {
   @PostMapping("/login")
   ResponseEntity<TokenResponse> login(
       @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
-    checkAuthRate(httpRequest);
+    checkAuthRate(
+        httpRequest, "account:" + request.email().strip().toLowerCase(java.util.Locale.ROOT));
     return sessionResponse(authService.login(request), HttpStatus.OK);
   }
 
   /** Handles the authenticated HTTP request to refresh. */
   @PostMapping("/refresh")
   ResponseEntity<TokenResponse> refresh(HttpServletRequest request) {
-    checkAuthRate(request);
-    return sessionResponse(authService.refresh(readRefreshToken(request)), HttpStatus.OK);
+    String refreshToken = readRefreshToken(request);
+    checkAuthRate(request, "refresh:" + (refreshToken == null ? "missing" : refreshToken));
+    request.setAttribute(
+        ApiExceptionHandler.CLEAR_COOKIE_ATTRIBUTE, expiredRefreshCookie().toString());
+    return sessionResponse(authService.refresh(refreshToken), HttpStatus.OK);
   }
 
   /** Handles the authenticated HTTP request to logout. */
@@ -136,8 +146,12 @@ public class AuthController {
   }
 
   /** Handles the authenticated HTTP request to check auth rate. */
-  private void checkAuthRate(HttpServletRequest request) {
+  private void checkAuthRate(HttpServletRequest request, String sensitiveSubject) {
     rateLimitService.check(
-        "auth", request.getRemoteAddr(), securityProperties.authAttemptsPerMinute());
+        "auth-client",
+        clientAddresses.resolve(request),
+        securityProperties.authAttemptsPerMinute());
+    rateLimitService.checkDigest(
+        "auth-subject", sensitiveSubject, securityProperties.authAttemptsPerMinute());
   }
 }

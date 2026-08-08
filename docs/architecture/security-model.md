@@ -87,3 +87,29 @@ Also test spoofed media types, malicious filenames, parser bombs, oversized
 expansion, `.resource` dynamic imports, embedded Python/unknown libraries,
 quarantine bypass, provenance/hash mismatch, renderer injection, semantic drift,
 and any attempt for export to trigger execution or network activity.
+
+## Implemented Stage 1 evidence boundary — 2026-08-05
+
+New manual-generation runs capture exact criterion snapshots, the source User
+Story version, and a pinned prompt/result/schema/validator/provider-adapter
+tuple before provider invocation. Completion dual-writes legacy and snapshot
+traceability; reads, coverage, and export use the immutable snapshot form.
+Pre-V6 material is retained but explicitly marked `LEGACY_RECONSTRUCTED`.
+Supporting evidence never satisfies direct coverage.
+
+Mixed-version reads run bounded, locked, idempotent reconciliation for missing
+post-V6 generation evidence. Legacy reopen events are separately reconciled by
+copying the prior reason into an owner-scoped immutable case revision with
+source-event provenance, then replacing the event metadata with the closed
+allowlisted form. Each read performs at most one bounded bridge batch; rows
+still awaiting committed transfer are response-redacted and explicitly marked
+pending rather than migrated. The application never represents reconstructed snapshots or
+revision content as exact historical source.
+
+Refresh rotation is a locked, atomic predecessor transition. Replay evidence
+and family revocation commit before the generic 401 and expired cookie are
+returned. Address-derived limits ignore forwarding data unless one valid IP
+literal arrives from a trusted socket peer; parsing performs no hostname
+resolution. Audit metadata is a closed bounded value contract, and reopen
+reasons live only in controlled revision evidence. Default Compose publishes
+only Nginx and keeps API/database on private networks.

@@ -1,6 +1,7 @@
 import { Box, CircularProgress } from '@mui/material';
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router';
 import { useAuth } from './useAuth';
+import { safeReturnLocation } from './returnLocation';
 
 /** Gates protected routes until session restoration completes or redirects unauthenticated users. */
 export function ProtectedRoute() {
@@ -13,6 +14,9 @@ export function ProtectedRoute() {
       </Box>
     );
   }
-  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (!user) {
+    const from = safeReturnLocation(`${location.pathname}${location.search}${location.hash}`);
+    return <Navigate to="/login" replace state={{ from }} />;
+  }
   return <Outlet />;
 }

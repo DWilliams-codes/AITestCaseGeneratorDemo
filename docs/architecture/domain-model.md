@@ -19,6 +19,13 @@ workspace and its OWNER membership reuse the user UUID so legacy backfill is
 deterministic. Roles are OWNER, ADMIN, QA_AUTHOR, QA_REVIEWER, and STAKEHOLDER;
 their shared-content permissions are future policy, not implicit behavior.
 
+TF-005 adds a narrow implemented evidence snapshot beneath this future model:
+`GenerationCriterionSnapshot` retains the exact criterion key/text/order,
+source criterion UUID, source User Story version, and provenance for each new
+run; `SnapshotTraceabilityLink` binds it to generated cases with DIRECT or
+SUPPORTING coverage. Legacy links remain dual-written for rollback. This is not
+the generalized `VersionSnapshot`/CoveragePlan model described below.
+
 ## Target aggregate and relationship map
 
 Everything below this heading is future unless explicitly identified as an
@@ -179,4 +186,4 @@ approval evidence, and audit references cannot be hard-deleted independently.
 Future deletion uses soft-delete/quarantine, dependency checks, an asynchronous
 purge after the retention window, and legal-hold override. Provider request and
 response bodies should remain minimized and expire sooner than approved audit
-evidence. No retention engine or restore endpoint is implemented in TF-001.
+evidence. No retention engine or restore endpoint is implemented in TF-005.

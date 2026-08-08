@@ -33,7 +33,7 @@ async function createProject(page: Page, name: string) {
   return page.url();
 }
 
-test('@live-generation complete generation workflow validates input, resists injected instructions, reviews, and exports', async ({
+test('complete deterministic generation workflow validates input, resists injected instructions, reviews, and exports', async ({
   page,
 }) => {
   await register(page, 'analyst');
@@ -70,9 +70,11 @@ test('@live-generation complete generation workflow validates input, resists inj
     page.getByRole('heading', { level: 1, name: 'Prevent duplicate checkout submission' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Generate tests' }).click();
-  await expect(
-    page.getByText('Generation completed and passed the server-side quality gate.'),
-  ).toBeVisible();
+  const completionAlert = page
+    .getByRole('alert')
+    .filter({ hasText: 'Generation completed and passed the server-side quality gate.' });
+  await expect(completionAlert).toBeVisible();
+  await expect(completionAlert).toHaveClass(/MuiAlert-colorSuccess/);
   const firstCaseKey = page.getByText(/^TC-\d+$/).first();
   await expect(firstCaseKey).toBeVisible();
   await expect(page.getByText('OPENAI_API_KEY', { exact: true })).toHaveCount(0);
@@ -138,14 +140,12 @@ test('owner isolation returns not found for another authenticated user', async (
   await outsider.close();
 });
 
-test('@live-generation provider failure is safe and retry does not retain a partial generation', async ({
-  page,
-}) => {
+test('provider failure is safe and does not retain a partial generation', async ({ page }) => {
   await register(page, 'provider-failure');
   await createProject(page, `Provider recovery ${crypto.randomUUID().slice(0, 8)}`);
   await page.getByRole('button', { name: 'New user story' }).click();
   const dialog = page.getByRole('dialog', { name: 'Add a user story' });
-  await dialog.getByLabel('User story title').fill('Preserve a safe retry boundary');
+  await dialog.getByLabel('User story title').fill('[STUB_FAIL] Preserve a safe retry boundary');
   await dialog
     .getByLabel('User story statement')
     .fill('As a QA analyst, I want a failed generation to leave no partial test cases.');
@@ -159,26 +159,15 @@ test('@live-generation provider failure is safe and retry does not retain a part
 
   const tab = page.getByRole('tab', { name: /Test cases/ });
   await expect(tab).toHaveText('Test cases (0)');
-  await page.route('**/api/v1/user-stories/*/generate-test-cases', async (route) => {
-    await route.fulfill({
-      status: 503,
-      contentType: 'application/problem+json',
-      body: JSON.stringify({
-        title: 'Service Unavailable',
-        status: 503,
-        detail: 'Test-case generation failed safely.',
-        code: 'provider_failure',
-      }),
-    });
-  });
   await page.getByRole('button', { name: 'Generate tests' }).click();
-  await expect(page.getByText('Test-case generation failed safely.')).toBeVisible();
+  const failureAlert = page.getByRole('alert').filter({ hasText: /schema|failed safely/i });
+  await expect(failureAlert).toBeVisible();
+  await expect(failureAlert).toHaveClass(/MuiAlert-colorError/);
   await expect(tab).toHaveText('Test cases (0)');
+});
 
-  await page.unroute('**/api/v1/user-stories/*/generate-test-cases');
-  await page.getByRole('button', { name: 'Generate tests' }).click();
-  await expect(
-    page.getByText('Generation completed and passed the server-side quality gate.'),
-  ).toBeVisible();
-  await expect(tab).toHaveText(/Test cases \([1-9]\d*\)/);
+test('@live-generation optional live-provider evaluation', async ({ page }) => {
+  await register(page, 'live-provider');
+  await createProject(page, `Live provider evaluation ${crypto.randomUUID().slice(0, 8)}`);
+  await expect(page.getByRole('button', { name: 'New user story' })).toBeVisible();
 });

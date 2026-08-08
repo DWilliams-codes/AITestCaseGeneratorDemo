@@ -1,4 +1,4 @@
-import { RouterProvider } from 'react-router-dom';
+import { RouterProvider } from 'react-router';
 import type { ComponentProps } from 'react';
 import { AppProviders } from './app/AppProviders';
 import { browserRouter } from './routes/routes';

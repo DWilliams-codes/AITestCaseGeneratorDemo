@@ -33,7 +33,7 @@ spring:
 
 server:
   port: 8080
-  forward-headers-strategy: framework
+  forward-headers-strategy: none
   shutdown: graceful
   error:
     include-message: never
@@ -80,12 +80,14 @@ testforge:
     refresh-cookie-name: ${REFRESH_COOKIE_NAME:__Host-testforge-refresh}
   security:
     allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173}
+    trusted-proxy-cidrs: ${TRUSTED_PROXY_CIDRS:127.0.0.1/32}
     auth-attempts-per-minute: ${AUTH_ATTEMPTS_PER_MINUTE:10}
     generation-attempts-per-minute: ${GENERATION_ATTEMPTS_PER_MINUTE:10}
   generation:
     provider: ${TEST_GENERATION_PROVIDER:openai}
     maximum-cases: ${MAXIMUM_GENERATED_CASES:25}
     maximum-steps-per-case: ${MAXIMUM_STEPS_PER_CASE:30}
+    stale-pending-timeout: ${GENERATION_STALE_PENDING_TIMEOUT:PT4M}
     openai:
       api-key: ${OPENAI_API_KEY:}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}

@@ -12,6 +12,8 @@
 | No CoveragePlan | Reviewable coverage intent before case generation | Add plan aggregate and lifecycle; generate/approve before manual cases | RequirementAnalysis accepted; coverage prompt/schema/evals |
 | No CoverageItem | Atomic risk/path/criterion coverage obligation | Add item and many-to-many criterion join | CoveragePlan, stable criterion snapshot references |
 | GenerationRun | Durable stage/job evidence | Extend into explicit analysis/coverage/manual/automation stage runs or common job envelope | State-machine ADR, worker/idempotency/lease design |
+| No TestEnvironment/TestRun/TestStepRun/TestEvidence/action event | Controlled execution of one approved current TestCase with separate lifecycle and result | Add additive owner-scoped execution records, immutable run-bound current-TestCase snapshots, worker leases, and bounded evidence | TF-007 isolated non-production TestForge pilot, SSRF/navigation policy, separate session-provisioning approval, evidence design, owner authorization matrix |
+| No execution-agent/browser boundary | Provider-neutral bounded semantic test-step interpretation | Add minimized-context agent, validated structured result, allowlisted browser driver, and visual fallback only after semantic pilot evidence | Prompt-injection containment, model/tool evaluation tuple, human safety confirmation, kill switch |
 | TestCase | Manual case under requirement | Preserve UUID/work-item number while reparenting through TestSuite | Suite backfill, traceability dual-write, API compatibility |
 | Preconditions/steps/data | Ordered manual-test components | Keep normalized structure; snapshot canonical payloads | TestCase/TestSuite snapshot format and renderer limits |
 | No TestSuite | Named/versioned collection of manual cases | Add default suite per requirement, backfill cases, expose later | Requirement/project tenancy and stable suite identity |
@@ -26,7 +28,7 @@
 | React owner workflow | Workspace-aware quality workflow | Add selectors/editors incrementally after server policy/domain endpoints | API capability and negative authorization tests first |
 | Export service | Safe approved manual-test renderers | Bind exports to approved snapshots; add neutral automation draft renderer separately | VersionSnapshot, suite model, content escaping tests |
 | No SourceResource catalog | Paste/upload provenance and reusable source inputs | Add immutable blob/text metadata, digest, media type, parser status, extracted safe text | Upload limits, malware/content scanning, isolation policy |
-| Automation extension records only | Reviewed automation readiness and neutral draft | Add readiness decision, neutral IR, validation/review, then vendor adapter | Complete requirement→coverage→manual vertical slice |
+| Automation extension records only | Reviewed automation readiness and neutral draft | Preserve as the separate, secondary non-executing M10 scope after controlled execution planning | Complete requirement→coverage→manual vertical slice and automation security/evaluation gates |
 | No Copado artifact | Version-pinned non-executing vendor package | Serialize reviewed neutral draft; never execute/import implicitly | Copado schema contract, approved org maps, security review |
 | H2/PostgreSQL/Flyway | Rehearsed expand/backfill/contract data evolution | Keep forward-only migrations and dialect tests | Java 21/Maven/Docker verification and rollback evidence |
 | Process-local limits/operations | Multi-instance production control plane | Replace limiter, add durable jobs, telemetry, backups, outbox | SLO/capacity model and production landing-zone review |
@@ -39,13 +41,18 @@ dual-write, measure and reconcile, switch reads behind explicit policy, then
 contract old columns only after the rollback window closes. Generation and
 automation changes require separate evaluation evidence from tenancy changes.
 
-The product dependency order is: requirement enhancement → persisted
-RequirementAnalysis → CoveragePlan/CoverageItem and criterion joins → TestSuite
-and manual-case restructuring → traceability dual-write/migration → general
-VersionSnapshot and ContentLock → one complete reviewed requirement-to-manual-
-test vertical slice → automation readiness/neutral draft → Copado adapter.
-Tenancy policy, source-resource safety, and durable job orchestration are
-cross-cutting gates that must land before the first dependent endpoint.
+The product dependency order for the future artifact roadmap is: requirement
+enhancement → persisted RequirementAnalysis → CoveragePlan/CoverageItem and
+criterion joins → TestSuite and manual-case restructuring → traceability
+dual-write/migration → general VersionSnapshot and ContentLock → one complete
+reviewed requirement-to-manual-test vertical slice → automation readiness/neutral
+draft → Copado adapter. Separately, the smallest TF-007 pilot can perform
+controlled approved-step execution against isolated TestForge using current
+owner-scoped authorization and an immutable run-bound current-TestCase snapshot;
+it does not depend on M2–M8, general snapshots, or workspace sharing.
+Execution-environment safety and durable job orchestration are cross-cutting
+gates for that pilot; tenancy policy and source-resource safety remain gates for
+their own future dependent endpoints.
 
 ## Product naming gap
 

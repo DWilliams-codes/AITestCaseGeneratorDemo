@@ -13,4 +13,9 @@ public interface TestGenerationProvider {
   default String modelName() {
     return "unspecified";
   }
+
+  /** Returns the adapter contract version stored with reproducibility evidence. */
+  default String adapterVersion() {
+    return "application-provider-v1";
+  }
 }

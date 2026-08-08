@@ -1,0 +1,15 @@
+services:
+  responses-stub:
+    build:
+      context: ./frontend/e2e/stub
+    networks:
+      - edge
+
+  backend:
+    environment:
+      TEST_GENERATION_PROVIDER: openai
+      OPENAI_API_KEY: synthetic-e2e-only
+      OPENAI_BASE_URL: http://responses-stub:8081/v1
+    depends_on:
+      responses-stub:
+        condition: service_started

@@ -1,5 +1,6 @@
 package com.testforge.project.application;
 
+import com.testforge.audit.application.AuditMetadata;
 import com.testforge.audit.application.AuditService;
 import com.testforge.common.dto.PageResponse;
 import com.testforge.common.error.ApiExceptions;
@@ -13,6 +14,7 @@ import com.testforge.workspace.application.WorkspaceService;
 import java.time.Clock;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,10 +44,22 @@ public class ProjectService {
   /** Lists resources visible to the current owner using the requested page. */
   @Transactional(readOnly = true)
   public PageResponse<ProjectResponse> list(UUID ownerId, int page, int size) {
+    var projectPage =
+        projects.findAllByOwnerIdOrderByUpdatedAtDesc(ownerId, PageRequest.of(page, size));
+    Map<UUID, Long> counts =
+        projectPage.isEmpty()
+            ? Map.of()
+            : requirements
+                .countByProjectIds(
+                    projectPage.getContent().stream().map(ProjectEntity::getId).toList())
+                .stream()
+                .collect(
+                    Collectors.toMap(
+                        item -> item.getProjectId(),
+                        item -> item.getRequirementCount(),
+                        (left, right) -> left));
     return PageResponse.from(
-        projects
-            .findAllByOwnerIdOrderByUpdatedAtDesc(ownerId, PageRequest.of(page, size))
-            .map(this::toResponse));
+        projectPage.map(project -> toResponse(project, counts.getOrDefault(project.getId(), 0L))));
   }
 
   /** Returns the owned resource identified by the request. */
@@ -66,7 +80,8 @@ public class ProjectService {
                 request.name().strip(),
                 clean(request.description()),
                 clock.instant()));
-    auditService.record(ownerId, project.getId(), "PROJECT", project.getId(), "CREATED", Map.of());
+    auditService.record(
+        ownerId, project.getId(), "PROJECT", project.getId(), "CREATED", AuditMetadata.empty());
     return toResponse(project);
   }
 
@@ -76,7 +91,7 @@ public class ProjectService {
     ProjectEntity project = requireOwned(ownerId, projectId);
     assertVersion(project.getVersion(), request.version());
     project.update(request.name().strip(), clean(request.description()), clock.instant());
-    auditService.record(ownerId, projectId, "PROJECT", projectId, "UPDATED", Map.of());
+    auditService.record(ownerId, projectId, "PROJECT", projectId, "UPDATED", AuditMetadata.empty());
     return toResponse(project);
   }
 
@@ -85,7 +100,8 @@ public class ProjectService {
   public void archive(UUID ownerId, UUID projectId) {
     ProjectEntity project = requireOwned(ownerId, projectId);
     project.archive(clock.instant());
-    auditService.record(ownerId, projectId, "PROJECT", projectId, "ARCHIVED", Map.of());
+    auditService.record(
+        ownerId, projectId, "PROJECT", projectId, "ARCHIVED", AuditMetadata.empty());
   }
 
   /** Loads the requested resource and verifies that it belongs to the current owner. */
@@ -98,7 +114,11 @@ public class ProjectService {
 
   /** Maps the source data to response. */
   private ProjectResponse toResponse(ProjectEntity project) {
-    long userStoryCount = requirements.countByProjectId(project.getId());
+    return toResponse(project, requirements.countByProjectId(project.getId()));
+  }
+
+  /** Maps a project using a count already loaded for a bounded collection response. */
+  private ProjectResponse toResponse(ProjectEntity project, long userStoryCount) {
     return new ProjectResponse(
         project.getId(),
         project.getWorkspaceId(),

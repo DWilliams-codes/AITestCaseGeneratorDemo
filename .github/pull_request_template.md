@@ -40,6 +40,8 @@ Commands and observed results:
 
 - Data/authorization risks:
 - API, persistence, or configuration compatibility:
+- Flyway expansion/rollback/old-write evidence (if applicable):
+- Dependency/action/image provenance updated (if applicable):
 - Synthetic-data and secret review completed: yes / no
 - Residual risks and rollback:
 - `$security-review` findings resolved: yes / pending / not applicable

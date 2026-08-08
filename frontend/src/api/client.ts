@@ -10,6 +10,7 @@ interface SessionRefreshOutcome {
 let refreshPromise: Promise<SessionRefreshOutcome> | null = null;
 let csrfPromise: Promise<string> | null = null;
 let authEpoch = 0;
+const sessionInvalidatedListeners = new Set<() => void>();
 
 export class ApiError extends Error {
   /** Preserves normalized HTTP status, problem code, and field errors for the UI. */
@@ -36,6 +37,20 @@ export function resetApiClient() {
   refreshPromise = null;
   csrfPromise = null;
   return authEpoch;
+}
+
+/** Subscribes application auth state to current-session refresh failures. */
+export function subscribeSessionInvalidated(listener: () => void) {
+  sessionInvalidatedListeners.add(listener);
+  return () => sessionInvalidatedListeners.delete(listener);
+}
+
+/** Clears and broadcasts only while the failing refresh still owns the active epoch. */
+function invalidateSessionForEpoch(expectedEpoch: number) {
+  if (expectedEpoch !== authEpoch) return false;
+  resetApiClient();
+  sessionInvalidatedListeners.forEach((listener) => listener());
+  return true;
 }
 
 /** Installs a token only when its authentication attempt is still current. */
@@ -84,7 +99,7 @@ async function refreshSessionOutcome(): Promise<SessionRefreshOutcome> {
       });
       if (!response.ok) {
         if (requestEpoch !== authEpoch) return { session: null, current: false };
-        resetApiClient();
+        invalidateSessionForEpoch(requestEpoch);
         return { session: null, current: true };
       }
       const session = (await response.json()) as TokenResponse;
@@ -93,7 +108,7 @@ async function refreshSessionOutcome(): Promise<SessionRefreshOutcome> {
       return { session, current: true };
     } catch {
       if (requestEpoch !== authEpoch) return { session: null, current: false };
-      resetApiClient();
+      invalidateSessionForEpoch(requestEpoch);
       return { session: null, current: true };
     }
   })();

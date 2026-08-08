@@ -22,9 +22,10 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { ApiError, apiRequest } from '../api/client';
+import { PaginationControls } from '../components/PaginationControls';
 import type { PageResponse, Project } from '../types/api';
 
 const schema = z.object({
@@ -36,12 +37,25 @@ type Values = z.infer<typeof schema>;
 /** Presents the user's project portfolio and owns project creation and load-recovery behavior. */
 export function ProjectDashboardPage() {
   const [open, setOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const projectPage = Math.max(
+    0,
+    Number.parseInt(searchParams.get('projectsPage') ?? '0', 10) || 0,
+  );
+  /** Keeps portfolio pagination shareable while omitting its default state. */
+  const setProjectPage = (page: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (page === 0) next.delete('projectsPage');
+    else next.set('projectsPage', String(page));
+    setSearchParams(next);
+  };
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   // Rechecking on focus and exposing refetch below lets the view recover after a brief API outage.
   const projects = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => apiRequest<PageResponse<Project>>('/api/v1/projects'),
+    queryKey: ['projects', projectPage],
+    queryFn: () =>
+      apiRequest<PageResponse<Project>>(`/api/v1/projects?page=${projectPage}&size=20`),
     refetchOnWindowFocus: true,
   });
   const {
@@ -222,6 +236,14 @@ export function ProjectDashboardPage() {
           </Card>
         ))}
       </Box>
+
+      {projects.data && projects.data.totalPages > 1 && (
+        <PaginationControls
+          page={projects.data}
+          busy={projects.isFetching}
+          onPageChange={setProjectPage}
+        />
+      )}
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <Stack component="form" onSubmit={handleSubmit((values) => create.mutate(values))}>
