@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.4.xsd">
+    <suppress until="2026-08-22Z">
+        <notes><![CDATA[
+Temporary acceptance for CVE-2026-66299 in tomcat-embed-core 10.1.57. The
+affected component is only Tomcat's WebSocket chat example; the TestForge
+embedded application does not ship Tomcat examples. Remove this suppression
+when upgrading to 10.1.58 or later, or by the expiry date.
+        ]]></notes>
+        <packageUrl>pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@10.1.57</packageUrl>
+        <cve>CVE-2026-66299</cve>
+    </suppress>
+</suppressions>

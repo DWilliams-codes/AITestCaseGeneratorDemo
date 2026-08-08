@@ -19,6 +19,49 @@ signals, unexpected exits, invalid JSON, report errors, unsupported report
 versions, missing metadata/vulnerability sections, or any high/critical
 vulnerability. There is no package/advisory exception path.
 
+## Temporary Tomcat WebSocket chat-example acceptance
+
+**Advisory:** `CVE-2026-66299`
+**Exact affected PURL:** `pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@10.1.57`
+**Owner:** TestForge AI maintainers
+**Accepted:** 2026-08-07
+**Expires:** 2026-08-22T00:00:00Z
+
+### Applicability and acceptance
+
+Applicability is supported by the exact affected PURL, the official Apache
+examples-only advisory, and unchanged embedded-application packaging
+configuration. The historical 2026-08-06 TestForge JAR observation found no
+Tomcat example or WebSocket chat resources. This is a temporary, exact-PURL and
+exact-CVE acceptance only; it is not a CVSS threshold reduction or a general
+Tomcat suppression.
+
+### Evidence and compensating controls
+
+- Apache advisory and download evidence: [Tomcat 10 security notices](https://tomcat.apache.org/security-10.html) and [Tomcat 10 downloads](https://tomcat.apache.org/download-10.cgi).
+- Local gaps: Maven verification and fresh candidate packaging were unavailable
+  locally because Maven is not on PATH.
+- Existing CI closes the Maven verify, OWASP security-profile, candidate
+  container-build, and container-scan gaps. The seven exact-SHA CI jobs are
+  publication gates after implementation completion, not completion prerequisites.
+- Existing-artifact observation (not fresh candidate or CI evidence):
+  `backend/target/testforge-backend.jar` dated 2026-08-06 contains
+  `BOOT-INF/lib/tomcat-embed-core-10.1.57.jar`; `jar tf` found no Tomcat example
+  web application or chat-example resources. TF-008 does not change packaging
+  source.
+- Compensating controls: the suppression matches exactly one Maven PURL and one
+  CVE, has a hard expiry, fails the build when unused, keeps CVSS 7 and every
+  other dependency scan in force, and the embedded application does not ship
+  the affected example.
+
+### Removal and expiry policy
+
+Remove this acceptance and suppression immediately on Tomcat 10.1.58 or later.
+If the exact dependency is no longer present, the unused-suppression rule fails
+closed. If the date expires first, the suppression no longer applies and the
+security build must fail closed until the dependency is upgraded or a newly
+approved acceptance replaces it.
+
 ## Verified immutable references
 
 All values below were resolved on 2026-08-05 from the named publisher's
