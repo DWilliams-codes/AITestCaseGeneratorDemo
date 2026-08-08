@@ -171,3 +171,73 @@ The Lead decided implementation complete after post-build Architect
   before any separately authorized publication decision.
 
 No staging, commit, push, PR mutation, deployment, or publication was performed.
+
+## Publication-CI remediation (d3686d4)
+
+**Status:** ACTIVE — RENEWED GATES PENDING
+
+The exact-SHA candidate `d3686d4` failed Frontend verify because its lockfile
+omitted optional `@emnapi/core@2.0.0-alpha.3` and
+`@emnapi/runtime@2.0.0-alpha.3` nodes required by the publication CI npm
+resolution. The earlier local lockfile-only update used npm 11.6.2; this
+remediation uses the approved compatible npm 11.16.0 without adding a project
+dependency, changing package ranges, or changing CI.
+
+Approved commands from `frontend/`:
+
+```text
+npm exec --yes --package=npm@11.16.0 -- npm --version
+npm exec --yes --package=npm@11.16.0 -- npm install --package-lock-only --include=optional --ignore-scripts --no-audit --no-fund
+```
+
+Acceptance: relative to `d3686d4`, the generated lockfile restores only
+`@emnapi/core@2.0.0-alpha.3` and `@emnapi/runtime@2.0.0-alpha.3`; keeps
+`nanoid@3.3.18`; changes neither `package.json` nor dependency ranges/direct
+dependencies/overrides; and is idempotent under the same second command.
+
+Validation must also use the approved npm version for `npm ci --dry-run` with
+optional dependencies, lockfile-only `npm ls` for `nanoid` and `@emnapi`, audit
+policy, frontend checks, harness, and scoped diff/status checks. The plan stays
+active until renewed Architect conformance, independent Reviewer approval, and
+Lead completion decision.
+
+### d3686d4 remediation local evidence (2026-08-07)
+
+- `npm exec --yes --package=npm@11.16.0 -- npm --version` — passed: `11.16.0`.
+- The approved npm 11.16.0 lockfile-only command changed
+  `package-lock.json` hash from `40054e114858ac16dc0b5825f4ad061fab531ebb` to
+  `1add34231ff745402f319e60df5decb9e47b7108`. Relative to `d3686d4`, it restores
+  only the optional `@emnapi/core@2.0.0-alpha.3` and
+  `@emnapi/runtime@2.0.0-alpha.3` nodes as dependency-node changes and keeps
+  `nanoid@3.3.18`. npm also reconciled existing lockfile `peer` metadata; this
+  is npm-generated metadata normalization only, with no other dependency-version
+  or manifest change.
+- A second identical approved command produced the same
+  `1add34231ff745402f319e60df5decb9e47b7108` hash, proving idempotence.
+- `npm exec --yes --package=npm@11.16.0 -- npm ci --dry-run --include=optional
+  --ignore-scripts --no-audit --no-fund` — passed. Lockfile-only `npm ls`
+  resolved `nanoid@3.3.18`, `@emnapi/core@2.0.0-alpha.3`, and
+  `@emnapi/runtime@2.0.0-alpha.3` without overrides.
+- `npm run test:audit-policy` (16/16), `npm run format:check`,
+  `npm run typecheck`, `npm run lint`, `npm run test:coverage` (6 files, 34
+  tests), and `npm run build` — passed. Harness, package-manifest scope,
+  `git diff --check`, and status/scope checks passed. `package.json` is
+  unchanged; TF-008 is active and its completed path is absent pending renewed
+  Architect, Reviewer, and Lead gates.
+
+## Renewed final completion evidence (2026-08-07)
+
+The renewed Lead implementation-completion decision is **APPROVED** after
+Architect **CONFORMS** and independent Reviewer **APPROVE** for the d3686d4
+publication-CI remediation.
+
+- The CI-compatible npm 11.16.0 generated lockfile is idempotent and validated
+  by npm CI dry-run, lockfile-only dependency inspection, audit-policy,
+  formatting, typecheck, lint, coverage, build, harness, manifest scope, and
+  diff/status checks recorded above.
+- Scope remains limited to `frontend/package-lock.json` and this historical
+  ExecPlan for the renewed remediation; no project manifest, CI, application, or
+  security-policy contract changed.
+- Residual publication risk: all seven exact-SHA CI jobs remain publication
+  gates after implementation completion. No staging, commit, push, PR mutation,
+  deployment, or publication was performed by this workflow.
