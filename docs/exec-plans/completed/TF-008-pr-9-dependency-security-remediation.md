@@ -241,3 +241,66 @@ publication-CI remediation.
 - Residual publication risk: all seven exact-SHA CI jobs remain publication
   gates after implementation completion. No staging, commit, push, PR mutation,
   deployment, or publication was performed by this workflow.
+
+## 9095482 Dependency-Check remediation
+
+**Status:** ACTIVE — RENEWED GATES PENDING
+
+The exact-SHA candidate `9095482` showed that the existing exact
+`tomcat-embed-core@10.1.57` suppression rule was used, then Dependency-Check
+surfaced the same `CVE-2026-66299` finding for
+`tomcat-embed-websocket@10.1.57`. The scanner associates the advisory with both
+embedded artifacts. The approved remediation keeps the existing core rule
+unchanged and adds one sibling exact-PURL, exact-CVE WebSocket rule only.
+
+The sibling rule must use suppression schema 1.4, expire `2026-08-22Z`, use
+non-regex `pkg:maven/org.apache.tomcat.embed/tomcat-embed-websocket@10.1.57`,
+and state that Apache limits the defect to the WebSocket chat example, TestForge
+ships no examples, and removal is required on 10.1.58+ or expiry. No broad or
+combined selector/rule is authorized. The risk register must identify both exact
+PURLs/rules, the `9095482` finding sequence, the historical JAR's two embedded
+artifacts/no-examples observation, joint removal policy, and local versus
+publication evidence boundaries.
+
+Validate XML schema and exact two-rule set, POM CVSS 7/fail-unused preservation,
+unchanged POM/frontend/CI scope relative to `9095482`, harness, diff/status, and
+Maven if available. The plan remains active pending renewed Architect,
+independent Reviewer, and Lead gates.
+
+### 9095482 remediation local evidence (2026-08-07)
+
+- `python scripts/validate-harness.py` — passed: Manual-008 oracle self-tests
+  passed with 81 obligations; harness reported 3 specialist profiles, 6 skills,
+  8 blocking manual fixtures, and 3 non-blocking automation roadmap fixtures.
+- XML parse and static policy checks — passed: schema 1.4 root, exactly two
+  suppressions, each with one exact non-regex PURL and `CVE-2026-66299`, both
+  expiring `2026-08-22Z`, and no broad selectors or combined rules. The core
+  PURL remains unchanged and the WebSocket sibling PURL is exact.
+- POM static checks — passed: CVSS remains 7 and fail-on-unused suppression is
+  still true. Relative to `9095482`, no POM, frontend, or CI file changed.
+- Historical JAR observation — passed: the 2026-08-06 JAR contains both
+  `tomcat-embed-core-10.1.57.jar` and `tomcat-embed-websocket-10.1.57.jar`, with
+  no example or WebSocket chat resources. This remains historical evidence only.
+- Maven remains unavailable on PATH, so local Maven verification is a recorded
+  limitation. `git diff --check` and exact scoped status checks passed.
+
+This plan remains active pending renewed Architect conformance, independent
+Reviewer approval, and Lead completion decision. No staging, commit, push, or
+publication was performed.
+
+## 9095482 final completion evidence (2026-08-07)
+
+The renewed Lead implementation-completion decision is **APPROVED** after
+Architect **CONFORMS** and independent Reviewer **APPROVE**.
+
+- Final local evidence confirms the exact two-suppression XML set, unchanged
+  core rule, risk-register coverage of both PURLs and the 9095482 finding
+  sequence, CVSS 7/fail-unused preservation, historical JAR observation,
+  harness, scoped status, and `git diff --check`.
+- Scope is limited to the sibling WebSocket suppression, dependency-risk
+  acceptance, and this historical ExecPlan; no POM, frontend, CI, application,
+  API, schema, authorization, generation, or evaluation contract changed.
+- Residual publication requirement: Maven remains unavailable locally, and all
+  seven exact-SHA CI jobs remain publication gates after implementation
+  completion. No staging, commit, push, PR mutation, deployment, or publication
+  was performed.

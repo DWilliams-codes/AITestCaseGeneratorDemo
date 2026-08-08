@@ -19,22 +19,30 @@ signals, unexpected exits, invalid JSON, report errors, unsupported report
 versions, missing metadata/vulnerability sections, or any high/critical
 vulnerability. There is no package/advisory exception path.
 
-## Temporary Tomcat WebSocket chat-example acceptance
+## Temporary Tomcat WebSocket chat-example acceptances
 
 **Advisory:** `CVE-2026-66299`
-**Exact affected PURL:** `pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@10.1.57`
+**Exact affected PURLs and rules:**
+
+- `pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@10.1.57` — one exact
+  non-regex PURL plus one exact CVE rule.
+- `pkg:maven/org.apache.tomcat.embed/tomcat-embed-websocket@10.1.57` — one
+  sibling exact non-regex PURL plus one exact CVE rule.
+
 **Owner:** TestForge AI maintainers
 **Accepted:** 2026-08-07
 **Expires:** 2026-08-22T00:00:00Z
 
 ### Applicability and acceptance
 
-Applicability is supported by the exact affected PURL, the official Apache
-examples-only advisory, and unchanged embedded-application packaging
-configuration. The historical 2026-08-06 TestForge JAR observation found no
-Tomcat example or WebSocket chat resources. This is a temporary, exact-PURL and
-exact-CVE acceptance only; it is not a CVSS threshold reduction or a general
-Tomcat suppression.
+Candidate `9095482` used the existing exact core rule and then surfaced the
+WebSocket finding. Dependency-Check associates the advisory with both embedded
+artifacts. Applicability is supported by both exact affected PURLs, the official
+Apache examples-only advisory, and unchanged embedded-application packaging
+configuration. The historical 2026-08-06 TestForge JAR observation contains
+both embedded Tomcat artifacts and found no Tomcat example or WebSocket chat
+resources. These are temporary, exact-PURL and exact-CVE acceptances only; they
+are not a CVSS threshold reduction or general Tomcat suppressions.
 
 ### Evidence and compensating controls
 
@@ -46,21 +54,22 @@ Tomcat suppression.
   publication gates after implementation completion, not completion prerequisites.
 - Existing-artifact observation (not fresh candidate or CI evidence):
   `backend/target/testforge-backend.jar` dated 2026-08-06 contains
-  `BOOT-INF/lib/tomcat-embed-core-10.1.57.jar`; `jar tf` found no Tomcat example
-  web application or chat-example resources. TF-008 does not change packaging
-  source.
-- Compensating controls: the suppression matches exactly one Maven PURL and one
-  CVE, has a hard expiry, fails the build when unused, keeps CVSS 7 and every
-  other dependency scan in force, and the embedded application does not ship
-  the affected example.
+  `BOOT-INF/lib/tomcat-embed-core-10.1.57.jar` and
+  `BOOT-INF/lib/tomcat-embed-websocket-10.1.57.jar`; `jar tf` found no Tomcat
+  example web application or chat-example resources. TF-008 does not change
+  packaging source.
+- Compensating controls: each suppression matches one exact non-regex Maven PURL
+  and one CVE, has the same hard expiry, fails the build when unused, keeps CVSS
+  7 and every other dependency scan in force, and the embedded application does
+  not ship the affected example.
 
 ### Removal and expiry policy
 
-Remove this acceptance and suppression immediately on Tomcat 10.1.58 or later.
-If the exact dependency is no longer present, the unused-suppression rule fails
-closed. If the date expires first, the suppression no longer applies and the
-security build must fail closed until the dependency is upgraded or a newly
-approved acceptance replaces it.
+Remove both acceptances and suppressions immediately on Tomcat 10.1.58 or later.
+If either exact dependency is no longer present, the unused-suppression rule
+fails closed. If the date expires first, neither suppression applies and the
+security build must fail closed until the dependencies are upgraded or newly
+approved acceptances replace them.
 
 ## Verified immutable references
 
