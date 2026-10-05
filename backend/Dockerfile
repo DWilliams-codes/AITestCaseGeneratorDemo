@@ -7,7 +7,7 @@ RUN mvn -B -DskipTests package
 
 FROM eclipse-temurin:21-jre-alpine-3.23@sha256:3f08b13888f595cc49edabea7250ba69499ba25602b267da591720769400e08c
 RUN apk add --no-cache curl \
-    && apk upgrade --no-cache libexpat p11-kit p11-kit-trust \
+    && apk upgrade --no-cache libexpat p11-kit p11-kit-trust libcrypto3 libssl3 openssl sqlite-libs \
     && addgroup -S testforge \
     && adduser -S testforge -G testforge
 WORKDIR /app

@@ -50,6 +50,30 @@ this toolchain-only declaration repair; it adds no runtime library. The final
 npm-generated lock passed both installed-tree inspection and a clean isolated
 `npm ci`, followed by another audit with no high/critical advisories.
 
+## Backend Alpine runtime scan remediation (TF-017)
+
+The predecessor image scan for commit
+`529cbd85fae0a0d22ed81babc63f37745f10e4a7` reported five HIGH findings across
+four Alpine runtime packages. Its Java artifact scan had no findings.
+
+| Packages | Installed in predecessor | Reported fixed threshold | Advisory |
+| --- | --- | --- | --- |
+| openssl, libcrypto3, libssl3 | 3.5.7-r0 | 3.5.8-r0 | CVE-2026-14456 |
+| sqlite-libs | 3.51.2-r0 | 3.53.4-r0 | CVE-2026-11822, CVE-2026-11824 |
+
+The backend runtime Dockerfile now includes these packages in its existing
+targeted `apk upgrade --no-cache` step. It retains the pinned Temurin Alpine
+3.23 base, existing repository branch, curl health tooling and non-root user.
+There is no suppression, acceptance renewal, scanner-threshold change, or
+repository-branch workaround. If the fixed packages are unavailable from the
+existing branch, the release remains blocked.
+
+This source change is not proof of image remediation. The rebuilt candidate
+must resolve patched installed versions and pass backend and frontend Trivy
+scans with zero fixable HIGH/CRITICAL findings, plus the other exact-SHA CI
+gates. Docker is unavailable on the local desktop; do not relabel local source
+inspection as image-build or scanner evidence.
+
 ## Verified immutable references
 
 All values below were resolved on 2026-08-05 from the named publisher's
