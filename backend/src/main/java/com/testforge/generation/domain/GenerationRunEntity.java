@@ -85,6 +85,12 @@ public class GenerationRunEntity {
   @Column(name = "correlation_id", nullable = false, length = 100)
   private String correlationId;
 
+  @Column(name = "deleted_at")
+  private Instant deletedAt;
+
+  @Column(name = "deleted_by")
+  private UUID deletedBy;
+
   /** Creates an empty GenerationRunEntity instance for the persistence framework. */
   protected GenerationRunEntity() {}
 
@@ -138,13 +144,30 @@ public class GenerationRunEntity {
   }
 
   /** Executes the complete operation for GenerationRunEntity. */
-  public void complete(int caseCount, int inputTokens, int outputTokens, Instant now) {
+  public void complete(int caseCount, Integer inputTokens, Integer outputTokens, Instant now) {
     this.status = GenerationStatus.COMPLETED;
     this.generatedCaseCount = caseCount;
     this.inputTokens = inputTokens;
     this.outputTokens = outputTokens;
     this.completedAt = now;
     this.latencyMs = Math.max(0, now.toEpochMilli() - startedAt.toEpochMilli());
+  }
+
+  /** Preserves nullable transport totals rather than inventing zero usage for unknown attempts. */
+  public void recordUsage(Integer inputTokens, Integer outputTokens) {
+    this.inputTokens = inputTokens;
+    this.outputTokens = outputTokens;
+  }
+
+  /**
+   * Fills missing usage once for an expired claim without reopening it or changing its terminal
+   * evidence.
+   */
+  public void reconcileExpiredUsage(Integer inputTokens, Integer outputTokens) {
+    if (status == GenerationStatus.FAILED && "stale_generation_claim".equals(failureCode)) {
+      if (this.inputTokens == null) this.inputTokens = inputTokens;
+      if (this.outputTokens == null) this.outputTokens = outputTokens;
+    }
   }
 
   /** Executes the fail operation for GenerationRunEntity. */
@@ -296,5 +319,19 @@ public class GenerationRunEntity {
   /** Returns the current correlation id value. */
   public String getCorrelationId() {
     return correlationId;
+  }
+
+  /** Reports whether this generation run is a hidden historical tombstone. */
+  public boolean isDeleted() {
+    return deletedAt != null;
+  }
+
+  /** Marks an eligible completed set as deleted after all generated evidence has been purged. */
+  public void tombstone(UUID userId, Instant now) {
+    if (status != GenerationStatus.COMPLETED || isDeleted()) {
+      throw new IllegalStateException("Only visible completed generation sets can be tombstoned.");
+    }
+    deletedAt = now;
+    deletedBy = userId;
   }
 }

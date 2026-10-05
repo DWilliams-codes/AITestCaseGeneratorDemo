@@ -51,7 +51,8 @@ class OpenAiTestGenerationProviderTest {
             new OpenAiProperties("test-key", "https://api.openai.test/v1", "gpt-test", 1, 2, 4000),
             objectMapper,
             new DefaultResourceLoader(),
-            builder.build());
+            builder.build(),
+            org.mockito.Mockito.mock(com.testforge.config.DemoModePolicy.class));
     validator =
         new GenerationResultValidator(
             new GenerationProperties("openai", 10, 5, Duration.ofMinutes(4)),
@@ -79,11 +80,37 @@ class OpenAiTestGenerationProviderTest {
         .andExpect(jsonPath("$.text.format.type").value("json_schema"))
         .andExpect(jsonPath("$.text.format.strict").value(true))
         .andExpect(
+            jsonPath(
+                    "$.text.format.schema.properties.testCases.items.properties.setupSteps.maxItems")
+                .value(30))
+        .andExpect(
+            jsonPath("$.text.format.schema.properties.testCases.items.required")
+                .value(org.hamcrest.Matchers.hasItem("setupSteps")))
+        .andExpect(
             jsonPath("$.instructions")
                 .value(org.hamcrest.Matchers.containsString("internally decompose")))
         .andExpect(
             jsonPath("$.instructions")
                 .value(org.hamcrest.Matchers.containsString("smallest coherent suite")))
+        .andExpect(
+            jsonPath("$.instructions")
+                .value(org.hamcrest.Matchers.containsString("complete reproducible path")))
+        .andExpect(
+            jsonPath("$.instructions")
+                .value(org.hamcrest.Matchers.containsString("individual tester interaction")))
+        .andExpect(
+            jsonPath("$.instructions").value(org.hamcrest.Matchers.containsString("assumed-only")))
+        .andExpect(
+            jsonPath("$.instructions")
+                .value(org.hamcrest.Matchers.containsString("Do not combine actions")))
+        .andExpect(
+            jsonPath("$.instructions")
+                .value(org.hamcrest.Matchers.containsString("realistic enterprise roles")))
+        .andExpect(
+            jsonPath("$.instructions")
+                .value(
+                    org.hamcrest.Matchers.containsString(
+                        "independently executable without undocumented assumptions")))
         .andExpect(
             jsonPath("$.input")
                 .value(org.hamcrest.Matchers.containsString("untrusted requirement data")))
@@ -96,7 +123,7 @@ class OpenAiTestGenerationProviderTest {
     assertThat(result.usage().outputTokens()).isEqualTo(654);
     assertThat(provider.providerName()).isEqualTo("openai-responses");
     assertThat(provider.modelName()).isEqualTo("gpt-test");
-    assertThat(provider.adapterVersion()).isEqualTo("openai-responses-v3");
+    assertThat(provider.adapterVersion()).isEqualTo("openai-responses-v5");
     server.verify();
   }
 
@@ -129,7 +156,7 @@ class OpenAiTestGenerationProviderTest {
     server.expect(requestTo("https://api.openai.test/v1/responses")).andRespond(withServerError());
     assertThatThrownBy(() -> provider.generate(request()))
         .isInstanceOf(GenerationProviderException.class)
-        .hasMessageContaining("could not complete");
+        .hasMessageContaining("rejected");
     server.verify();
   }
 
@@ -139,9 +166,11 @@ class OpenAiTestGenerationProviderTest {
     var schema =
         objectMapper.readTree(
             new DefaultResourceLoader()
-                .getResource("classpath:prompts/test-generation-schema-v2.json")
+                .getResource("classpath:prompts/test-generation-schema-v3.json")
                 .getInputStream());
     assertThat(schema.toString()).doesNotContain("uniqueItems");
+    assertThat(schema.at("/properties/testCases/items/properties/setupSteps/maxItems").intValue())
+        .isEqualTo(30);
     OpenAiTestGenerationProvider.validateStrictSchema(schema, "$", false);
 
     var unsupported =
@@ -215,6 +244,57 @@ class OpenAiTestGenerationProviderTest {
         .isInstanceOf(GenerationValidationException.class);
   }
 
+  /** Preserves missing required setup evidence for application-owned semantic validation. */
+  @Test
+  void rejectsMissingSetupStepsDuringApplicationValidation() {
+    ObjectNode missing = structuredOutput();
+    ((ObjectNode) missing.at("/testCases/0")).remove("setupSteps");
+    expectStructuredOutput(missing);
+    TestGenerationResult result = provider.generate(request());
+    assertThat(result.testCases().getFirst().setupSteps()).isNull();
+    assertThatThrownBy(() -> validator.validate(request(), result))
+        .isInstanceOf(GenerationValidationException.class);
+  }
+
+  /** Rejects unknown and coercive setup-step payloads under the pinned v3 schema. */
+  @Test
+  void rejectsMalformedSetupStepFieldsFromTheUnchangedV3WireContract() {
+    ObjectNode unknown = structuredOutput();
+    ((ObjectNode) unknown.at("/testCases/0/setupSteps/0")).put("unexpectedField", "synthetic");
+    assertMalformed(unknown);
+
+    ObjectNode stringNumber = structuredOutput();
+    ((ObjectNode) stringNumber.at("/testCases/0/setupSteps/0")).put("stepNumber", "1");
+    assertMalformed(stringNumber);
+  }
+
+  /** Enforces the transport ceiling before JSON allocation and never exposes rejection bodies. */
+  @Test
+  void boundsTransportBeforeParsingAndRejectsNonSuccess() {
+    String prefix = "{\"status\":\"completed\",\"output\":[]}";
+    expectResponse(
+        prefix + " ".repeat(OpenAiTestGenerationProvider.MAX_RESPONSE_BYTES - prefix.length()));
+    assertThatThrownBy(() -> provider.generate(request()))
+        .isInstanceOf(RetryableStructuredOutputException.class)
+        .hasMessageContaining("no structured output");
+    expectResponse(
+        prefix + " ".repeat(OpenAiTestGenerationProvider.MAX_RESPONSE_BYTES - prefix.length() + 1));
+    assertThatThrownBy(() -> provider.generate(request()))
+        .isInstanceOf(GenerationProviderException.class)
+        .hasMessageContaining("safe size limit");
+    server.reset();
+    server
+        .expect(requestTo("https://api.openai.test/v1/responses"))
+        .andRespond(
+            org.springframework.test.web.client.response.MockRestResponseCreators.withStatus(
+                    org.springframework.http.HttpStatus.FOUND)
+                .body("private-error-canary"));
+    assertThatThrownBy(() -> provider.generate(request()))
+        .isInstanceOf(GenerationProviderException.class)
+        .hasMessageContaining("rejected")
+        .hasMessageNotContaining("private-error-canary");
+  }
+
   /** Executes the expect response operation for OpenAiTestGenerationProviderTest. */
   private void expectResponse(String body) {
     server.reset();
@@ -281,10 +361,65 @@ class OpenAiTestGenerationProviderTest {
                 CoverageIntent.ACCEPTANCE_CRITERIA,
                 List.of("A synthetic eligible order exists."),
                 List.of(),
+                List.of(
+                    new GeneratedStep(
+                        1, "Open the synthetic order.", "The eligible order is ready.", null)),
                 List.of(new GeneratedStep(1, "Submit the return.", "One return is created.", null)),
                 "One return exists.",
                 List.of("AC-1"),
                 "Direct evidence for AC-1.")),
         new TestGenerationResult.UsageMetadata(0, 0));
+  }
+
+  /** Captures safe transport usage for incomplete, empty, refused and malformed provider output. */
+  @Test
+  void preservesUsageBeforeParsingAndSanitizesFailureBodies() {
+    for (String response :
+        List.of(
+            "{\"status\":\"incomplete\",\"output\":[]}",
+            "{\"status\":\"completed\",\"output\":[]}",
+            "{\"status\":\"completed\",\"output\":[{\"content\":[{\"type\":\"refusal\",\"refusal\":\"sensitive-canary\"}]}]}",
+            "{\"status\":\"completed\",\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"sensitive-canary\"}]}]}")) {
+      expectResponse(
+          response.substring(0, response.length() - 1)
+              + ",\"usage\":{\"input_tokens\":12,\"output_tokens\":34}}");
+      assertThatThrownBy(() -> provider.generate(request()))
+          .isInstanceOfSatisfying(
+              GenerationProviderException.class,
+              exception -> {
+                assertThat(exception.usage().inputTokens()).isEqualTo(12);
+                assertThat(exception.usage().outputTokens()).isEqualTo(34);
+                assertThat(exception.getMessage()).doesNotContain("sensitive-canary");
+                assertThat(exception.getCause()).isNull();
+              });
+    }
+  }
+
+  /** Unknown transport counts remain nullable and cannot be supplied by generated JSON. */
+  @Test
+  void doesNotCoerceUnknownTransportUsageToZero() {
+    expectResponse(
+        "{\"status\":\"incomplete\",\"usage\":{\"input_tokens\":\"12\",\"output_tokens\":-4},\"output\":[]}");
+    assertThatThrownBy(() -> provider.generate(request()))
+        .isInstanceOfSatisfying(
+            GenerationProviderException.class,
+            exception -> {
+              assertThat(exception.usage().inputTokens()).isNull();
+              assertThat(exception.usage().outputTokens()).isNull();
+            });
+  }
+
+  /** A JSON null root is malformed structured output and must retain known transport usage. */
+  @Test
+  void nullStructuredRootPreservesUsageAndControlledRetryClassification() {
+    expectResponse(
+        "{\"status\":\"completed\",\"usage\":{\"input_tokens\":4,\"output_tokens\":2},\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"null\"}]}]}");
+    assertThatThrownBy(() -> provider.generate(request()))
+        .isInstanceOfSatisfying(
+            RetryableStructuredOutputException.class,
+            exception -> {
+              assertThat(exception.usage().inputTokens()).isEqualTo(4);
+              assertThat(exception.usage().outputTokens()).isEqualTo(2);
+            });
   }
 }

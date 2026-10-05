@@ -15,7 +15,7 @@ flowchart TB
 
 ## Deployment containers
 
-The frontend image builds immutable static assets and serves them from unprivileged Nginx. Nginx proxies `/api` to the backend. The backend image runs an unprivileged Java 21 process. PostgreSQL uses SCRAM host authentication and a persistent volume. Container `no-new-privileges` is enabled. Production deployments must add TLS, a secret store, private networking, backups, monitoring, and an ingress-level shared rate limiter.
+The frontend image builds immutable static assets and serves them from unprivileged Nginx. Nginx proxies `/api` to the backend. The backend image runs an unprivileged Java 21 process. PostgreSQL uses SCRAM host authentication and a persistent volume. Container `no-new-privileges` is enabled. Default Compose binds its deliberately cleartext Nginx publication to IPv4 loopback only; backend and PostgreSQL have no host publication. A non-loopback deployment must add TLS, secure cookies, a secret store, private networking, backups, monitoring, and an ingress-level shared rate limiter.
 
 ## Backend modules
 
@@ -62,13 +62,18 @@ sequenceDiagram
 No database transaction spans the provider call. Provider failure and invalid
 output become safe generation-run states; raw provider error bodies are not
 returned. New runs retain model/provider plus the
-`manual-test-v2`/`manual-test-result-v1`/`manual-test-schema-v2`/
-`manual-test-validator-v2`/`openai-responses-v3` release evidence, source User
+`manual-test-v5`/`manual-test-result-v2`/`manual-test-schema-v3`/
+`manual-test-validator-v4`/`openai-responses-v5` release evidence, source User
 Story version and provenance, input hash, tokens, latency, correlation ID, and
 outcome. The prompt performs internal atomic-coverage decomposition only; no
 coverage-item inventory, schema, persistence, API, or frontend contract is
-created. It permits a direct case to map multiple supplied criteria when one
-workflow independently verifies them, while avoiding redundant splits.
+created. It requires actionable setup/readiness and individual evidence-bearing
+tester interactions, rejects criterion-label placeholders and compressed
+workflows, and permits a direct case to map multiple supplied criteria when one
+workflow independently verifies them. It uses realistic enterprise roles,
+synthetic data, permissions, statuses, approvals, and audit-relevant outcomes
+where applicable. Each case is independently executable without undocumented
+assumptions and uses only source-supported policy.
 Incomplete, empty, malformed, or semantic output retries once;
 refusal, configuration, authentication, and transport failures do not. The
 provider adapter rejects an unsupported strict-schema keyword before making a
@@ -83,6 +88,12 @@ generation-blocking clarification need.
 ## Data model
 
 The normalized schema includes users, refresh-token families, projects, requirements, acceptance criteria, requirement ambiguities and revisions, generation runs, immutable generation criterion snapshots, test cases, preconditions, steps, test data, legacy and snapshot traceability links, reviews, test-case revisions, and audit events. The existing `requirements` table is the physical store for the canonical User Story aggregate. V6 is an additive expand/backfill/dual-write migration: it preserves old columns and nullable rollback paths, labels reconstructed pre-V6 evidence `LEGACY_RECONSTRUCTED`, and never claims exact history that was not retained. UUIDs remain the non-guessable internal identifiers used for routes and authorization. A separate shared database sequence issues immutable ADO-style work-item numbers for user stories and test cases; those display numbers never replace owner validation. Aggregate optimistic versions protect both story fields and criterion mutations. Flyway is the only schema migration mechanism; Hibernate validates rather than creates production tables.
+
+The SPA resolves its MUI theme from a local `system`, `light`, or `dark`
+preference. The provider validates the single `testforge-color-mode` storage
+value, follows `matchMedia` for system mode, and synchronizes browser storage
+events. It writes only presentation metadata (`color-scheme` and theme color),
+not authentication, workspace, query, or generated-content state.
 
 Completed generation runs are immutable generation sets. One application
 resolver orders successful runs by completion time then UUID, designates the
@@ -119,7 +130,7 @@ Errors use RFC 7807 with stable `code`, status, safe detail, instance path, time
 
 ## Quality boundaries
 
-Backend verification enforces formatting, SpotBugs, and 80% line / 70% branch coverage. H2 and the deterministic generation provider are test-scoped and excluded from the packaged application. Frontend verification enforces Prettier, TypeScript, ESLint, unit coverage, a production bundle, pure fail-closed audit-policy tests, and an executable high/critical advisory policy with no allowlist. Default Playwright uses a synthetic external Responses stub to traverse generation, review, traceability, export, terminal failure, and axe checks without a paid provider. A separately invoked live-generation suite remains optional. Default Compose publishes only Nginx; backend and PostgreSQL remain on private networks.
+Backend verification enforces formatting, SpotBugs, and 80% line / 70% branch coverage. H2 and the deterministic generation provider are test-scoped and excluded from the packaged application. Frontend verification enforces Prettier, TypeScript, ESLint, unit coverage, a production bundle, pure fail-closed audit-policy tests, and an executable high/critical advisory policy with no allowlist. Default Playwright uses a synthetic external Responses stub to traverse generation, review, traceability, export, terminal failure, and axe checks without a paid provider. A separately invoked live-generation suite remains optional. Default Compose publishes only Nginx to IPv4 loopback; backend and PostgreSQL remain on private networks.
 
 ## Decisions
 
@@ -149,3 +160,61 @@ Detailed target references: [target architecture](architecture/target-architectu
 [domain model and snapshots](architecture/domain-model.md), [AI pipeline](architecture/ai-generation-pipeline.md),
 [automation/Copado design](architecture/copado-generation-architecture.md), and
 [security model](architecture/security-model.md).
+# Superseded generation-set tombstones
+
+Generation deletion is a transactional hybrid: the full generated descendant
+graph and immutable snapshots are purged, while the completed run retains only
+a hidden `deleted_at`/`deleted_by` tombstone. Readers resolve only visible runs;
+stable set numbering still counts completed tombstones.
+
+## TF-015 simulation and generation integrity
+
+The additive public simulation route has no backend execution API. A typed
+allowlist (`CREATE_RECORD`, `UPDATE_RECORD`, `ASSERT_FIELD`,
+`ASSERT_RECORD_COUNT`) operates only on isolated in-memory Account/Case data.
+Application-owned fixture obligations, field/value validation and criterion
+mappings are checked before approval and independently at runner construction.
+The immutable approval includes source, actions/assertions, clarification,
+environment/role, variable values, reference names and fixture/runner versions.
+The compact fingerprint is a display identifier; execution compares the entire
+canonical contract, not a collision-prone short hash. This guards ordinary app
+state integrity and is not a security authority against a malicious browser.
+
+The runner deduplicates step IDs, enforces approved order and synthetic role,
+records per-step before/after/assertion evidence and stops on uncertain writes.
+Lifecycle, business assertion result and evidence completeness are independent.
+Each run retains its own approved contract after the current draft changes.
+
+Saved ambiguity answers are captured under the owned requirement lock, ordered
+by creation/identity, appended within the existing provider assumptions field
+as untrusted Q/A, and included in input hashing. At most 20 answers and 30,000
+combined assumption/answer characters are accepted; excess requires explicit
+consolidation, never silent omission. Initial call and retry reuse that captured
+request. A changed assumption/answer during provider latency fails finalization
+without cases. Existing criterion-rename compatibility is preserved.
+
+Adapter `openai-responses-v5` captures nullable transport usage before parsing
+and carries only safe counts through malformed/refusal failures. The service
+accumulates every attempt including semantic rejections. If a dimension is
+unknown on any attempt, its total remains null. Existing nullable columns need
+no migration. Prompt/result/schema/validator versions remain unchanged.
+
+Late usage from the original provider claim may fill previously unknown totals
+only on an expired `FAILED` / `stale_generation_claim` run. Row locking and
+fill-once assignment prevent double-counting duplicate completion/failure.
+The failure, completion timestamp and no-case outcome remain unchanged.
+
+## Isolated external fixture mode
+
+`DemoModePolicy` owns the complete server-side configuration boundary and
+reserved-principal guard. `DemoDataSeeder` verifies rather than overwrites an
+existing public account; `DemoInfoController` publishes only ready public
+metadata. The existing Responses HTTP adapter retains strict parsing and
+semantic validation and switches only truthful provenance/unknown usage in
+safe mode. A 2 MiB transport ceiling precedes JSON parsing, and redirects are
+disabled. The external test fixture is not compiled into the backend.
+
+Docker E2E uses the frontend as network namespace anchor; backend127.0.0.1:8082
+and fixture127.0.0.1:8081 share it, with nginx proxying literal loopback. The
+anchor remains the sole published loopback listener and joins PostgreSQL's
+data network. No production security boundary is relaxed for CI.

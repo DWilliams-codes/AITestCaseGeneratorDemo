@@ -275,7 +275,9 @@ public class RequirementService {
             .findOwned(ambiguityId, ownerId)
             .orElseThrow(() -> ApiExceptions.notFound("Ambiguity not found."));
     assertVersion(ambiguity.getVersion(), request.version(), "ambiguity");
-    RequirementEntity requirement = requireOwned(ownerId, ambiguity.getRequirementId());
+    RequirementEntity requirement = requireOwnedForUpdate(ownerId, ambiguity.getRequirementId());
+    saveRevision(requirement, ownerId);
+    requirement.markClarificationChanged(clock.instant());
     ambiguity.resolve(request.resolution().strip(), clock.instant());
     auditService.record(
         ownerId,
@@ -404,6 +406,11 @@ public class RequirementService {
     snapshot.put("status", requirement.getStatus().name());
     snapshot.put("priority", requirement.getPriority().name());
     snapshot.put("version", requirement.getVersion());
+    snapshot.put(
+        "ambiguities",
+        ambiguities.findAllByRequirementIdOrderByCreatedAt(requirement.getId()).stream()
+            .map(this::toAmbiguity)
+            .toList());
     snapshot.put(
         "acceptanceCriteria",
         orderedCriteria.stream()

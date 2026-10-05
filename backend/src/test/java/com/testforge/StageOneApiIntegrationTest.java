@@ -88,8 +88,19 @@ class StageOneApiIntegrationTest {
   @Autowired private ProjectService projectService;
   @Autowired private RequirementService requirementService;
   @Autowired private GenerationService generationService;
+
+  @Autowired
+  private com.testforge.generation.application.GenerationTransactionService generationTransactions;
+
   @Autowired private TestCaseService testCaseService;
   @MockitoSpyBean private FakeTestGenerationProvider generationProvider;
+
+  // Suite authentication is established once; workflow setup must not consume the login abuse
+  // budget.
+  private static final Map<String, String> FIXTURE_TOKENS = new java.util.HashMap<>();
+
+  @Autowired
+  private com.testforge.requirement.repository.RequirementAmbiguityRepository ambiguityRepository;
 
   private String ownerToken;
   private String outsiderToken;
@@ -97,6 +108,73 @@ class StageOneApiIntegrationTest {
   private String ownerWorkspaceId;
   private String requirementId;
   private String testCaseId;
+
+  /** Blocks the reserved public account and an old JWT before any provider or claim work. */
+  @Test
+  void publicDemoCannotAuthenticateOrGenerateOutsideFixtureMode() throws Exception {
+    reset(generationProvider);
+    mockMvc
+        .perform(get("/api/v1/demo-info"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.enabled").value(false))
+        .andExpect(jsonPath("$.password").doesNotExist());
+    mockMvc
+        .perform(
+            post("/api/v1/auth/register")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"email\":\"demo@testforge.local\",\"displayName\":\"Disposable\",\"password\":\"TestForge!Demo2026\"}"))
+        .andExpect(status().isUnauthorized());
+    var publicUser =
+        users
+            .findByEmailNormalized(com.testforge.config.DemoDataSeeder.DEMO_EMAIL)
+            .orElseGet(
+                () ->
+                    users.save(
+                        com.testforge.user.domain.UserEntity.create(
+                            "demo@testforge.local",
+                            "demo@testforge.local",
+                            "Public disposable",
+                            demoPasswordEncoder.encode(
+                                com.testforge.config.DemoDataSeeder.DEMO_PASSWORD),
+                            Instant.now())));
+    mockMvc
+        .perform(
+            post("/api/v1/auth/login")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"email\":\"demo@testforge.local\",\"password\":\"TestForge!Demo2026\"}"))
+        .andExpect(status().isUnauthorized());
+    String raw = UUID.randomUUID().toString();
+    demoRefreshTokens.save(
+        com.testforge.auth.domain.RefreshTokenEntity.create(
+            publicUser.getId(),
+            UUID.randomUUID(),
+            sha256(raw),
+            Instant.now(),
+            Instant.now().plusSeconds(300)));
+    mockMvc
+        .perform(
+            post("/api/v1/auth/refresh").with(csrf()).cookie(new Cookie("testforge_refresh", raw)))
+        .andExpect(status().isUnauthorized());
+    String oldToken = demoJwt.issue(publicUser);
+    mockMvc
+        .perform(
+            post("/api/v1/user-stories/" + requirementId + "/generate-test-cases")
+                .with(csrf())
+                .header("Authorization", "Bearer " + oldToken)
+                .header("Idempotency-Key", UUID.randomUUID().toString()))
+        .andExpect(status().isUnauthorized());
+    org.mockito.Mockito.verifyNoInteractions(generationProvider);
+  }
+
+  @Autowired
+  private org.springframework.security.crypto.password.PasswordEncoder demoPasswordEncoder;
+
+  @Autowired private com.testforge.auth.application.JwtService demoJwt;
+  @Autowired private com.testforge.auth.repository.RefreshTokenRepository demoRefreshTokens;
 
   /** Rebuilds isolated fixtures before each test scenario. */
   @BeforeEach
@@ -172,8 +250,10 @@ class StageOneApiIntegrationTest {
                         .header("Idempotency-Key", "integration-generation-" + projectId))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.promptVersion").value("manual-test-v2"))
-                .andExpect(jsonPath("$.resultContractVersion").value("manual-test-result-v1"))
+                .andExpect(jsonPath("$.promptVersion").value("manual-test-v5"))
+                .andExpect(jsonPath("$.resultContractVersion").value("manual-test-result-v2"))
+                .andExpect(jsonPath("$.schemaVersion").value("manual-test-schema-v3"))
+                .andExpect(jsonPath("$.validatorVersion").value("manual-test-validator-v4"))
                 .andExpect(jsonPath("$.setNumber").value(1))
                 .andExpect(jsonPath("$.setState").value("ACTIVE"))
                 .andReturn());
@@ -196,6 +276,275 @@ class StageOneApiIntegrationTest {
         testCase ->
             assertThat(testCase.get("testCaseKey").asText())
                 .isEqualTo("TC-" + testCase.get("workItemNumber").asLong()));
+  }
+
+  /** Covers the executes generation review traceability and safe export workflow scenario. */
+  @Test
+  @Order(0)
+  void pagesQueryFiltersBeforePagingEscapesLiteralsAndPreservesOwnerIsolation() throws Exception {
+    UUID runId =
+        jdbcTemplate.queryForObject(
+            "select generation_run_id from testforge.test_cases where id = ?",
+            UUID.class,
+            UUID.fromString(testCaseId));
+    List<UUID> caseIds =
+        jdbcTemplate.queryForList(
+            "select id from testforge.test_cases where generation_run_id = ? order by work_item_number",
+            UUID.class,
+            runId);
+    jdbcTemplate.update(
+        "update testforge.test_cases set title = 'nonmatching-query-row', priority = 'LOW', status = 'GENERATED', category = 'HAPPY_PATH' where generation_run_id = ?",
+        runId);
+    jdbcTemplate.update(
+        "update testforge.test_cases set title = 'literal-%_\\-query', priority = 'CRITICAL', status = 'APPROVED', category = 'NEGATIVE', updated_at = '2098-08-01T00:00:00Z' where id = ?",
+        caseIds.get(0));
+    jdbcTemplate.update(
+        "update testforge.test_cases set title = 'literal-%_\\-query', priority = 'HIGH', status = 'GENERATED', category = 'HAPPY_PATH', updated_at = '2099-08-02T00:00:00Z' where id = ?",
+        caseIds.get(1));
+
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                .queryParam("generationRunId", runId.toString())
+                .queryParam("search", "literal-%_\\-query")
+                .queryParam("size", "1")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(2))
+        .andExpect(jsonPath("$.items.length()").value(1));
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                .queryParam("generationRunId", runId.toString())
+                .queryParam("search", "literal-%_\\-query")
+                .queryParam("page", "1")
+                .queryParam("size", "1")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(2))
+        .andExpect(jsonPath("$.items.length()").value(1));
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/test-cases/page", requirementId)
+                .queryParam("generationRunId", runId.toString())
+                .queryParam("sort", "priority-desc")
+                .queryParam("size", "2")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].priority").value("CRITICAL"))
+        .andExpect(jsonPath("$.items[1].priority").value("HIGH"));
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/test-cases/page", requirementId)
+                .queryParam("generationRunId", runId.toString())
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(caseIds.size()));
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/test-cases/page", requirementId)
+                .queryParam("generationRunId", runId.toString())
+                .queryParam("sort", "priority-desc")
+                .queryParam("search", "   ")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(caseIds.size()))
+        .andExpect(jsonPath("$.items[0].priority").value("CRITICAL"));
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                .queryParam("generationRunId", runId.toString())
+                .queryParam("status", "APPROVED")
+                .queryParam("category", "NEGATIVE")
+                .queryParam("priority", "CRITICAL")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(1))
+        .andExpect(jsonPath("$.items[0].priority").value("CRITICAL"));
+    JsonNode sequenceDescending =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                        .queryParam("generationRunId", runId.toString())
+                        .queryParam("sort", "sequence-desc")
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    assertThat(sequenceDescending.path("items").get(0).path("workItemNumber").asLong())
+        .isEqualTo(
+            jdbcTemplate.queryForObject(
+                "select max(work_item_number) from testforge.test_cases where generation_run_id = ?",
+                Long.class,
+                runId));
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                .queryParam("generationRunId", runId.toString())
+                .queryParam("sort", "status-asc")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].status").value("APPROVED"));
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                .queryParam("generationRunId", runId.toString())
+                .queryParam("sort", "updated-desc")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[0].id").value(caseIds.get(1).toString()));
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                .queryParam("sort", "not-an-order")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("invalid_test_case_sort"));
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                .queryParam("status", "NOT_A_STATUS")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                .queryParam("search", "x".repeat(301))
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/test-cases/page", requirementId)
+                .queryParam("generationRunId", runId.toString())
+                .header("Authorization", bearer(outsiderToken)))
+        .andExpect(status().isNotFound());
+  }
+
+  /**
+   * Covers setup response, compatible PATCH semantics, revision/export evidence, and atomic
+   * rejection.
+   */
+  @Test
+  @Order(0)
+  void preservesOrClearsSetupStepsWithoutLeavingDanglingDataReferences() throws Exception {
+    UUID caseId = UUID.fromString(testCaseId);
+    String dataName =
+        jdbcTemplate.queryForObject(
+            "select name from testforge.test_data_items where test_case_id = ? order by name limit 1",
+            String.class,
+            caseId);
+    jdbcTemplate.update(
+        "delete from testforge.test_case_setup_steps where test_case_id = ?", caseId);
+    jdbcTemplate.update(
+        "insert into testforge.test_case_setup_steps (id, test_case_id, step_number, action, expected_result, test_data_reference) values (?, ?, 1, 'Prepare synthetic fixture.', 'Fixture readiness is observable.', ?)",
+        UUID.randomUUID(),
+        caseId,
+        dataName);
+    JsonNode existing =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/test-cases/{testCaseId}", testCaseId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.setupSteps[0].testDataReference").value(dataName))
+                .andReturn());
+    // This export fixture explicitly supplies approved evidence; later edit fixtures return to
+    // GENERATED.
+    jdbcTemplate.update("update testforge.test_cases set status = 'APPROVED' where id = ?", caseId);
+    mockMvc
+        .perform(
+            get("/api/v1/requirements/{requirementId}/export", requirementId)
+                .queryParam("format", "md")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(
+            result -> assertThat(result.getResponse().getContentAsString()).contains("## Setup"));
+
+    jdbcTemplate.update(
+        "update testforge.test_cases set status = 'GENERATED' where id = ?", caseId);
+    ObjectNode omitted = editableUpdate(existing);
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(omitted)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.setupSteps.length()").value(1));
+
+    ObjectNode dangling = editableUpdate(existing);
+    dangling.put("version", existing.get("version").asLong());
+    dangling.withArray("testData").removeAll();
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(dangling)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("invalid_test_data_reference"));
+
+    ObjectNode invalid = editableUpdate(existing);
+    ArrayNode invalidSetup = invalid.putArray("setupSteps");
+    invalidSetup
+        .addObject()
+        .put("stepNumber", 2)
+        .put("action", "Bad setup.")
+        .put("expectedResult", "Must not persist.")
+        .putNull("testDataReference");
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(invalid)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("invalid_step_order"));
+
+    ObjectNode clear = editableUpdate(existing);
+    clear.put("title", existing.get("title").asText() + " cleared setup");
+    clear.putArray("setupSteps");
+    mockMvc
+        .perform(
+            patch("/api/v1/test-cases/{testCaseId}", testCaseId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(clear)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.setupSteps").isEmpty());
+    mockMvc
+        .perform(
+            get("/api/v1/test-cases/{testCaseId}/revisions", testCaseId)
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.items[0].snapshot.setupSteps[0].action")
+                .value("Prepare synthetic fixture."));
+  }
+
+  /** Proves V7 setup rows remain additive and are removed only by their test-case cascade. */
+  @Test
+  @Order(0)
+  void cascadesSetupRowsWhenTheirOwningCaseIsDeleted() {
+    UUID caseId = UUID.fromString(testCaseId);
+    jdbcTemplate.update(
+        "delete from testforge.test_case_setup_steps where test_case_id = ?", caseId);
+    jdbcTemplate.update(
+        "insert into testforge.test_case_setup_steps (id, test_case_id, step_number, action, expected_result) values (?, ?, 1, 'Prepare deletion fixture.', 'Fixture is ready.')",
+        UUID.randomUUID(),
+        caseId);
+    jdbcTemplate.update("delete from testforge.test_cases where id = ?", caseId);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.test_case_setup_steps where test_case_id = ?",
+                Integer.class,
+                caseId))
+        .isZero();
   }
 
   /** Covers the executes generation review traceability and safe export workflow scenario. */
@@ -734,22 +1083,40 @@ class StageOneApiIntegrationTest {
                         .header("Authorization", bearer(ownerToken)))
                 .andExpect(status().isOk())
                 .andReturn());
+    JsonNode reviewed =
+        json(
+            mockMvc
+                .perform(
+                    post("/api/v1/test-cases/{testCaseId}/request-changes", testCaseId)
+                        .with(csrf())
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                Map.of(
+                                    "comments",
+                                    "Preserve this human review evidence.",
+                                    "version",
+                                    existing.get("version").asLong()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NEEDS_REVISION"))
+                .andReturn());
     ObjectNode update = objectMapper.createObjectNode();
-    update.put("title", existing.get("title").asText() + " revised");
-    update.put("objective", existing.get("objective").asText());
-    update.put("category", existing.get("category").asText());
-    update.put("priority", existing.get("priority").asText());
-    update.put("riskLevel", existing.get("riskLevel").asText());
-    update.put("automationCandidate", existing.get("automationCandidate").asBoolean());
-    update.put("rationale", existing.get("rationale").asText());
-    update.put("finalExpectedOutcome", existing.get("finalExpectedOutcome").asText());
+    update.put("title", reviewed.get("title").asText() + " revised");
+    update.put("objective", reviewed.get("objective").asText());
+    update.put("category", reviewed.get("category").asText());
+    update.put("priority", reviewed.get("priority").asText());
+    update.put("riskLevel", reviewed.get("riskLevel").asText());
+    update.put("automationCandidate", reviewed.get("automationCandidate").asBoolean());
+    update.put("rationale", reviewed.get("rationale").asText());
+    update.put("finalExpectedOutcome", reviewed.get("finalExpectedOutcome").asText());
     ArrayNode preconditions = update.putArray("preconditions");
-    existing
+    reviewed
         .get("preconditions")
         .forEach(item -> preconditions.add(item.get("description").asText()));
-    update.set("steps", existing.get("steps"));
-    update.set("testData", existing.get("testData"));
-    update.put("version", existing.get("version").asLong());
+    update.set("steps", reviewed.get("steps"));
+    update.set("testData", reviewed.get("testData"));
+    update.put("version", reviewed.get("version").asLong());
     mockMvc
         .perform(
             patch("/api/v1/test-cases/{testCaseId}", testCaseId)
@@ -866,6 +1233,14 @@ class StageOneApiIntegrationTest {
                 .header("Authorization", bearer(ownerToken)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].generationRunId").value(oldRunId));
+    mockMvc
+        .perform(
+            delete("/api/v1/generation-runs/{runId}", oldRunId)
+                .with(csrf())
+                .queryParam("confirm", "true")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("generation_set_has_human_evidence"));
     update.put("version", 1);
     mockMvc
         .perform(
@@ -877,9 +1252,192 @@ class StageOneApiIntegrationTest {
         .andExpect(jsonPath("$.code").value("superseded_generation_set"));
   }
 
-  /** Verifies bounded audit filters and inert normalization of legacy metadata. */
+  /** Purges only a confirmed unreviewed superseded graph and hides its retained tombstone. */
   @Test
   @Order(7)
+  void deletesEligibleSupersededGenerationSetWithStableNumberAndNoProviderReuse() throws Exception {
+    JsonNode initialHistory =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/user-stories/{requirementId}/generation-runs", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    String deletedRunId = initialHistory.get(0).get("id").asText();
+    String deletedCaseId = testCaseId;
+    assertThat(initialHistory.get(0).path("deletable").asBoolean()).isFalse();
+
+    UUID ownerId = users.findByEmailNormalized("owner@testforge.local").orElseThrow().getId();
+    Instant failedAt = Instant.now();
+    GenerationRunEntity failedRun =
+        GenerationRunEntity.pending(
+            UUID.fromString(requirementId),
+            ownerId,
+            "requirement-rules",
+            "testforge-rules-v2",
+            "manual-test-v1",
+            "c".repeat(64),
+            "d".repeat(64),
+            "undeletable-failed-fixture",
+            failedAt);
+    failedRun.fail(
+        GenerationStatus.FAILED,
+        "provider_failure",
+        "Synthetic provider failure.",
+        failedAt.plusMillis(1));
+    generationRuns.saveAndFlush(failedRun);
+    mockMvc
+        .perform(
+            delete("/api/v1/generation-runs/{runId}", failedRun.getId())
+                .with(csrf())
+                .queryParam("confirm", "true")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("generation_attempt_not_deletable"));
+
+    mockMvc
+        .perform(
+            delete("/api/v1/generation-runs/{runId}", deletedRunId)
+                .with(csrf())
+                .queryParam("confirm", "true")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("active_generation_set_cannot_be_deleted"));
+
+    mockMvc
+        .perform(
+            post("/api/v1/user-stories/{requirementId}/regenerate", requirementId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .header("Idempotency-Key", "delete-set-regeneration-" + projectId))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.setNumber").value(2))
+        .andExpect(jsonPath("$.deletable").value(false))
+        .andExpect(jsonPath("$.setState").value("ACTIVE"));
+
+    JsonNode supersededHistory =
+        json(
+            mockMvc
+                .perform(
+                    get("/api/v1/user-stories/{requirementId}/generation-runs", requirementId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk())
+                .andReturn());
+    assertThat(
+            supersededHistory.findValues("id").stream()
+                .filter(id -> deletedRunId.equals(id.asText()))
+                .findFirst())
+        .isPresent();
+    assertThat(supersededHistory.findValues("deletable").stream().anyMatch(JsonNode::asBoolean))
+        .isTrue();
+
+    mockMvc
+        .perform(
+            delete("/api/v1/generation-runs/{runId}", deletedRunId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("generation_set_deletion_confirmation_required"));
+    mockMvc
+        .perform(
+            delete("/api/v1/generation-runs/{runId}", deletedRunId)
+                .with(csrf())
+                .queryParam("confirm", "true")
+                .header("Authorization", bearer(outsiderToken)))
+        .andExpect(status().isNotFound());
+
+    mockMvc
+        .perform(
+            delete("/api/v1/generation-runs/{runId}", deletedRunId)
+                .with(csrf())
+                .queryParam("confirm", "true")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isNoContent());
+    mockMvc
+        .perform(
+            delete("/api/v1/generation-runs/{runId}", deletedRunId)
+                .with(csrf())
+                .queryParam("confirm", "true")
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isNotFound());
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.test_cases where generation_run_id = ?",
+                Integer.class,
+                UUID.fromString(deletedRunId)))
+        .isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from testforge.generation_criterion_snapshots where generation_run_id = ?",
+                Integer.class,
+                UUID.fromString(deletedRunId)))
+        .isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select deleted_at is not null and deleted_by is not null from testforge.generation_runs where id = ?",
+                Boolean.class,
+                UUID.fromString(deletedRunId)))
+        .isTrue();
+    Map<String, Object> purgeAudit =
+        jdbcTemplate.queryForMap(
+            "select action, actor_id, project_id, entity_id, metadata from testforge.audit_events where action = 'PURGED' and entity_type = 'GENERATION_RUN' and entity_id = ?",
+            UUID.fromString(deletedRunId));
+    assertThat(purgeAudit.get("action")).isEqualTo("PURGED");
+    assertThat(purgeAudit.get("actor_id")).isEqualTo(ownerId);
+    assertThat(purgeAudit.get("project_id")).isEqualTo(UUID.fromString(projectId));
+    assertThat(purgeAudit.get("entity_id")).isEqualTo(UUID.fromString(deletedRunId));
+    JsonNode purgeMetadata = objectMapper.readTree((String) purgeAudit.get("metadata"));
+    assertThat(purgeMetadata.fieldNames())
+        .toIterable()
+        .containsExactlyInAnyOrder("setNumber", "purgedCaseCount");
+    assertThat(purgeMetadata.path("setNumber").asInt()).isEqualTo(1);
+    assertThat(purgeMetadata.path("purgedCaseCount").asInt()).isGreaterThan(0);
+    mockMvc
+        .perform(
+            get("/api/v1/generation-runs/{runId}", deletedRunId)
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isNotFound());
+    mockMvc
+        .perform(
+            get("/api/v1/test-cases/{testCaseId}", deletedCaseId)
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isNotFound());
+    for (String path :
+        List.of(
+            "/api/v1/user-stories/{requirementId}/test-cases",
+            "/api/v1/user-stories/{requirementId}/coverage",
+            "/api/v1/user-stories/{requirementId}/traceability",
+            "/api/v1/user-stories/{requirementId}/export")) {
+      var request =
+          get(path, requirementId)
+              .queryParam("generationRunId", deletedRunId)
+              .header("Authorization", bearer(ownerToken));
+      if (path.endsWith("/export")) request = request.queryParam("format", "json");
+      mockMvc.perform(request).andExpect(status().isNotFound());
+    }
+    mockMvc
+        .perform(
+            get("/api/v1/user-stories/{requirementId}/generation-runs", requirementId)
+                .header("Authorization", bearer(ownerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].setNumber").value(2));
+
+    reset(generationProvider);
+    mockMvc
+        .perform(
+            post("/api/v1/user-stories/{requirementId}/generate-test-cases", requirementId)
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .header("Idempotency-Key", "integration-generation-" + projectId))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("generation_set_deleted"));
+    verify(generationProvider, times(0)).generate(any());
+  }
+
+  /** Verifies bounded audit filters and inert normalization of legacy metadata. */
+  @Test
+  @Order(8)
   void filtersAndNormalizesOwnedAuditHistory() throws Exception {
     Instant now = Instant.now();
     UUID projectUuid = UUID.fromString(projectId);
@@ -1700,6 +2258,43 @@ class StageOneApiIntegrationTest {
 
   /** Rejects fenced provider output without persisting any partial generated evidence graph. */
   @Test
+  @Order(15)
+  void persistsValidatedV3SetupStepsWithTheirGenerationRun() throws Exception {
+    reset(generationProvider);
+    doAnswer(
+            invocation ->
+                withSetupStep(
+                    new FakeTestGenerationProvider()
+                        .generate(invocation.getArgument(0, TestGenerationRequest.class))))
+        .when(generationProvider)
+        .generate(any());
+    try {
+      JsonNode completed =
+          json(
+              mockMvc
+                  .perform(
+                      post("/api/v1/user-stories/{requirementId}/regenerate", requirementId)
+                          .with(csrf())
+                          .param("confirmSupersede", "true")
+                          .header("Authorization", bearer(ownerToken))
+                          .header("Idempotency-Key", "validated-v3-setup-persistence"))
+                  .andExpect(status().isCreated())
+                  .andExpect(jsonPath("$.status").value("COMPLETED"))
+                  .andReturn());
+      UUID runId = UUID.fromString(completed.path("id").asText());
+      assertThat(
+              jdbcTemplate.queryForObject(
+                  "select count(*) from testforge.test_case_setup_steps s join testforge.test_cases c on c.id = s.test_case_id where c.generation_run_id = ?",
+                  Integer.class,
+                  runId))
+          .isPositive();
+    } finally {
+      reset(generationProvider);
+    }
+  }
+
+  /** Rejects fenced provider output without persisting any partial generated evidence graph. */
+  @Test
   @Order(16)
   void rejectsCodeFenceOutputWithoutPartialPersistence() throws Exception {
     reset(generationProvider);
@@ -1935,6 +2530,36 @@ class StageOneApiIntegrationTest {
         valid.requirementSummary(), valid.ambiguities(), cases, valid.usage());
   }
 
+  /** Adds one valid setup step to the first deterministic v3 provider case. */
+  private TestGenerationResult withSetupStep(TestGenerationResult valid) {
+    GeneratedTestCase base = valid.testCases().getFirst();
+    GeneratedTestCase withSetup =
+        new GeneratedTestCase(
+            base.title(),
+            base.objective(),
+            base.category(),
+            base.priority(),
+            base.riskLevel(),
+            base.automationCandidate(),
+            base.coverageIntent(),
+            base.preconditions(),
+            base.testData(),
+            List.of(
+                new TestGenerationResult.GeneratedStep(
+                    1,
+                    "Prepare the deterministic synthetic fixture.",
+                    "The synthetic fixture is ready to exercise the workflow.",
+                    null)),
+            base.steps(),
+            base.finalExpectedOutcome(),
+            base.acceptanceCriteriaKeys(),
+            base.rationale());
+    List<GeneratedTestCase> cases = new java.util.ArrayList<>(valid.testCases());
+    cases.set(0, withSetup);
+    return new TestGenerationResult(
+        valid.requirementSummary(), valid.ambiguities(), cases, valid.usage());
+  }
+
   /** Removes one required automation-candidate value from an otherwise valid candidate. */
   private TestGenerationResult withMissingAutomationCandidate(TestGenerationResult valid) {
     GeneratedTestCase base = valid.testCases().getFirst();
@@ -2086,6 +2711,7 @@ class StageOneApiIntegrationTest {
   /** Executes the register or login operation for StageOneApiIntegrationTest. */
   private String registerOrLogin(String email, String displayName, String password)
       throws Exception {
+    if (FIXTURE_TOKENS.containsKey(email)) return FIXTURE_TOKENS.get(email);
     MvcResult registration =
         mockMvc
             .perform(
@@ -2098,7 +2724,9 @@ class StageOneApiIntegrationTest {
                                 "email", email, "displayName", displayName, "password", password))))
             .andReturn();
     if (registration.getResponse().getStatus() == 201) {
-      return json(registration).get("accessToken").asText();
+      String token = json(registration).get("accessToken").asText();
+      FIXTURE_TOKENS.put(email, token);
+      return token;
     }
     MvcResult login =
         mockMvc
@@ -2111,7 +2739,9 @@ class StageOneApiIntegrationTest {
                             Map.of("email", email, "password", password))))
             .andExpect(status().isOk())
             .andReturn();
-    return json(login).get("accessToken").asText();
+    String token = json(login).get("accessToken").asText();
+    FIXTURE_TOKENS.put(email, token);
+    return token;
   }
 
   /** Executes the json operation for StageOneApiIntegrationTest. */
@@ -2153,5 +2783,262 @@ class StageOneApiIntegrationTest {
   /** Executes the bearer operation for StageOneApiIntegrationTest. */
   private String bearer(String token) {
     return "Bearer " + token;
+  }
+
+  /**
+   * Proves resolution is versioned, preserved, hashed and captured identically for both attempts.
+   */
+  @Test
+  void resolvedClarificationFeedsGenerationAndRetryWithoutOverwritingAssumptions()
+      throws Exception {
+    JsonNode before = ownedRequirement();
+    var ambiguity =
+        ambiguityRepository.save(
+            com.testforge.requirement.domain.RequirementAmbiguityEntity.create(
+                UUID.fromString(requirementId),
+                com.testforge.requirement.domain.AmbiguityCategory.UNCLEAR_BUSINESS_RULE,
+                "The synthetic case priority is unspecified.",
+                com.testforge.requirement.domain.AmbiguitySeverity.MEDIUM,
+                "Which priority applies?",
+                Instant.now()));
+    String priorHash =
+        jdbcTemplate.queryForObject(
+            "select input_hash from testforge.generation_runs where id = (select generation_run_id from testforge.test_cases where id = ?)",
+            String.class,
+            UUID.fromString(testCaseId));
+    mockMvc
+        .perform(
+            post("/api/v1/ambiguities/{id}/resolve", ambiguity.getId())
+                .with(csrf())
+                .header("Authorization", bearer(ownerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        Map.of(
+                            "resolution", "Use High priority for synthetic cases.", "version", 0))))
+        .andExpect(status().isOk());
+    JsonNode after = ownedRequirement();
+    assertThat(after.get("version").asLong()).isGreaterThan(before.get("version").asLong());
+    assertThat(after.get("assumptions")).isEqualTo(before.get("assumptions"));
+    reset(generationProvider);
+    var captured = new java.util.ArrayList<TestGenerationRequest>();
+    doAnswer(
+            invocation -> {
+              captured.add(invocation.getArgument(0));
+              if (captured.size() == 1)
+                throw new com.testforge.generation.provider.RetryableStructuredOutputException(
+                    "safe malformed", null, new TestGenerationResult.UsageMetadata(3, 5));
+              return invocation.callRealMethod();
+            })
+        .when(generationProvider)
+        .generate(any());
+    try {
+      JsonNode generated =
+          json(
+              mockMvc
+                  .perform(
+                      post("/api/v1/user-stories/{id}/generate-test-cases", requirementId)
+                          .with(csrf())
+                          .header("Authorization", bearer(ownerToken))
+                          .header("Idempotency-Key", "clarified-" + requirementId))
+                  .andExpect(status().isCreated())
+                  .andExpect(jsonPath("$.status").value("COMPLETED"))
+                  .andReturn());
+      assertThat(captured).hasSize(2);
+      assertThat(captured.get(0)).isEqualTo(captured.get(1));
+      assertThat(captured.get(0).assumptions())
+          .contains(
+              before.get("assumptions").asText(),
+              "untrusted requirement data",
+              "Which priority applies?",
+              "Use High priority for synthetic cases.");
+      assertThat(generated.get("sourceRequirementVersion").asLong())
+          .isEqualTo(after.get("version").asLong());
+      assertThat(
+              jdbcTemplate.queryForObject(
+                  "select input_hash from testforge.generation_runs where id = ?",
+                  String.class,
+                  UUID.fromString(generated.get("id").asText())))
+          .isNotEqualTo(priorHash);
+      assertThat(ambiguityRepository.findById(ambiguity.getId()).orElseThrow().isResolved())
+          .isTrue();
+      TestGenerationResult finalCandidate =
+          new FakeTestGenerationProvider().generate(captured.get(1));
+      assertThat(generated.get("inputTokens").asInt())
+          .isEqualTo(finalCandidate.usage().inputTokens() + 3);
+      assertThat(generated.get("outputTokens").asInt())
+          .isEqualTo(finalCandidate.usage().outputTokens() + 5);
+    } finally {
+      reset(generationProvider);
+    }
+  }
+
+  /**
+   * Rejects malformed criteria through Bean Validation before creating source rows or invoking
+   * generation.
+   */
+  @Test
+  void malformedAcceptanceCriteriaReturnControlledClientErrors() throws Exception {
+    reset(generationProvider);
+    long runsBefore = generationRuns.count();
+    for (String criteria : List.of("[null]", "[\"   \"]", "[]", "null")) {
+      String payload =
+          "{\"title\":\"Synthetic story\",\"userStory\":\"As a tester I need a record.\",\"acceptanceCriteria\":"
+              + criteria
+              + "}";
+      mockMvc
+          .perform(
+              post("/api/v1/projects/{id}/user-stories", projectId)
+                  .with(csrf())
+                  .header("Authorization", bearer(ownerToken))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(payload))
+          .andExpect(status().isBadRequest());
+    }
+    assertThat(generationRuns.count()).isEqualTo(runsBefore);
+    verify(generationProvider, times(0)).generate(any());
+  }
+
+  /** A clarification saved during provider latency cannot silently finalize a stale generation. */
+  @Test
+  void clarificationDuringPendingGenerationFailsWithoutPersistingCases() throws Exception {
+    var ambiguity =
+        ambiguityRepository.save(
+            com.testforge.requirement.domain.RequirementAmbiguityEntity.create(
+                UUID.fromString(requirementId),
+                com.testforge.requirement.domain.AmbiguityCategory.UNCLEAR_BUSINESS_RULE,
+                "Priority is unspecified.",
+                com.testforge.requirement.domain.AmbiguitySeverity.MEDIUM,
+                "Which priority applies?",
+                Instant.now()));
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    ProviderGate gate = blockProvider();
+    try {
+      Future<MvcResult> future = submitGeneration(executor, "pending-answer-" + requirementId);
+      assertThat(gate.entered().await(10, TimeUnit.SECONDS)).isTrue();
+      mockMvc
+          .perform(
+              post("/api/v1/ambiguities/{id}/resolve", ambiguity.getId())
+                  .with(csrf())
+                  .header("Authorization", bearer(ownerToken))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      objectMapper.writeValueAsString(
+                          Map.of("resolution", "Use Medium priority.", "version", 0))))
+          .andExpect(status().isOk());
+      gate.release().countDown();
+      JsonNode failed = json(future.get(10, TimeUnit.SECONDS));
+      assertThat(failed.get("status").asText()).isEqualTo("FAILED");
+      assertThat(failed.get("failureCode").asText()).isEqualTo("source_clarification_changed");
+      assertThat(failed.get("generatedCaseCount").asInt()).isZero();
+    } finally {
+      gate.release().countDown();
+      executor.shutdownNow();
+      reset(generationProvider);
+    }
+  }
+
+  /**
+   * Late successful provider output fills usage on an expired claim but cannot persist cases or
+   * reopen it.
+   */
+  @Test
+  void lateCompletionReconcilesExpiredUsageIdempotently() throws Exception {
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    ProviderGate gate = blockProvider();
+    try {
+      Future<MvcResult> future = submitGeneration(executor, "late-success-" + requirementId);
+      assertThat(gate.entered().await(10, TimeUnit.SECONDS)).isTrue();
+      UUID pendingId =
+          jdbcTemplate.queryForObject(
+              "select id from testforge.generation_runs where requirement_id = ? and status = 'PENDING'",
+              UUID.class,
+              UUID.fromString(requirementId));
+      jdbcTemplate.update(
+          "update testforge.generation_runs set started_at = '2000-01-01T00:00:00Z' where id = ?",
+          pendingId);
+      JsonNode expired =
+          json(
+              mockMvc
+                  .perform(
+                      get("/api/v1/generation-runs/{id}", pendingId)
+                          .header("Authorization", bearer(ownerToken)))
+                  .andExpect(status().isOk())
+                  .andReturn());
+      assertThat(expired.get("failureCode").asText()).isEqualTo("stale_generation_claim");
+      Instant persistedExpiry = generationRuns.findById(pendingId).orElseThrow().getCompletedAt();
+      gate.release().countDown();
+      JsonNode late = json(future.get(10, TimeUnit.SECONDS));
+      assertThat(late.get("status").asText()).isEqualTo("FAILED");
+      assertThat(late.get("failureCode").asText()).isEqualTo("stale_generation_claim");
+      assertThat(Instant.parse(late.get("completedAt").asText())).isEqualTo(persistedExpiry);
+      assertThat(late.get("inputTokens").asInt()).isPositive();
+      assertThat(late.get("outputTokens").asInt()).isPositive();
+      assertThat(
+              jdbcTemplate.queryForObject(
+                  "select count(*) from testforge.test_cases where generation_run_id = ?",
+                  Integer.class,
+                  pendingId))
+          .isZero();
+      var captured = org.mockito.ArgumentCaptor.forClass(TestGenerationRequest.class);
+      verify(generationProvider).generate(captured.capture());
+      var original = generationRuns.findById(pendingId).orElseThrow();
+      var duplicate =
+          generationTransactions.complete(
+              new com.testforge.generation.application.GenerationTransactionService.Claim(
+                  original, captured.getValue(), Map.of(), false),
+              new FakeTestGenerationProvider().generate(captured.getValue()));
+      assertThat(duplicate.getInputTokens()).isEqualTo(late.get("inputTokens").asInt());
+      assertThat(duplicate.getOutputTokens()).isEqualTo(late.get("outputTokens").asInt());
+      assertThat(duplicate.getCompletedAt()).isEqualTo(original.getCompletedAt());
+    } finally {
+      gate.release().countDown();
+      executor.shutdownNow();
+      reset(generationProvider);
+    }
+  }
+
+  /**
+   * Late failed-provider totals reconcile only expired claims and are never added again on
+   * duplicate delivery.
+   */
+  @Test
+  void lateFailureUsagePreservesTheOriginalExpiredLifecycle() {
+    UUID ownerId = users.findByEmailNormalized("owner@testforge.local").orElseThrow().getId();
+    GenerationRunEntity pending =
+        generationRuns.saveAndFlush(
+            GenerationRunEntity.pending(
+                UUID.fromString(requirementId),
+                ownerId,
+                "synthetic-provider",
+                "synthetic-model",
+                "manual-test-v5",
+                "a".repeat(64),
+                "b".repeat(64),
+                "late-usage-fixture",
+                Instant.parse("2000-01-01T00:00:00Z")));
+    generationTransactions.getOwned(ownerId, pending.getId());
+    GenerationRunEntity expired = generationRuns.findById(pending.getId()).orElseThrow();
+    GenerationRunEntity late =
+        generationTransactions.fail(
+            pending.getId(),
+            GenerationStatus.FAILED,
+            "provider_failure",
+            "Safe synthetic failure.",
+            new TestGenerationResult.UsageMetadata(8, 13));
+    assertThat(late.getFailureCode()).isEqualTo("stale_generation_claim");
+    assertThat(late.getCompletedAt()).isEqualTo(expired.getCompletedAt());
+    assertThat(late.getInputTokens()).isEqualTo(8);
+    assertThat(late.getOutputTokens()).isEqualTo(13);
+    GenerationRunEntity duplicate =
+        generationTransactions.fail(
+            pending.getId(),
+            GenerationStatus.FAILED,
+            "provider_failure",
+            "Safe synthetic failure.",
+            new TestGenerationResult.UsageMetadata(8, 13));
+    assertThat(duplicate.getInputTokens()).isEqualTo(8);
+    assertThat(duplicate.getOutputTokens()).isEqualTo(13);
+    assertThat(duplicate.getGeneratedCaseCount()).isZero();
   }
 }

@@ -1,3 +1,4 @@
+import { SimulationPage } from '../pages/SimulationPage';
 import { createBrowserRouter, type RouteObject } from 'react-router';
 import { ApplicationShell } from '../layouts/ApplicationShell';
 import { LoginPage } from '../pages/LoginPage';
@@ -9,6 +10,7 @@ import { RequirementPage } from '../pages/RequirementPage';
 import { LegacyRequirementRedirect } from './LegacyRequirementRedirect';
 
 export const appRoutes: RouteObject[] = [
+  { path: '/simulation', element: <SimulationPage /> },
   {
     path: '/login',
     element: <LoginPage />,

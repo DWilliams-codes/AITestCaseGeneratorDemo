@@ -15,6 +15,7 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -105,5 +106,15 @@ public class GenerationController {
   @GetMapping("/generation-runs/{runId}")
   GenerationRunResponse get(Authentication authentication, @PathVariable UUID runId) {
     return generationService.get(currentUser.id(authentication), runId);
+  }
+
+  /** Permanently purges eligible superseded generated content while retaining its tombstone. */
+  @DeleteMapping("/generation-runs/{runId}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  void delete(
+      Authentication authentication,
+      @PathVariable UUID runId,
+      @RequestParam(defaultValue = "false") boolean confirm) {
+    generationService.deleteSuperseded(currentUser.id(authentication), runId, confirm);
   }
 }

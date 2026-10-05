@@ -36,17 +36,24 @@ and persistence. Requirement content is untrusted data, never instructions.
    evidence for every source criterion, and require human review before
    approved-only export.
 
-The implemented Stage 1 tuple is provider/model plus `manual-test-v2`,
-`manual-test-result-v1`, `manual-test-schema-v2`,
-`manual-test-validator-v2`, and `openai-responses-v3`. Pre-V6 source evidence is
+The implemented Stage 1 tuple is provider/model plus `manual-test-v5`,
+`manual-test-result-v2`, `manual-test-schema-v3`,
+`manual-test-validator-v4`, and `openai-responses-v5`. Pre-V6 source evidence is
 reconstructed only from then-current criteria and labeled
-`LEGACY_RECONSTRUCTED`; exact lost history is never inferred. The v2 prompt
+`LEGACY_RECONSTRUCTED`; exact lost history is never inferred. The v5 prompt
 internally decomposes supplied acceptance criteria into atomic testable
-obligations and asks for the smallest coherent nonredundant suite, allowing one
+obligations and asks for the smallest coherent nonredundant suite. It puts
+tester-performed authentication and state preparation in actionable setup steps,
+keeps individual evidence operations and observations in test steps, and rejects
+criterion-label placeholders and whole-workflow compression, while allowing one
 direct case to map multiple criteria only when a realistic workflow proves them
-independently. It emits neither the decomposition nor a coverage inventory and
-does not alter the result/schema/validator/provider/persistence/API/frontend
-contracts. This includes
+independently. It uses realistic enterprise roles, synthetic data, permissions, statuses,
+approvals, and audit-relevant outcomes where applicable. Each case is
+independently executable without undocumented assumptions and uses only
+source-supported policy. It emits neither the decomposition nor a coverage inventory and
+does not alter the result/schema/provider/model/persistence/API/frontend
+contracts; the application-owned semantic validator intentionally advances to
+v4 with the prompt. This includes
 bounded runtime reconciliation of V5-shaped rows created by an old binary after
 V6 is already installed. The bridge locks each affected run, fills only missing
 release/snapshot/link evidence, and is idempotent.

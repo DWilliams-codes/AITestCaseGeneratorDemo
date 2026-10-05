@@ -28,7 +28,11 @@ public final class RequirementDtos {
       @NotNull @Size(min = 1, max = 50) List<@NotBlank @Size(max = 4000) String> acceptanceCriteria) {
     /** Initializes CreateRequirementRequest with its required collaborators and domain state. */
     public CreateRequirementRequest {
-      acceptanceCriteria = acceptanceCriteria == null ? null : List.copyOf(acceptanceCriteria);
+      acceptanceCriteria =
+          acceptanceCriteria == null
+              ? null
+              : java.util.Collections.unmodifiableList(
+                  new java.util.ArrayList<>(acceptanceCriteria));
     }
 
     /** Compatibility constructor for callers compiled against the pre-priority contract. */

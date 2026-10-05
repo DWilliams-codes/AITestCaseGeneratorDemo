@@ -5,6 +5,7 @@ import com.testforge.generation.repository.GenerationCriterionSnapshotRepository
 import com.testforge.testcase.domain.TestCaseEntity;
 import com.testforge.testcase.domain.TestCasePreconditionEntity;
 import com.testforge.testcase.domain.TestCaseReviewEntity;
+import com.testforge.testcase.domain.TestCaseSetupStepEntity;
 import com.testforge.testcase.domain.TestDataItemEntity;
 import com.testforge.testcase.domain.TestStepEntity;
 import com.testforge.testcase.dto.TestCaseDtos.PreconditionResponse;
@@ -14,6 +15,7 @@ import com.testforge.testcase.dto.TestCaseDtos.TestCaseResponse;
 import com.testforge.testcase.dto.TestCaseDtos.TestDataResponse;
 import com.testforge.testcase.repository.TestCasePreconditionRepository;
 import com.testforge.testcase.repository.TestCaseReviewRepository;
+import com.testforge.testcase.repository.TestCaseSetupStepRepository;
 import com.testforge.testcase.repository.TestDataItemRepository;
 import com.testforge.testcase.repository.TestStepRepository;
 import com.testforge.traceability.domain.SnapshotTraceabilityLinkEntity;
@@ -32,6 +34,7 @@ public class TestCaseResponseAssembler {
 
   private final TestCasePreconditionRepository preconditions;
   private final TestStepRepository steps;
+  private final TestCaseSetupStepRepository setupSteps;
   private final TestDataItemRepository testData;
   private final TestCaseReviewRepository reviews;
   private final SnapshotTraceabilityLinkRepository snapshotLinks;
@@ -41,12 +44,14 @@ public class TestCaseResponseAssembler {
   public TestCaseResponseAssembler(
       TestCasePreconditionRepository preconditions,
       TestStepRepository steps,
+      TestCaseSetupStepRepository setupSteps,
       TestDataItemRepository testData,
       TestCaseReviewRepository reviews,
       SnapshotTraceabilityLinkRepository snapshotLinks,
       GenerationCriterionSnapshotRepository criterionSnapshots) {
     this.preconditions = preconditions;
     this.steps = steps;
+    this.setupSteps = setupSteps;
     this.testData = testData;
     this.reviews = reviews;
     this.snapshotLinks = snapshotLinks;
@@ -72,6 +77,9 @@ public class TestCaseResponseAssembler {
     Map<UUID, List<TestStepEntity>> stepsByCase =
         steps.findAllByTestCaseIdInOrderByTestCaseIdAscStepNumberAsc(testCaseIds).stream()
             .collect(Collectors.groupingBy(TestStepEntity::getTestCaseId));
+    Map<UUID, List<TestCaseSetupStepEntity>> setupStepsByCase =
+        setupSteps.findAllByTestCaseIdInOrderByTestCaseIdAscStepNumberAsc(testCaseIds).stream()
+            .collect(Collectors.groupingBy(TestCaseSetupStepEntity::getTestCaseId));
     Map<UUID, List<TestDataItemEntity>> testDataByCase =
         testData.findAllByTestCaseIdInOrderByTestCaseIdAscNameAsc(testCaseIds).stream()
             .collect(Collectors.groupingBy(TestDataItemEntity::getTestCaseId));
@@ -95,6 +103,7 @@ public class TestCaseResponseAssembler {
                 assemble(
                     testCase,
                     preconditionsByCase.getOrDefault(testCase.getId(), List.of()),
+                    setupStepsByCase.getOrDefault(testCase.getId(), List.of()),
                     stepsByCase.getOrDefault(testCase.getId(), List.of()),
                     testDataByCase.getOrDefault(testCase.getId(), List.of()),
                     reviewsByCase.getOrDefault(testCase.getId(), List.of()),
@@ -107,6 +116,7 @@ public class TestCaseResponseAssembler {
   private TestCaseResponse assemble(
       TestCaseEntity testCase,
       List<TestCasePreconditionEntity> casePreconditions,
+      List<TestCaseSetupStepEntity> caseSetupSteps,
       List<TestStepEntity> caseSteps,
       List<TestDataItemEntity> caseTestData,
       List<TestCaseReviewEntity> caseReviews,
@@ -138,6 +148,15 @@ public class TestCaseResponseAssembler {
         testCase.getFinalExpectedOutcome(),
         casePreconditions.stream()
             .map(item -> new PreconditionResponse(item.getSortOrder(), item.getDescription()))
+            .toList(),
+        caseSetupSteps.stream()
+            .map(
+                item ->
+                    new StepResponse(
+                        item.getStepNumber(),
+                        item.getAction(),
+                        item.getExpectedResult(),
+                        item.getTestDataReference()))
             .toList(),
         caseSteps.stream()
             .map(

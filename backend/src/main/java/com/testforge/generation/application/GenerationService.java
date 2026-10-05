@@ -1,5 +1,6 @@
 package com.testforge.generation.application;
 
+import com.testforge.config.DemoModePolicy;
 import com.testforge.generation.domain.GenerationRunEntity;
 import com.testforge.generation.domain.GenerationSetState;
 import com.testforge.generation.domain.GenerationStatus;
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class GenerationService {
   private final GenerationTransactionService transactions;
+  private final DemoModePolicy demoMode;
   private final TestGenerationProvider provider;
   private final GenerationResultValidator validator;
   private final ActiveGenerationSetResolver activeSets;
@@ -36,7 +38,9 @@ public class GenerationService {
       TestGenerationProvider provider,
       GenerationResultValidator validator,
       ActiveGenerationSetResolver activeSets,
-      LegacyGenerationEvidenceReconciler legacyEvidence) {
+      LegacyGenerationEvidenceReconciler legacyEvidence,
+      DemoModePolicy demoMode) {
+    this.demoMode = demoMode;
     this.transactions = transactions;
     this.provider = provider;
     this.validator = validator;
@@ -58,6 +62,7 @@ public class GenerationService {
   /** Executes the generate internal operation for GenerationService. */
   private GenerationRunResponse generateInternal(
       UUID userId, UUID requirementId, String idempotencyKey, boolean confirmSupersede) {
+    demoMode.requireGenerationAllowed(userId);
     String idempotencyHash = hash(idempotencyKey);
     GenerationTransactionService.Claim claim =
         transactions.claim(
@@ -69,8 +74,15 @@ public class GenerationService {
             provider.modelName(),
             provider.adapterVersion());
     if (claim.existing()) return toResponse(reconciled(List.of(claim.run())).getFirst());
+    UsageAccumulator usage = new UsageAccumulator();
     try {
-      TestGenerationResult result = generateValidated(claim.providerRequest());
+      TestGenerationResult generated = generateValidated(claim.providerRequest(), usage);
+      TestGenerationResult result =
+          new TestGenerationResult(
+              generated.requirementSummary(),
+              generated.ambiguities(),
+              generated.testCases(),
+              usage.total());
       return toResponse(transactions.complete(claim, result));
     } catch (GenerationValidationException exception) {
       return toResponse(
@@ -78,14 +90,16 @@ public class GenerationService {
               claim.run().getId(),
               GenerationStatus.REJECTED_BY_VALIDATION,
               "invalid_provider_output",
-              safeMessage(exception)));
+              safeMessage(exception),
+              usage.total()));
     } catch (RuntimeException exception) {
       return toResponse(
           transactions.fail(
               claim.run().getId(),
               GenerationStatus.FAILED,
               "provider_failure",
-              "Test-case generation failed safely."));
+              "Test-case generation failed safely.",
+              usage.total()));
     }
   }
 
@@ -93,6 +107,21 @@ public class GenerationService {
   public GenerationRunResponse get(UUID userId, UUID runId) {
     GenerationRunEntity run = transactions.getOwned(userId, runId);
     return toResponse(reconciled(List.of(run)).getFirst());
+  }
+
+  /**
+   * Deletes confirmed generated content from one eligible superseded set without invoking a
+   * provider.
+   */
+  public void deleteSuperseded(UUID userId, UUID runId, boolean confirmed) {
+    if (!confirmed) {
+      throw com.testforge.common.error.ApiExceptions.conflict(
+          "generation_set_deletion_confirmation_required",
+          "Confirm deletion of the superseded generation set.");
+    }
+    GenerationRunEntity run = transactions.getOwned(userId, runId);
+    int setNumber = activeSets.describe(run.getRequirementId(), List.of(run)).setNumber(runId);
+    transactions.deleteSuperseded(userId, runId, setNumber);
   }
 
   /** Lists resources visible to the current owner using the requested page. */
@@ -124,15 +153,16 @@ public class GenerationService {
   }
 
   /** Retries exactly once for semantic or retryable structured-output defects. */
-  private TestGenerationResult generateValidated(TestGenerationRequest request) {
+  private TestGenerationResult generateValidated(
+      TestGenerationRequest request, UsageAccumulator usage) {
     RuntimeException firstFailure;
     try {
-      return invokeAndValidate(request);
+      return invokeAndValidate(request, usage);
     } catch (GenerationValidationException | RetryableStructuredOutputException exception) {
       firstFailure = exception;
     }
     try {
-      return invokeAndValidate(request);
+      return invokeAndValidate(request, usage);
     } catch (GenerationValidationException | RetryableStructuredOutputException exception) {
       if (exception != firstFailure) {
         exception.addSuppressed(firstFailure);
@@ -142,10 +172,45 @@ public class GenerationService {
   }
 
   /** Executes the invoke and validate operation for GenerationService. */
-  private TestGenerationResult invokeAndValidate(TestGenerationRequest request) {
-    TestGenerationResult result = provider.generate(request);
+  private TestGenerationResult invokeAndValidate(
+      TestGenerationRequest request, UsageAccumulator usage) {
+    TestGenerationResult result;
+    try {
+      result = provider.generate(request);
+      usage.add(result == null ? null : result.usage());
+    } catch (com.testforge.generation.provider.GenerationProviderException exception) {
+      usage.add(exception.usage());
+      throw exception;
+    } catch (RuntimeException exception) {
+      usage.add(null);
+      throw exception;
+    }
     validator.validate(request, result);
     return result;
+  }
+
+  /** Accumulates all attempted calls; one unavailable dimension makes that total unknown. */
+  private static final class UsageAccumulator {
+    private Integer input = 0;
+    private Integer output = 0;
+
+    /** Includes transport usage before semantic validation can reject a candidate. */
+    void add(TestGenerationResult.UsageMetadata usage) {
+      input = sum(input, usage == null ? null : usage.inputTokens());
+      output = sum(output, usage == null ? null : usage.outputTokens());
+    }
+
+    /** Returns unknown rather than overflowing or fabricating an incomplete total. */
+    private Integer sum(Integer current, Integer next) {
+      return current == null || next == null || (long) current + next > Integer.MAX_VALUE
+          ? null
+          : current + next;
+    }
+
+    /** Returns a detached aggregate suitable for terminal persistence. */
+    TestGenerationResult.UsageMetadata total() {
+      return new TestGenerationResult.UsageMetadata(input, output);
+    }
   }
 
   /** Maps the source data to response. */
@@ -180,6 +245,7 @@ public class GenerationService {
         run.getFailureMessage(),
         run.getCorrelationId(),
         metadata.setNumber(run.getId()),
+        transactions.isDeletable(run, metadata.isActive(run.getId())),
         successful
             ? (metadata.isActive(run.getId())
                 ? GenerationSetState.ACTIVE

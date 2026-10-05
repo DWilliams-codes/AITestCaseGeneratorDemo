@@ -1,0 +1,14 @@
+{
+  "title": "Create, route, and retain a Salesforce support case",
+  "userStory": "As a support agent, I want to create a case, assign its priority and owner, and move it into active work so the support team can track and act on the request accurately.",
+  "businessRequirements": "Proposed rules require business owner confirmation: a new Case uses New; active work uses Working; the proposed priority is Medium and proposed owner is Synthetic Queue. Subject is required. The designated read-only persona may view eligible Cases but cannot create or update Cases. These are proposed requirements, not Salesforce defaults or existing-org claims. The configured test org may require additional fields; their synthetic values must be agreed before execution.",
+  "assumptions": "An authorized nonproduction org, configured queue, confirmed role permissions and approved credential references are prerequisites; none is supplied or connected by this demo. All test data is synthetic. The fixture demonstrates test authoring only; Salesforce tests are NOT RUN. Proposed Priority Medium and Owner Synthetic Queue require explicit owner confirmation before execution.",
+  "sourceReference": "TF-DEMO-CASE-001",
+  "acceptanceCriteria": [
+    "Creating the synthetic case saves its subject with New status and creates exactly one Case record.",
+    "Updating the Case to Working saves the clarified priority and owner without creating another case.",
+    "Closing and reopening the saved Case record displays the same Case identifier, Subject, Status, Priority, and Owner; reopening the record does not create another Case.",
+    "Saving a new Case with a blank Subject is rejected with a clear Subject validation message, and no Case is created.",
+    "A designated read-only tester can view eligible Cases but cannot create a Case or update an existing Case; denied attempts leave Case records unchanged."
+  ]
+}

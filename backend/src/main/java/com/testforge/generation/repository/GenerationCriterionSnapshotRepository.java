@@ -17,4 +17,7 @@ public interface GenerationCriterionSnapshotRepository
 
   /** Returns immutable criteria for several bounded generation sets. */
   List<GenerationCriterionSnapshotEntity> findAllByGenerationRunIdIn(List<UUID> runIds);
+
+  /** Removes immutable source snapshots only after their generated case graph has been purged. */
+  void deleteAllByGenerationRunId(UUID runId);
 }

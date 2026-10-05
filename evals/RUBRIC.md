@@ -5,8 +5,8 @@ in `manual-test-generation.jsonl`. Score only application-owned structured
 output. The deterministic harness validates fixture/configuration structure; it
 does not call a provider or assign a semantic score.
 
-Every fixture pins `manual-test-v2`, `manual-test-result-v1`,
-`manual-test-schema-v2`, and `manual-test-validator-v2`. A score report must
+Every fixture pins `manual-test-v5`, `manual-test-result-v2`,
+`manual-test-schema-v3`, and `manual-test-validator-v4`. A score report must
 record that tuple with candidate provider/model/adapter provenance.
 
 ## Passing rule
@@ -33,7 +33,7 @@ duplicates for a distinct risk, condition, or path before assigning points.
 | --- | ---: | --- |
 | Contract and safety | 25 | Output matches the JSON contract and supported enums; collections are bounded; text is safe; synthetic data is used; no hidden or executable content appears. |
 | Acceptance-criteria traceability | 25 | Every supplied criterion has direct evidence; direct cases map only to exact supplied keys; supporting evidence is identified separately and never substitutes for direct coverage; the mapping and expected results demonstrate the criterion rather than merely naming it. |
-| Test design quality | 20 | Cases have distinct objectives and rationales; preconditions are necessary; steps are contiguous, concrete, and independently observable; outcomes are specific. |
+| Test design quality | 20 | Cases have distinct objectives and rationales; performed authentication/state preparation is actionable setup; evidence steps are contiguous individual concrete tester interactions with independently observable outcomes. |
 | Risk and coverage | 15 | Source-supported happy, negative, boundary, permission, security, recovery, concurrency, accessibility, or integration risks are proportionate; no unsupported policy is invented. |
 | Reviewability and clarity | 15 | Titles and language are concise, data references are understandable, ambiguities ask actionable questions, and a reviewer can reproduce the intent without hidden reasoning. |
 | **Total** | **100** | |
@@ -61,6 +61,13 @@ Any of the following fails the result regardless of score:
   merely named criterion key;
 - duplicate cases, non-contiguous steps, missing observable results, or vague
   phrases prohibited by the semantic validator;
+- criterion-key placeholders such as `Submit input for AC-2`, generic actions
+  such as `Test the feature`, or a whole workflow compressed into one action;
+- a precondition phrased as performed tester work, combined setup/test actions,
+  or a test step that combines navigation, entry, submission, and observation
+  instead of separately numbered atomic interactions;
+- missing required setup, non-contiguous or duplicate setup actions, unobservable
+  setup readiness, or setup that substitutes for evidence-bearing test steps;
 - fabricated decision-critical business, authorization, or safety policy instead
   of an ambiguity.
 

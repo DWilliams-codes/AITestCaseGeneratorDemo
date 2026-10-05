@@ -121,9 +121,15 @@ public class ExportService {
   private String toCsv(List<TestCaseResponse> approved) {
     StringBuilder csv =
         new StringBuilder(
-            "testCaseKey,title,status,category,priority,acceptanceCriteria,stepNumber,action,expectedResult,finalExpectedOutcome\r\n");
+            "testCaseKey,title,status,category,priority,acceptanceCriteria,stepNumber,action,expectedResult,finalExpectedOutcome,phase\r\n");
     for (TestCaseResponse testCase : approved) {
-      for (var step : testCase.steps()) {
+      List<com.testforge.testcase.dto.TestCaseDtos.StepResponse> exportSteps =
+          new java.util.ArrayList<>();
+      exportSteps.addAll(testCase.setupSteps());
+      exportSteps.addAll(testCase.steps());
+      for (int stepIndex = 0; stepIndex < exportSteps.size(); stepIndex++) {
+        var step = exportSteps.get(stepIndex);
+        String phase = stepIndex < testCase.setupSteps().size() ? "SETUP" : "TEST";
         csv.append(csvCell(testCase.testCaseKey()))
             .append(',')
             .append(csvCell(testCase.title()))
@@ -143,6 +149,8 @@ public class ExportService {
             .append(csvCell(step.expectedResult()))
             .append(',')
             .append(csvCell(testCase.finalExpectedOutcome()))
+            .append(',')
+            .append(phase)
             .append("\r\n");
       }
     }
@@ -171,7 +179,24 @@ public class ExportService {
           .append(markdownTextEncoder.encode(String.join(", ", testCase.acceptanceCriteriaKeys())))
           .append("\n\n")
           .append(markdownTextEncoder.encode(testCase.objective()))
-          .append("\n\n| Step | Action | Expected result |\n|---:|---|---|\n");
+          .append("\n\n");
+      if (!testCase.setupSteps().isEmpty()) {
+        markdown.append("### Setup\n\n| Step | Action | Observed readiness |\n|---:|---|---|\n");
+        testCase
+            .setupSteps()
+            .forEach(
+                step ->
+                    markdown
+                        .append('|')
+                        .append(step.stepNumber())
+                        .append('|')
+                        .append(markdownTextEncoder.encode(step.action()))
+                        .append('|')
+                        .append(markdownTextEncoder.encode(step.expectedResult()))
+                        .append("|\n"));
+        markdown.append('\n');
+      }
+      markdown.append("### Test steps\n\n| Step | Action | Expected result |\n|---:|---|---|\n");
       testCase
           .steps()
           .forEach(

@@ -22,6 +22,31 @@ function renderRoute(path: string) {
 }
 
 describe('TestForge application', () => {
+  it('fills only server-confirmed public demo credentials and explains fixture generation', async () => {
+    server.use(
+      http.get('/api/v1/demo-info', () =>
+        HttpResponse.json({
+          enabled: true,
+          email: 'demo@testforge.local',
+          password: 'TestForge!Demo2026',
+          label: 'Local fixture demo',
+        }),
+      ),
+    );
+    renderRoute('/login');
+    await userEvent.click(await screen.findByRole('button', { name: 'Fill demo credentials' }));
+    expect(screen.getByLabelText('Email address')).toHaveValue('demo@testforge.local');
+    expect(screen.getByLabelText('Password')).toHaveValue('TestForge!Demo2026');
+    expect(screen.getByText(/no live AI call occurs/)).toBeVisible();
+  });
+
+  it('hides public credentials when server metadata is unavailable', async () => {
+    server.use(http.get('/api/v1/demo-info', () => new HttpResponse(null, { status: 503 })));
+    renderRoute('/login');
+    await screen.findByRole('button', { name: 'Sign in' });
+    expect(screen.queryByRole('button', { name: 'Fill demo credentials' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Email address')).toHaveValue('');
+  });
   it('renders a functional sign-in form accessibly', async () => {
     const { container } = renderRoute('/login');
 
@@ -31,6 +56,18 @@ describe('TestForge application', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
     const accessibilityResults = await axe(container);
     expect(accessibilityResults.violations).toEqual([]);
+  });
+
+  it('persists only the explicit local color preference', async () => {
+    window.localStorage.clear();
+    const actor = userEvent.setup();
+    renderRoute('/login');
+    await actor.click(await screen.findByRole('combobox', { name: 'Theme' }));
+    await actor.click(screen.getByRole('option', { name: 'Dark' }));
+    expect(window.localStorage.getItem('testforge-color-mode')).toBe('dark');
+    expect(
+      [...Array(window.localStorage.length)].map((_, index) => window.localStorage.key(index)),
+    ).toEqual(['testforge-color-mode']);
   });
 
   it('signs in and displays the owned project workspace', async () => {
@@ -101,7 +138,8 @@ describe('TestForge application', () => {
     expect(screen.getByText('5 user stories')).toBeVisible();
     expect(screen.queryByText(/requirements?$/i)).not.toBeInTheDocument();
     expect(screen.getByText('Maya Chen')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    // Both responsive variants are mounted in jsdom because it does not apply MUI breakpoints.
+    await user.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!);
     expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeVisible();
   });
 
@@ -234,6 +272,7 @@ describe('TestForge application', () => {
   });
 
   it('registers a new account without persisting an access token in browser storage', async () => {
+    window.localStorage.clear();
     server.use(
       http.post('/api/v1/auth/register', () =>
         HttpResponse.json(
@@ -268,7 +307,13 @@ describe('TestForge application', () => {
     await actor.type(screen.getByLabelText('Password'), 'Synthetic!Passphrase2026');
     await actor.click(screen.getByRole('button', { name: 'Create account' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Projects' })).toBeVisible();
-    expect(window.localStorage).toHaveLength(0);
+    const persistedKeys = [...Array(window.localStorage.length)].map((_, index) =>
+      window.localStorage.key(index),
+    );
+    expect(persistedKeys.every((key) => key === 'testforge-color-mode')).toBe(true);
+    expect(persistedKeys).not.toContain('accessToken');
+    expect(persistedKeys).not.toContain('refreshToken');
+    expect(persistedKeys).not.toContain('auth');
   });
 
   it('provides a recovery path for unknown routes', async () => {

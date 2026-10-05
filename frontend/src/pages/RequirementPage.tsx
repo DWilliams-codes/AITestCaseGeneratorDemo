@@ -23,7 +23,6 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -46,11 +45,12 @@ import {
   Typography,
 } from '@mui/material';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { ApiError, apiRequest, downloadExport } from '../api/client';
 import { PaginationControls } from '../components/PaginationControls';
+import { ResponsiveDialog as Dialog } from '../components/ResponsiveDialog';
 import type {
   AuditEvent,
   Coverage,
@@ -89,12 +89,6 @@ const statuses: TestCaseStatus[] = [
   'REJECTED',
   'NEEDS_REVISION',
 ];
-const priorityRank: Record<TestPriority, number> = {
-  CRITICAL: 0,
-  HIGH: 1,
-  MEDIUM: 2,
-  LOW: 3,
-};
 type TestCaseSort =
   'sequence-asc' | 'sequence-desc' | 'priority-desc' | 'status-asc' | 'updated-desc';
 type ReviewAction = 'approve' | 'reject' | 'request-changes' | 'reopen';
@@ -103,14 +97,13 @@ type Notice = {
   severity: 'success' | 'info' | 'warning' | 'error';
 };
 
-/** Orders test cases by their global work-item number with stable creation and UUID tie-breakers. */
-function compareByTestCaseNumber(left: TestCase, right: TestCase) {
-  return (
-    left.workItemNumber - right.workItemNumber ||
-    left.createdAt.localeCompare(right.createdAt) ||
-    left.id.localeCompare(right.id)
-  );
-}
+const denseTableContainerSx = {
+  border: 1,
+  borderColor: 'divider',
+  borderRadius: 1,
+  overflowX: 'auto',
+};
+const denseTableSx = { minWidth: { xs: 640, sm: 0 } };
 
 /** Builds a grammatically correct completion notice for one or many generated cases. */
 function generationCompletedNotice(run: GenerationRun, source: string) {
@@ -118,6 +111,8 @@ function generationCompletedNotice(run: GenerationRun, source: string) {
     run.generatedCaseCount === 1
       ? '1 manual test case was created'
       : `${run.generatedCaseCount} manual test cases were created`;
+  if (run.provider === 'external-demo-fixture')
+    return `Fixture generation completed and passed the server-side quality gate. ${generated} using maintained synthetic responses; no live AI call occurred. Review every case before approval.`;
   return `Generation completed and passed the server-side quality gate. ${generated} from this story using ${source}.`;
 }
 
@@ -183,23 +178,44 @@ export function RequirementPage() {
   );
   const [ambiguityResolution, setAmbiguityResolution] = useState('');
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<GenerationRun | null>(null);
   const caseSearch = searchParams.get('caseSearch') ?? '';
   /** Persists the case search term in the current workflow URL. */
-  const setCaseSearch = (value: string) => setParam('caseSearch', value);
+  const setCaseSearch = (value: string) =>
+    setParams([
+      ['caseSearch', value],
+      ['casePage', '0', '0'],
+    ]);
   const caseStatus = (searchParams.get('caseStatus') ?? 'ALL') as TestCaseStatus | 'ALL';
   /** Persists the selected case-status filter. */
-  const setCaseStatus = (value: TestCaseStatus | 'ALL') => setParam('caseStatus', value, 'ALL');
+  const setCaseStatus = (value: TestCaseStatus | 'ALL') =>
+    setParams([
+      ['caseStatus', value, 'ALL'],
+      ['casePage', '0', '0'],
+    ]);
   const caseCategory = (searchParams.get('caseCategory') ?? 'ALL') as TestCaseCategory | 'ALL';
   /** Persists the selected case-category filter. */
   const setCaseCategory = (value: TestCaseCategory | 'ALL') =>
-    setParam('caseCategory', value, 'ALL');
+    setParams([
+      ['caseCategory', value, 'ALL'],
+      ['casePage', '0', '0'],
+    ]);
   const casePriority = (searchParams.get('casePriority') ?? 'ALL') as TestPriority | 'ALL';
   /** Persists the selected case-priority filter. */
-  const setCasePriority = (value: TestPriority | 'ALL') => setParam('casePriority', value, 'ALL');
+  const setCasePriority = (value: TestPriority | 'ALL') =>
+    setParams([
+      ['casePriority', value, 'ALL'],
+      ['casePage', '0', '0'],
+    ]);
   const caseSort = (searchParams.get('caseSort') ?? 'sequence-asc') as TestCaseSort;
   /** Persists the case ordering while omitting the default order. */
-  const setCaseSort = (value: TestCaseSort) => setParam('caseSort', value, 'sequence-asc');
+  const setCaseSort = (value: TestCaseSort) =>
+    setParams([
+      ['caseSort', value, 'sequence-asc'],
+      ['casePage', '0', '0'],
+    ]);
   const selectedRunId = searchParams.get('generationRunId') ?? '';
+  const selectedSetUnavailable = searchParams.get('generationSetUnavailable') === 'true';
   const casePage = numericParam('casePage');
   /** Selects a shareable generated-case page. */
   const setCasePage = (value: number) => setParam('casePage', String(value), '0');
@@ -209,6 +225,10 @@ export function RequirementPage() {
   const generationRunQuery = selectedRunId
     ? `?generationRunId=${encodeURIComponent(selectedRunId)}`
     : '';
+  /** Does not delay selected-set recovery by retrying an authoritative tombstone 404. */
+  const retrySelectedSetRead = (failureCount: number, error: Error) =>
+    !(Boolean(selectedRunId) && error instanceof ApiError && error.status === 404) &&
+    failureCount < 1;
   const requirement = useQuery({
     queryKey: ['requirement', requirementId],
     queryFn: () => apiRequest<Requirement>(`/api/v1/user-stories/${requirementId}`),
@@ -220,17 +240,36 @@ export function RequirementPage() {
     enabled: Boolean(requirement.data?.projectId),
   });
   const cases = useQuery({
-    queryKey: ['test-cases', requirementId, selectedRunId, casePage],
-    queryFn: () =>
-      apiRequest<PageResponse<TestCase>>(
-        `/api/v1/user-stories/${requirementId}/test-cases/page?page=${casePage}&size=20${selectedRunId ? `&generationRunId=${encodeURIComponent(selectedRunId)}` : ''}`,
-      ),
+    queryKey: [
+      'test-cases',
+      requirementId,
+      selectedRunId,
+      casePage,
+      caseSearch,
+      caseStatus,
+      caseCategory,
+      casePriority,
+      caseSort,
+    ],
+    queryFn: () => {
+      const query = new URLSearchParams({ page: String(casePage), size: '20', sort: caseSort });
+      if (selectedRunId) query.set('generationRunId', selectedRunId);
+      if (caseSearch.trim()) query.set('search', caseSearch.trim());
+      if (caseStatus !== 'ALL') query.set('status', caseStatus);
+      if (caseCategory !== 'ALL') query.set('category', caseCategory);
+      if (casePriority !== 'ALL') query.set('priority', casePriority);
+      return apiRequest<PageResponse<TestCase>>(
+        `/api/v1/user-stories/${requirementId}/test-cases/page?${query}`,
+      );
+    },
+    retry: retrySelectedSetRead,
     enabled: Boolean(requirementId),
   });
   const coverage = useQuery({
     queryKey: ['coverage', requirementId, selectedRunId],
     queryFn: () =>
       apiRequest<Coverage>(`/api/v1/user-stories/${requirementId}/coverage${generationRunQuery}`),
+    retry: retrySelectedSetRead,
     enabled: Boolean(requirementId),
   });
   const traceability = useQuery({
@@ -239,6 +278,7 @@ export function RequirementPage() {
       apiRequest<Traceability>(
         `/api/v1/user-stories/${requirementId}/traceability${generationRunQuery}`,
       ),
+    retry: retrySelectedSetRead,
     enabled: Boolean(requirementId),
   });
   const runs = useQuery({
@@ -250,44 +290,37 @@ export function RequirementPage() {
     enabled: Boolean(requirementId),
   });
   const hasActiveGenerationSet = Boolean(runs.data?.activeGenerationRunId);
-  const visibleCases = useMemo(() => {
-    const normalizedSearch = caseSearch.trim().toLocaleLowerCase();
-    const filtered = (cases.data?.items ?? []).filter((testCase) => {
-      const searchableText = [
-        testCase.testCaseKey,
-        testCase.title,
-        testCase.objective,
-        ...testCase.acceptanceCriteriaKeys,
-      ]
-        .join(' ')
-        .toLocaleLowerCase();
-      return (
-        (!normalizedSearch || searchableText.includes(normalizedSearch)) &&
-        (caseStatus === 'ALL' || testCase.status === caseStatus) &&
-        (caseCategory === 'ALL' || testCase.category === caseCategory) &&
-        (casePriority === 'ALL' || testCase.priority === casePriority)
-      );
-    });
-    return [...filtered].sort((left, right) => {
-      switch (caseSort) {
-        case 'sequence-desc':
-          return compareByTestCaseNumber(right, left);
-        case 'priority-desc':
-          return (
-            priorityRank[left.priority] - priorityRank[right.priority] ||
-            compareByTestCaseNumber(left, right)
-          );
-        case 'status-asc':
-          return left.status.localeCompare(right.status) || compareByTestCaseNumber(left, right);
-        case 'updated-desc':
-          return (
-            right.updatedAt.localeCompare(left.updatedAt) || compareByTestCaseNumber(left, right)
-          );
-        default:
-          return compareByTestCaseNumber(left, right);
+  const visibleCases = cases.data?.items ?? [];
+  const selectedTombstoneNotFound =
+    Boolean(selectedRunId) &&
+    [cases.error, coverage.error, traceability.error].some(
+      (error) => error instanceof ApiError && error.status === 404,
+    );
+  useEffect(() => {
+    if (!selectedTombstoneNotFound) return;
+    setParams([
+      ['generationRunId', ''],
+      ['casePage', '0', '0'],
+      ['generationSetUnavailable', 'true'],
+    ]);
+    // The URL rewrite is recovery-only after an authoritative selected-set 404.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRunId, selectedTombstoneNotFound]);
+  const recoveryNotice: Notice | null = selectedSetUnavailable
+    ? {
+        severity: 'warning',
+        message: 'That generation set is no longer available. Viewing the active set instead.',
       }
-    });
-  }, [caseCategory, casePriority, caseSearch, caseSort, caseStatus, cases.data?.items]);
+    : null;
+  const isOutOfRangeCasePage =
+    Boolean(cases.data) && (cases.data?.totalElements ?? 0) > 0 && visibleCases.length === 0;
+  useEffect(() => {
+    if (isOutOfRangeCasePage && casePage > 0) {
+      setCasePage(0);
+    }
+    // setCasePage is a recovery-only URL write after an authoritative empty page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [casePage, isOutOfRangeCasePage]);
   const hasCaseFilters =
     Boolean(caseSearch) || caseStatus !== 'ALL' || caseCategory !== 'ALL' || casePriority !== 'ALL';
   /** Restores all test-case controls to the unfiltered review queue. */
@@ -374,6 +407,24 @@ export function RequirementPage() {
     onSuccess: async () => {
       setReviewTarget(null);
       await refreshAll();
+    },
+  });
+  const deleteGenerationSet = useMutation({
+    mutationFn: (run: GenerationRun) =>
+      apiRequest(`/api/v1/generation-runs/${run.id}?confirm=true`, { method: 'DELETE' }),
+    onSuccess: async () => {
+      const removed = deleteTarget;
+      setDeleteTarget(null);
+      setParams([
+        ['generationRunId', ''],
+        ['casePage', '0', '0'],
+        ['runPage', '0', '0'],
+      ]);
+      await refreshAll();
+      setNotice({
+        severity: 'success',
+        message: `Set ${removed?.setNumber ?? ''} was permanently purged; its number remains reserved in audit history. Viewing the active set.`,
+      });
     },
   });
   const resolveAmbiguity = useMutation({
@@ -505,9 +556,15 @@ export function RequirementPage() {
           </Button>
         </Stack>
       </Stack>
-      {notice && (
-        <Alert severity={notice.severity} onClose={() => setNotice(null)}>
-          {notice.message}
+      {(notice ?? recoveryNotice) && (
+        <Alert
+          severity={(notice ?? recoveryNotice)!.severity}
+          onClose={() => {
+            if (notice) setNotice(null);
+            else setParam('generationSetUnavailable', '', '');
+          }}
+        >
+          {(notice ?? recoveryNotice)!.message}
         </Alert>
       )}
       {generate.error && (
@@ -576,7 +633,7 @@ export function RequirementPage() {
           color="success.main"
         />
         <MetricCard
-          label="Review queue"
+          label="Open cases on this page"
           value={
             cases.error
               ? 'Unavailable'
@@ -589,7 +646,7 @@ export function RequirementPage() {
           detail={
             cases.error
               ? 'Retry test cases before making a review decision.'
-              : `${cases.data?.totalElements ?? 0} total structured cases`
+              : `${cases.data?.items.length ?? 0} cases shown on the current page`
           }
           color="warning.main"
         />
@@ -670,12 +727,14 @@ export function RequirementPage() {
                 setParams([
                   ['generationRunId', run.setState === 'ACTIVE' ? '' : run.id],
                   ['casePage', '0', '0'],
+                  ['generationSetUnavailable', ''],
                 ])
               }
+              onDeleteRun={setDeleteTarget}
             />
             <Divider sx={{ my: 2.5 }} />
             {cases.isLoading && <LinearProgress />}
-            {cases.data?.items.length === 0 && (
+            {cases.data?.totalElements === 0 && !hasCaseFilters && (
               <Box sx={{ py: 8, textAlign: 'center' }}>
                 <FactCheckOutlinedIcon color="disabled" sx={{ fontSize: 48 }} />
                 <Typography variant="h2" sx={{ mt: 1 }}>
@@ -686,7 +745,7 @@ export function RequirementPage() {
                 </Typography>
               </Box>
             )}
-            {(cases.data?.items.length ?? 0) > 0 && (
+            {cases.data && (
               <Stack
                 component="section"
                 aria-label="Test case controls"
@@ -712,6 +771,7 @@ export function RequirementPage() {
                       setParams([
                         ['generationRunId', event.target.value],
                         ['casePage', '0', '0'],
+                        ['generationSetUnavailable', ''],
                       ])
                     }
                     size="small"
@@ -810,8 +870,16 @@ export function RequirementPage() {
                 </Stack>
               </Stack>
             )}
-            {(cases.data?.items.length ?? 0) > 0 && visibleCases.length === 0 && (
-              <Alert severity="info">No test cases match the current filters.</Alert>
+            {isOutOfRangeCasePage && (
+              <Alert severity="info">Refreshing the first available test-case page…</Alert>
+            )}
+            {cases.data && cases.data.totalElements === 0 && hasCaseFilters && (
+              <Alert
+                severity="info"
+                action={<Button onClick={clearCaseFilters}>Clear filters</Button>}
+              >
+                No test cases match the current filters.
+              </Alert>
             )}
             {visibleCases.map((testCase) => (
               <TestCasePanel
@@ -847,8 +915,12 @@ export function RequirementPage() {
                 Traceability evidence is unavailable. No empty matrix is being shown.
               </Alert>
             ) : (
-              <TableContainer>
-                <Table>
+              <TableContainer
+                tabIndex={0}
+                aria-label="Traceability matrix"
+                sx={{ overflowX: 'auto' }}
+              >
+                <Table sx={{ minWidth: 680 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell>Criterion</TableCell>
@@ -929,6 +1001,12 @@ export function RequirementPage() {
                         <Typography color="text.secondary" variant="body2" sx={{ mt: 1 }}>
                           Question for the team: {item.suggestedQuestion}
                         </Typography>
+                        {item.resolved && (
+                          <Typography variant="body2" sx={{ mt: 1 }}>
+                            Saved answer: {item.resolution}. This answer is included in the next
+                            generation.
+                          </Typography>
+                        )}
                       </Box>
                       {item.resolved && (
                         <Chip
@@ -967,6 +1045,40 @@ export function RequirementPage() {
           }}
         />
       )}
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onClose={() => !deleteGenerationSet.isPending && setDeleteTarget(null)}
+        aria-labelledby="delete-generation-set-title"
+      >
+        <DialogTitle id="delete-generation-set-title">
+          Delete Set {deleteTarget?.setNumber}
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            This permanently purges the generated cases and traceability for Set{' '}
+            {deleteTarget?.setNumber}. Its set number remains reserved, and the audit record retains
+            only the set number and purged case count.
+          </Typography>
+          {deleteGenerationSet.error instanceof ApiError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {deleteGenerationSet.error.message}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleteGenerationSet.isPending}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => deleteTarget && deleteGenerationSet.mutate(deleteTarget)}
+            disabled={deleteGenerationSet.isPending}
+          >
+            Delete set permanently
+          </Button>
+        </DialogActions>
+      </Dialog>
       {reviewTarget && (
         <ReviewDecisionDialog
           testCase={reviewTarget.testCase}
@@ -1042,6 +1154,7 @@ function GenerationHistory({
   selectedRunId,
   onPageChange,
   onSelectRun,
+  onDeleteRun,
 }: {
   page?: PageResponse<GenerationRun>;
   busy: boolean;
@@ -1049,6 +1162,7 @@ function GenerationHistory({
   selectedRunId: string;
   onPageChange(page: number): void;
   onSelectRun(run: GenerationRun): void;
+  onDeleteRun(run: GenerationRun): void;
 }) {
   return (
     <Stack component="section" aria-labelledby="generation-history-heading" spacing={1.5}>
@@ -1108,14 +1222,21 @@ function GenerationHistory({
                   {run.failureMessage && <Alert severity="warning">{run.failureMessage}</Alert>}
                 </Stack>
                 {run.status === 'COMPLETED' && (
-                  <Button
-                    size="small"
-                    variant={activeSelection || historicalSelection ? 'contained' : 'outlined'}
-                    disabled={activeSelection || historicalSelection}
-                    onClick={() => onSelectRun(run)}
-                  >
-                    {activeSelection || historicalSelection ? 'Viewing set' : 'View set'}
-                  </Button>
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      size="small"
+                      variant={activeSelection || historicalSelection ? 'contained' : 'outlined'}
+                      disabled={activeSelection || historicalSelection}
+                      onClick={() => onSelectRun(run)}
+                    >
+                      {activeSelection || historicalSelection ? 'Viewing set' : 'View set'}
+                    </Button>
+                    {run.deletable && (
+                      <Button size="small" color="error" onClick={() => onDeleteRun(run)}>
+                        Delete set
+                      </Button>
+                    )}
+                  </Stack>
                 )}
               </Stack>
             </CardContent>
@@ -1372,8 +1493,47 @@ function TestCasePanel({
               ))}
             </Stack>
           </Box>
-          <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-            <Table size="small">
+          {(testCase.setupSteps ?? []).length > 0 && (
+            <Box>
+              <Typography sx={{ fontWeight: 700, mb: 1 }}>Setup</Typography>
+              <TableContainer
+                tabIndex={0}
+                aria-label={`${testCase.testCaseKey} setup steps`}
+                sx={denseTableContainerSx}
+              >
+                <Table
+                  size="small"
+                  aria-label={`${testCase.testCaseKey} setup steps`}
+                  sx={denseTableSx}
+                >
+                  <TableHead>
+                    <TableRow>
+                      <TableCell width={60}>Step</TableCell>
+                      <TableCell>Action</TableCell>
+                      <TableCell>Observed readiness</TableCell>
+                      <TableCell>Test data reference</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(testCase.setupSteps ?? []).map((step) => (
+                      <TableRow key={step.stepNumber}>
+                        <TableCell>{step.stepNumber}</TableCell>
+                        <TableCell>{step.action}</TableCell>
+                        <TableCell>{step.expectedResult}</TableCell>
+                        <TableCell>{step.testDataReference || 'None'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          )}
+          <TableContainer
+            tabIndex={0}
+            aria-label={`${testCase.testCaseKey} test steps`}
+            sx={denseTableContainerSx}
+          >
+            <Table size="small" aria-label={`${testCase.testCaseKey} test steps`} sx={denseTableSx}>
               <TableHead>
                 <TableRow>
                   <TableCell width={60}>Step</TableCell>
@@ -1401,8 +1561,16 @@ function TestCasePanel({
                 No generated test data.
               </Typography>
             ) : (
-              <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                <Table size="small" aria-label={`${testCase.testCaseKey} test data`}>
+              <TableContainer
+                tabIndex={0}
+                aria-label={`${testCase.testCaseKey} test data`}
+                sx={denseTableContainerSx}
+              >
+                <Table
+                  size="small"
+                  aria-label={`${testCase.testCaseKey} test data`}
+                  sx={denseTableSx}
+                >
                   <TableHead>
                     <TableRow>
                       <TableCell>Name</TableCell>
@@ -1491,6 +1659,7 @@ const comparisonFields = [
   ['Risk level', 'riskLevel'],
   ['Status', 'status'],
   ['Preconditions', 'preconditions'],
+  ['Setup steps', 'setupSteps'],
   ['Steps', 'steps'],
   ['Test data', 'testData'],
   ['Final outcome', 'finalExpectedOutcome'],
@@ -1511,7 +1680,7 @@ function comparisonText(snapshot: Record<string, unknown>, field: string) {
       })
       .join('\n');
   }
-  if (field === 'steps') {
+  if (field === 'setupSteps' || field === 'steps') {
     return value
       .map((item, index) => {
         const record =
@@ -1619,8 +1788,12 @@ function TestCaseHistory({ testCase, projectId }: { testCase: TestCase; projectI
               <Typography sx={{ fontWeight: 750, mb: 1 }}>
                 Revision {effectiveRevision.revisionNumber} compared with current
               </Typography>
-              <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                <Table size="small" aria-label="Revision comparison">
+              <TableContainer
+                tabIndex={0}
+                aria-label="Revision comparison"
+                sx={denseTableContainerSx}
+              >
+                <Table size="small" aria-label="Revision comparison" sx={denseTableSx}>
                   <TableHead>
                     <TableRow>
                       <TableCell>Field</TableCell>
@@ -1710,12 +1883,19 @@ function EditTestCaseDialog({
     getValues,
     setValue,
     formState: { isDirty, isSubmitting },
-  } = useForm<TestCase>({ defaultValues: testCase });
+  } = useForm<TestCase>({ defaultValues: { ...testCase, setupSteps: testCase.setupSteps ?? [] } });
   const stepFields = useFieldArray({ control, name: 'steps' });
+  const setupFields = useFieldArray({ control, name: 'setupSteps' });
   const preconditionFields = useFieldArray({ control, name: 'preconditions' });
   const dataFields = useFieldArray({ control, name: 'testData' });
+  const hasOverLimit =
+    stepFields.fields.length > 30 ||
+    setupFields.fields.length > 30 ||
+    preconditionFields.fields.length > 30 ||
+    dataFields.fields.length > 30;
   const watchedData = useWatch({ control, name: 'testData' });
   const watchedSteps = useWatch({ control, name: 'steps' });
+  const watchedSetupSteps = useWatch({ control, name: 'setupSteps' });
   const [error, setError] = useState('');
   /** Canonicalizes test-data names for case-insensitive reference comparison. */
   const normalizedDataName = (value: string | null | undefined) =>
@@ -1732,11 +1912,18 @@ function EditTestCaseDialog({
         });
       }
     });
+    getValues('setupSteps').forEach((step, stepIndex) => {
+      if (normalizedDataName(step.testDataReference) === normalizedDataName(previousName)) {
+        setValue(`setupSteps.${stepIndex}.testDataReference`, nextName || null, {
+          shouldDirty: true,
+        });
+      }
+    });
   };
   /** Requires an explicit reference clear before deleting a referenced data item. */
   const removeTestData = (index: number) => {
     const name = getValues(`testData.${index}.name`);
-    const referencedSteps = getValues('steps')
+    const referencedSteps = [...getValues('steps'), ...getValues('setupSteps')]
       .map((step, stepIndex) => ({ step, stepIndex }))
       .filter(
         ({ step }) =>
@@ -1751,9 +1938,14 @@ function EditTestCaseDialog({
     ) {
       return;
     }
-    referencedSteps.forEach(({ stepIndex }) =>
-      setValue(`steps.${stepIndex}.testDataReference`, null, { shouldDirty: true }),
-    );
+    getValues('steps').forEach((step, stepIndex) => {
+      if (normalizedDataName(step.testDataReference) === normalizedDataName(name))
+        setValue(`steps.${stepIndex}.testDataReference`, null, { shouldDirty: true });
+    });
+    getValues('setupSteps').forEach((step, stepIndex) => {
+      if (normalizedDataName(step.testDataReference) === normalizedDataName(name))
+        setValue(`setupSteps.${stepIndex}.testDataReference`, null, { shouldDirty: true });
+    });
     dataFields.remove(index);
   };
   /** Closes immediately when clean or asks before discarding unsaved edits. */
@@ -1775,6 +1967,7 @@ function EditTestCaseDialog({
           rationale: values.rationale,
           finalExpectedOutcome: values.finalExpectedOutcome,
           preconditions: values.preconditions.map((item) => item.description),
+          setupSteps: values.setupSteps.map((step, index) => ({ ...step, stepNumber: index + 1 })),
           steps: values.steps.map((step, index) => ({ ...step, stepNumber: index + 1 })),
           testData: values.testData,
           version: values.version,
@@ -1786,12 +1979,23 @@ function EditTestCaseDialog({
     }
   });
   return (
-    <Dialog open onClose={requestClose} fullWidth maxWidth="md">
+    <Dialog
+      open
+      onClose={requestClose}
+      fullWidth
+      maxWidth="md"
+      aria-labelledby="test-case-editor-title"
+    >
       <Stack component="form" onSubmit={submit}>
-        <DialogTitle>Edit {testCase.testCaseKey}</DialogTitle>
+        <DialogTitle id="test-case-editor-title">Edit {testCase.testCaseKey}</DialogTitle>
         <DialogContent>
           <Stack spacing={2.25} sx={{ pt: 1 }}>
             {error && <Alert severity="error">{error}</Alert>}
+            {hasOverLimit && (
+              <Alert severity="warning">
+                This legacy test case exceeds a 30-item limit. Remove the extra items before saving.
+              </Alert>
+            )}
             <TextField label="Title" {...register('title')} required />
             <TextField
               label="Objective"
@@ -1847,9 +2051,12 @@ function EditTestCaseDialog({
             />
             <TextField label="Rationale" multiline minRows={2} {...register('rationale')} />
             <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography sx={{ fontWeight: 750 }}>Preconditions</Typography>
+              <Typography sx={{ fontWeight: 750 }}>
+                Preconditions ({preconditionFields.fields.length} of 30)
+              </Typography>
               <Button
                 startIcon={<AddRoundedIcon />}
+                disabled={preconditionFields.fields.length >= 30}
                 onClick={() =>
                   preconditionFields.append({
                     sortOrder: preconditionFields.fields.length,
@@ -1890,7 +2097,81 @@ function EditTestCaseDialog({
                 </IconButton>
               </Stack>
             ))}
-            <Typography sx={{ fontWeight: 750 }}>Ordered steps</Typography>
+            <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography sx={{ fontWeight: 750 }}>
+                Reproducible setup ({setupFields.fields.length} of 30)
+              </Typography>
+              <Button
+                startIcon={<AddRoundedIcon />}
+                disabled={setupFields.fields.length >= 30}
+                onClick={() =>
+                  setupFields.append({
+                    stepNumber: setupFields.fields.length + 1,
+                    action: '',
+                    expectedResult: '',
+                    testDataReference: null,
+                  })
+                }
+              >
+                Add setup step
+              </Button>
+            </Stack>
+            {setupFields.fields.map((field, index) => (
+              <Stack
+                key={field.id}
+                spacing={1}
+                sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 1.5 }}
+              >
+                <Stack
+                  direction="row"
+                  sx={{ justifyContent: 'space-between', alignItems: 'center' }}
+                >
+                  <Typography variant="caption">Setup step {index + 1}</Typography>
+                  <IconButton
+                    size="small"
+                    aria-label={`Remove setup step ${index + 1}`}
+                    onClick={() => setupFields.remove(index)}
+                  >
+                    <DeleteOutlineRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+                <TextField
+                  label="Action"
+                  multiline
+                  {...register(`setupSteps.${index}.action`)}
+                  required
+                />
+                <TextField
+                  label="Observed readiness"
+                  multiline
+                  {...register(`setupSteps.${index}.expectedResult`)}
+                  required
+                />
+                <TextField
+                  select
+                  label="Test data reference"
+                  value={watchedSetupSteps?.[index]?.testDataReference ?? ''}
+                  onChange={(event) =>
+                    setValue(`setupSteps.${index}.testDataReference`, event.target.value || null, {
+                      shouldDirty: true,
+                    })
+                  }
+                >
+                  <MenuItem value="">None</MenuItem>
+                  {(watchedData ?? [])
+                    .map((item) => item.name.trim())
+                    .filter(Boolean)
+                    .map((name, dataIndex) => (
+                      <MenuItem key={`${normalizedDataName(name)}-${dataIndex}`} value={name}>
+                        {name}
+                      </MenuItem>
+                    ))}
+                </TextField>
+              </Stack>
+            ))}
+            <Typography sx={{ fontWeight: 750 }}>
+              Ordered test steps ({stepFields.fields.length} of 30)
+            </Typography>
             {stepFields.fields.map((field, index) => (
               <Box
                 key={field.id}
@@ -1981,9 +2262,12 @@ function EditTestCaseDialog({
               Add step
             </Button>
             <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography sx={{ fontWeight: 750 }}>Synthetic test data</Typography>
+              <Typography sx={{ fontWeight: 750 }}>
+                Synthetic test data ({dataFields.fields.length} of 30)
+              </Typography>
               <Button
                 startIcon={<AddRoundedIcon />}
+                disabled={dataFields.fields.length >= 30}
                 onClick={() =>
                   dataFields.append({
                     name: '',
@@ -2063,7 +2347,7 @@ function EditTestCaseDialog({
         </DialogContent>
         <DialogActions>
           <Button onClick={requestClose}>Cancel</Button>
-          <Button type="submit" variant="contained" disabled={isSubmitting}>
+          <Button type="submit" variant="contained" disabled={isSubmitting || hasOverLimit}>
             {isSubmitting ? 'Saving…' : 'Save changes'}
           </Button>
         </DialogActions>

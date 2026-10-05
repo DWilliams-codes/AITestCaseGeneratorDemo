@@ -187,3 +187,9 @@ Future deletion uses soft-delete/quarantine, dependency checks, an asynchronous
 purge after the retention window, and legal-hold override. Provider request and
 response bodies should remain minimized and expire sooner than approved audit
 evidence. No retention engine or restore endpoint is implemented in TF-005.
+# Generation-run tombstone
+
+`generation_runs.deleted_at` and `deleted_by` are paired nullable fields for a
+purged completed superseded set. The tombstone is never returned as a run or
+selected by case, coverage, traceability, export, or active-set queries, but it
+continues to contribute to the completed-set ordinal.

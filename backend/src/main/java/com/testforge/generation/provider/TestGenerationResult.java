@@ -43,6 +43,7 @@ public record TestGenerationResult(
       CoverageIntent coverageIntent,
       List<String> preconditions,
       List<GeneratedTestData> testData,
+      List<GeneratedStep> setupSteps,
       List<GeneratedStep> steps,
       String finalExpectedOutcome,
       List<String> acceptanceCriteriaKeys,
@@ -51,9 +52,45 @@ public record TestGenerationResult(
     public GeneratedTestCase {
       preconditions = preconditions == null ? null : List.copyOf(preconditions);
       testData = testData == null ? null : List.copyOf(testData);
+      setupSteps = setupSteps == null ? null : List.copyOf(setupSteps);
       steps = steps == null ? null : List.copyOf(steps);
       acceptanceCriteriaKeys =
           acceptanceCriteriaKeys == null ? null : List.copyOf(acceptanceCriteriaKeys);
+    }
+
+    /**
+     * Retains source compatibility for sanitized v2 test doubles; provider v3 parsing requires
+     * setupSteps.
+     */
+    public GeneratedTestCase(
+        String title,
+        String objective,
+        TestCaseCategory category,
+        TestPriority priority,
+        TestPriority riskLevel,
+        Boolean automationCandidate,
+        CoverageIntent coverageIntent,
+        List<String> preconditions,
+        List<GeneratedTestData> testData,
+        List<GeneratedStep> steps,
+        String finalExpectedOutcome,
+        List<String> acceptanceCriteriaKeys,
+        String rationale) {
+      this(
+          title,
+          objective,
+          category,
+          priority,
+          riskLevel,
+          automationCandidate,
+          coverageIntent,
+          preconditions,
+          testData,
+          List.of(),
+          steps,
+          finalExpectedOutcome,
+          acceptanceCriteriaKeys,
+          rationale);
     }
   }
 
@@ -67,5 +104,11 @@ public record TestGenerationResult(
   public record GeneratedStep(
       int stepNumber, String action, String expectedResult, String testDataReference) {}
 
-  public record UsageMetadata(int inputTokens, int outputTokens) {}
+  public record UsageMetadata(Integer inputTokens, Integer outputTokens) {
+    /** Keeps each unknown or invalid transport dimension explicitly unavailable. */
+    public UsageMetadata {
+      inputTokens = inputTokens == null || inputTokens < 0 ? null : inputTokens;
+      outputTokens = outputTokens == null || outputTokens < 0 ? null : outputTokens;
+    }
+  }
 }

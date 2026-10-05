@@ -5,6 +5,7 @@ import com.testforge.audit.application.AuditService;
 import com.testforge.auth.domain.RefreshTokenEntity;
 import com.testforge.auth.repository.RefreshTokenRepository;
 import com.testforge.config.AuthProperties;
+import com.testforge.config.DemoModePolicy;
 import com.testforge.user.domain.UserEntity;
 import com.testforge.user.repository.UserRepository;
 import java.time.Clock;
@@ -23,6 +24,7 @@ public class RefreshTokenRotationService {
   private final AuthProperties properties;
   private final Clock clock;
   private final AuditService audit;
+  private final DemoModePolicy demoMode;
 
   /** Initializes RefreshTokenRotationService with its required collaborators and domain state. */
   public RefreshTokenRotationService(
@@ -30,7 +32,9 @@ public class RefreshTokenRotationService {
       UserRepository users,
       AuthProperties properties,
       Clock clock,
-      AuditService audit) {
+      AuditService audit,
+      DemoModePolicy demoMode) {
+    this.demoMode = demoMode;
     this.tokens = tokens;
     this.users = users;
     this.properties = properties;
@@ -68,7 +72,7 @@ public class RefreshTokenRotationService {
     }
     UserEntity user =
         users.findById(current.getUserId()).filter(UserEntity::isEnabled).orElse(null);
-    if (user == null) {
+    if (user == null || !demoMode.isPrincipalAllowed(user.getEmail())) {
       current.revoke(now);
       tokens.revokeFamily(current.getFamilyId(), now);
       return RotationOutcome.rejected(RotationFailure.ACCOUNT_UNAVAILABLE);

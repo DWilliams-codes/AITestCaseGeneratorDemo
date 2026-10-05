@@ -78,7 +78,8 @@ SKILL_ALLOWLIST = (
 )
 PROTECTED_PLAN_IGNORE = "/docs/plans/testforce-ai-mvp-execplan.md"
 MANUAL_008_ID = "manual-008-comprehensive-output-bounds"
-MANUAL_008_SCHEMA_PATH = "backend/src/main/resources/prompts/test-generation-schema-v2.json"
+MANUAL_009_ID = "manual-009-actionable-pending-transaction"
+MANUAL_008_SCHEMA_PATH = "backend/src/main/resources/prompts/test-generation-schema-v3.json"
 
 # The fixture's labels are deliberately stable evidence names; schema paths keep
 # the application-owned JSON schema as the source for their actual maxima.
@@ -89,8 +90,13 @@ MANUAL_008_BOUNDARIES = (
     ("preconditions", "testCases[].preconditions", 30),
     ("testData", "testCases[].testData", 30),
     ("steps", "testCases[].steps", 30),
+    ("setupSteps", "testCases[].setupSteps", 30),
     ("ACKeys", "testCases[].acceptanceCriteriaKeys", 50),
     ("stepNumber", "testCases[].steps[].stepNumber", 30),
+    ("setupStepNumber", "testCases[].setupSteps[].stepNumber", 30),
+    ("setup.action", "testCases[].setupSteps[].action", 4000),
+    ("setup.expected", "testCases[].setupSteps[].expectedResult", 4000),
+    ("setup.reference", "testCases[].setupSteps[].testDataReference", 1000),
     ("actor", "requirementSummary.actor", 4000),
     ("goal", "requirementSummary.goal", 4000),
     ("businessValue", "requirementSummary.businessValue", 4000),
@@ -111,7 +117,12 @@ MANUAL_008_BOUNDARIES = (
     ("ACKey[]", "testCases[].acceptanceCriteriaKeys[]", 20),
     ("rationale", "testCases[].rationale", 4000),
 )
-MANUAL_008_TEXT_FIELDS = tuple(label for label, _, _ in MANUAL_008_BOUNDARIES[8:])
+MANUAL_008_TEXT_FIELDS = tuple(
+    label
+    for label, path, _ in MANUAL_008_BOUNDARIES
+    if not path.endswith("stepNumber")
+    and label not in {"testCases", "summary.assumptions", "ambiguities", "preconditions", "testData", "steps", "setupSteps", "ACKeys"}
+)
 MANUAL_008_TAXONOMY = (
     ("shell command", "Shell command"),
     ("destructive filesystem command", "Destructive filesystem command"),
@@ -154,6 +165,7 @@ REQUIRED_FILES = (
     "evals/RUBRIC.md",
     "scripts/verify.ps1",
     "scripts/verify.sh",
+    "docker-compose.yml",
     ".github/pull_request_template.md",
 )
 
@@ -322,6 +334,89 @@ def validate_required_files() -> None:
     plan_files += list((ROOT / "docs/exec-plans/completed").glob("TF-*.md"))
     if not plan_files:
         fail("docs/exec-plans", "at least one versioned TF ExecPlan is required")
+
+
+COMPOSE_FRONTEND_LOOPBACK_MAPPING = '"127.0.0.1:${FRONTEND_PORT:-3000}:8080"'
+
+
+def compose_frontend_port_errors(compose_text: str) -> list[str]:
+    frontend_matches = list(re.finditer(r"(?m)^  frontend:[ \t]*$", compose_text))
+    if len(frontend_matches) != 1:
+        return ["must declare exactly one frontend service"]
+
+    frontend_start = frontend_matches[0].end()
+    next_service = re.search(
+        r"(?m)^  [A-Za-z0-9_-]+:[ \t]*$", compose_text[frontend_start:]
+    )
+    frontend_body = compose_text[
+        frontend_start : frontend_start + next_service.start()
+        if next_service
+        else len(compose_text)
+    ]
+    port_headers = list(re.finditer(r"(?m)^    ports:[ \t]*$", frontend_body))
+    if len(port_headers) != 1:
+        return ["frontend must declare exactly one ports block"]
+
+    ports_start = port_headers[0].end()
+    next_property = re.search(
+        r"(?m)^    [A-Za-z0-9_-]+:[ \t]*$", frontend_body[ports_start:]
+    )
+    ports_body = frontend_body[
+        ports_start : ports_start + next_property.start()
+        if next_property
+        else len(frontend_body)
+    ]
+    entries: list[str] = []
+    errors: list[str] = []
+    for line in ports_body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not line.startswith("      - "):
+            errors.append("frontend ports block contains unrecognized content")
+            continue
+        entries.append(line.removeprefix("      - ").strip())
+
+    if len(entries) != 1:
+        errors.append("frontend must publish exactly one host port")
+    elif entries[0] != COMPOSE_FRONTEND_LOOPBACK_MAPPING:
+        errors.append(
+            "frontend host port must be "
+            "127.0.0.1:${FRONTEND_PORT:-3000}:8080"
+        )
+    return errors
+
+
+def run_compose_frontend_port_self_tests() -> None:
+    approved = """services:
+  frontend:
+    ports:
+      - \"127.0.0.1:${FRONTEND_PORT:-3000}:8080\"
+"""
+    assert not compose_frontend_port_errors(approved), "approved loopback mapping"
+    cases = {
+        "broad": approved.replace("127.0.0.1:", ""),
+        "non_loopback": approved.replace("127.0.0.1", "192.0.2.10"),
+        "ipv6": approved.replace("127.0.0.1", "::1"),
+        "duplicate": approved.replace(
+            "\"\n", "\"\n      - \"127.0.0.1:3001:8080\"\n"
+        ),
+        "missing": "services:\n  frontend:\n    image: example\n",
+    }
+    for name, candidate in cases.items():
+        assert compose_frontend_port_errors(candidate), name
+    print(
+        "Compose frontend loopback self-tests passed: broad, non_loopback, "
+        "ipv6, duplicate, and missing mappings fail closed."
+    )
+
+
+def validate_compose_frontend_port() -> None:
+    relative_path = "docker-compose.yml"
+    for message in compose_frontend_port_errors(
+        (ROOT / relative_path).read_text(encoding="utf-8")
+    ):
+        fail(relative_path, message)
 
 
 def validate_agent_configuration() -> None:
@@ -648,7 +743,7 @@ def run_workflow_package_self_tests() -> None:
 
 
 def validate_source_contracts() -> dict[str, Any]:
-    schema_path = "backend/src/main/resources/prompts/test-generation-schema-v2.json"
+    schema_path = "backend/src/main/resources/prompts/test-generation-schema-v3.json"
     try:
         schema = json.loads((ROOT / schema_path).read_text(encoding="utf-8"))
         properties = schema["properties"]
@@ -772,13 +867,13 @@ def validate_source_contracts() -> dict[str, Any]:
         "GenerationContractVersions.java"
     )
     versions_text = (ROOT / versions_path).read_text(encoding="utf-8")
-    if 'PROMPT = "manual-test-v2"' not in versions_text:
+    if 'PROMPT = "manual-test-v5"' not in versions_text:
         fail(versions_path, "manual fixture promptVersion no longer matches release tuple")
-    if 'SCHEMA = "manual-test-schema-v2"' not in versions_text:
+    if 'SCHEMA = "manual-test-schema-v3"' not in versions_text:
         fail(versions_path, "schema resource no longer matches release tuple")
-    if 'RESULT = "manual-test-result-v1"' not in versions_text:
+    if 'RESULT = "manual-test-result-v2"' not in versions_text:
         fail(versions_path, "manual fixture result contract no longer matches release tuple")
-    if 'VALIDATOR = "manual-test-validator-v2"' not in versions_text:
+    if 'VALIDATOR = "manual-test-validator-v4"' not in versions_text:
         fail(versions_path, "manual fixture validator no longer matches release tuple")
 
     provider_path = (
@@ -786,19 +881,34 @@ def validate_source_contracts() -> dict[str, Any]:
         "OpenAiTestGenerationProvider.java"
     )
     provider_text = (ROOT / provider_path).read_text(encoding="utf-8")
-    if 'PROMPT_RESOURCE = "classpath:prompts/test-generation-v2.txt"' not in provider_text:
+    if 'PROMPT_RESOURCE = "classpath:prompts/test-generation-v5.txt"' not in provider_text:
         fail(provider_path, "provider prompt resource no longer matches release tuple")
 
     rollback_prompt_path = "backend/src/main/resources/prompts/test-generation-v1.txt"
     if not (ROOT / rollback_prompt_path).is_file():
         fail(rollback_prompt_path, "rollback prompt must remain available")
 
-    prompt_path = "backend/src/main/resources/prompts/test-generation-v2.txt"
+    for historical_prompt_path in (
+        "backend/src/main/resources/prompts/test-generation-v3.txt",
+        "backend/src/main/resources/prompts/test-generation-v4.txt",
+    ):
+        if not (ROOT / historical_prompt_path).is_file():
+            fail(historical_prompt_path, "historical prompt must remain available")
+
+    prompt_path = "backend/src/main/resources/prompts/test-generation-v5.txt"
     prompt_text = (ROOT / prompt_path).read_text(encoding="utf-8")
     for phrase in (
         "untrusted data",
         "internally decompose",
         "smallest coherent suite",
+        "complete reproducible path",
+        "assumed-only",
+        "separately numbered `steps`",
+        "Do not combine actions",
+        "individual tester interaction",
+        "realistic enterprise roles",
+        "independently executable without undocumented assumptions",
+        "Submit input for AC-2",
         "acceptance criterion",
         "structured JSON",
     ):
@@ -811,6 +921,67 @@ def validate_source_contracts() -> dict[str, Any]:
         "criterion_fields": criterion_components,
         "automation_draft_components": AUTOMATION_DRAFT_COMPONENTS,
     }
+
+
+def validate_live_generation_guardrails() -> None:
+    package_path = "frontend/package.json"
+    preflight_path = "frontend/scripts/live-generation-preflight.mjs"
+    preflight_test_path = "frontend/scripts/live-generation-preflight.test.mjs"
+    browser_path = "frontend/e2e/stage-one-workflow.spec.ts"
+    try:
+        package = json.loads((ROOT / package_path).read_text(encoding="utf-8"))
+        preflight_text = (ROOT / preflight_path).read_text(encoding="utf-8")
+        preflight_test_text = (ROOT / preflight_test_path).read_text(encoding="utf-8")
+        browser_text = (ROOT / browser_path).read_text(encoding="utf-8")
+    except (OSError, json.JSONDecodeError) as error:
+        fail("frontend live generation", f"cannot inspect preflight guardrails ({error})")
+        return
+
+    scripts = package.get("scripts", {})
+    if scripts.get("e2e:live") != "node scripts/live-generation-preflight.mjs":
+        fail(package_path, "e2e:live must run the fail-closed preflight before Playwright")
+    if scripts.get("test:live-preflight") != "node --test scripts/live-generation-preflight.test.mjs":
+        fail(package_path, "must retain deterministic live-preflight tests")
+    for term in (
+        "TESTFORGE_LIVE_GENERATION_AUTHORIZED",
+        "https://api.openai.com/v1",
+        "gpt-5.6-sol",
+        "parseExactDefaultComposeSource",
+        "TESTFORGE_DOCKER_EXECUTABLE",
+        "OPENAI_API_KEY",
+        "not a process override",
+        "com.docker.compose.project.config_files",
+        "'/bin/sh'",
+    ):
+        if term not in preflight_text:
+            fail(preflight_path, f"missing fail-closed live guardrail {term!r}")
+    for term in (
+        "test.describe.configure({ retries: 0 })",
+        "expect(run.provider).toBe('openai-responses')",
+        "expect(run.model).toBe('gpt-5.6-sol')",
+        "TESTFORGE_LIVE_GENERATION_MODE !== 'true'",
+        "must be launched through npm run e2e:live",
+    ):
+        if term not in browser_text:
+            fail(browser_path, f"missing paid-candidate safety assertion {term!r}")
+    config_path = "frontend/playwright.config.ts"
+    config_text = (ROOT / config_path).read_text(encoding="utf-8")
+    for term in (
+        "retries: liveGenerationMode ? 0",
+        "trace: liveGenerationMode ? 'off'",
+        "screenshot: liveGenerationMode ? 'off'",
+        "video: liveGenerationMode ? 'off'",
+    ):
+        if term not in config_text:
+            fail(config_path, f"missing live artifact/retry guardrail {term!r}")
+    for term in (
+        "Responses-stub backend",
+        "/attacker/not-docker-compose.yml",
+        "docker-compose.e2e.yml",
+        "TESTFORGE_DOCKER_EXECUTABLE",
+    ):
+        if term not in preflight_test_text:
+            fail(preflight_test_path, f"must prove live preflight guardrail {term!r}")
 
 
 def inspect_skill_frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
@@ -951,7 +1122,7 @@ def manual_008_expected_tuples() -> set[tuple[str, str]]:
         ("AC-4", "Semantic validation independently enforces curated bounds."),
     }
     expected = boundaries | fenced | taxonomy | enforcement
-    assert len(expected) == 81
+    assert len(expected) == 94
     return expected
 
 
@@ -1003,7 +1174,9 @@ def manual_008_oracle_errors(records: list[dict[str, Any]], schema: dict[str, An
         return ["curated path absent schema"]
     if any(actual_bounds[path] != maximum for path, maximum in curated_bounds.items()):
         return ["wrong max"]
-    curated_text_paths = {path for _, path, _ in MANUAL_008_BOUNDARIES[8:]}
+    curated_text_paths = {
+        path for label, path, _ in MANUAL_008_BOUNDARIES if label in MANUAL_008_TEXT_FIELDS
+    }
     if schema_free_text_paths(schema) != curated_text_paths:
         return ["free-text path mismatch"]
     items = fixtures[0].get("expectations", {}).get("atomicCoverageItems")
@@ -1047,6 +1220,41 @@ def manual_008_oracle_errors(records: list[dict[str, Any]], schema: dict[str, An
     return []
 
 
+def manual_009_oracle_errors(records: list[dict[str, Any]]) -> list[str]:
+    fixtures = [record for record in records if record.get("id") == MANUAL_009_ID]
+    if len(fixtures) != 1:
+        return ["must locate exactly one Manual-009 fixture"]
+    expectations = fixtures[0].get("expectations", {})
+    items = expectations.get("atomicCoverageItems")
+    if not isinstance(items, list):
+        return ["Manual-009 must contain atomic obligations"]
+    actual = {
+        (item.get("acceptanceCriteriaKey"), normalized_obligation(item.get("obligation", "")))
+        for item in items
+        if isinstance(item, dict) and isinstance(item.get("obligation"), str)
+    }
+    expected = {
+        ("AC-1", "requester submits exactly $500 transaction."),
+        ("AC-1", "submitted transaction displays pending status."),
+        ("AC-2", "same requester approval attempt is blocked."),
+        ("AC-3", "blocked approval leaves transaction pending."),
+    }
+    if actual != expected:
+        return ["Manual-009 actionable pending-transaction obligations drifted"]
+    required_coverage = {
+        "actionable authentication setup with observable requester readiness",
+        "individual entry of the exact synthetic $500 value",
+        "visible pending transaction state",
+        "same-requester approval attempt",
+        "blocked approval and retained PENDING state",
+    }
+    if not required_coverage <= set(expectations.get("mustCover", [])):
+        return ["Manual-009 actionable path oracle drifted"]
+    if "criterion-key placeholder action" not in expectations.get("forbiddenOutput", []):
+        return ["Manual-009 must forbid criterion-key placeholders"]
+    return []
+
+
 def run_manual_008_oracle_self_tests() -> None:
     schema = json.loads((ROOT / MANUAL_008_SCHEMA_PATH).read_text(encoding="utf-8"))
     complete_items = [
@@ -1059,7 +1267,7 @@ def run_manual_008_oracle_self_tests() -> None:
         errors = manual_008_oracle_errors([record], candidate_schema)
         assert errors == [expected], f"{name}: {errors}"
 
-    assert not manual_008_oracle_errors([complete], schema), "complete_81"
+    assert not manual_008_oracle_errors([complete], schema), "complete_94"
     missing_exact = json.loads(json.dumps(complete))
     missing_exact["expectations"]["atomicCoverageItems"] = [item for item in complete_items if item["acceptanceCriteriaKey"] != "AC-1"]
     assert_exact_diagnostic("missing_exact", "missing exact", missing_exact)
@@ -1088,7 +1296,7 @@ def run_manual_008_oracle_self_tests() -> None:
     duplicate["expectations"]["atomicCoverageItems"].append(complete_items[0])
     assert_exact_diagnostic("unexpected_duplicate_obligation", "unexpected/duplicate obligation", duplicate)
     print(
-        "Manual-008 oracle self-tests passed: 81 obligations; "
+        "Manual-008 oracle self-tests passed: 94 obligations; "
         "missing_exact, missing_first_over, wrong_max, "
         "new_schema_bounded_path_absent_curated, curated_path_absent_schema, "
         "missing_fenced_field, generic_authored_field_safety, missing_taxonomy, "
@@ -1169,8 +1377,8 @@ def validate_manual_evaluations(source_contracts: dict[str, Any]) -> None:
     criterion_fields = source_contracts.get("criterion_fields", set())
     java_enums = source_contracts.get("enums", {})
     records = load_jsonl(relative_path)
-    if len(records) != 8:
-        fail(relative_path, "must contain exactly eight manual-generation cases")
+    if len(records) != 9:
+        fail(relative_path, "must contain exactly nine manual-generation cases")
     identifiers: set[str] = set()
     consolidation_fixture_count = 0
     for index, record in enumerate(records, start=1):
@@ -1198,15 +1406,15 @@ def validate_manual_evaluations(source_contracts: dict[str, Any]) -> None:
             fail(location, "mode must be manual-test-generation")
         if record.get("blocking") is not True:
             fail(location, "manual evaluation must be blocking")
-        if record.get("fixtureVersion") != 2:
-            fail(location, "fixtureVersion must be 2")
-        if record.get("promptVersion") != "manual-test-v2":
+        if record.get("fixtureVersion") != 3:
+            fail(location, "fixtureVersion must be 3")
+        if record.get("promptVersion") != "manual-test-v5":
             fail(location, "promptVersion must match GenerationService")
-        if record.get("resultContractVersion") != "manual-test-result-v1":
+        if record.get("resultContractVersion") != "manual-test-result-v2":
             fail(location, "resultContractVersion must match the release tuple")
-        if record.get("schemaVersion") != "manual-test-schema-v2":
+        if record.get("schemaVersion") != "manual-test-schema-v3":
             fail(location, "schemaVersion must match the release tuple")
-        if record.get("validatorVersion") != "manual-test-validator-v2":
+        if record.get("validatorVersion") != "manual-test-validator-v4":
             fail(location, "validatorVersion must match the release tuple")
 
         input_value = record.get("input")
@@ -1344,7 +1552,9 @@ def validate_manual_evaluations(source_contracts: dict[str, Any]) -> None:
                 location,
                 "requiredAmbiguityCategories contains a value absent from the Java/schema enum",
             )
-        validate_string_list(expectations.get("mustCover"), f"{location}:mustCover")
+        must_cover = validate_string_list(expectations.get("mustCover"), f"{location}:mustCover")
+        if not any("setup" in item.casefold() and "observable" in item.casefold() for item in must_cover):
+            fail(location, "v3 manual fixture must require observable reproducible setup coverage")
         validate_string_list(
             expectations.get("forbiddenOutput"), f"{location}:forbiddenOutput"
         )
@@ -1355,6 +1565,8 @@ def validate_manual_evaluations(source_contracts: dict[str, Any]) -> None:
     else:
         for message in manual_008_oracle_errors(records, schema):
             fail(relative_path, message)
+    for message in manual_009_oracle_errors(records):
+        fail(relative_path, message)
     if consolidation_fixture_count < 1:
         fail(relative_path, "must include a multi-acceptance-criterion consolidation fixture")
 
@@ -1562,7 +1774,7 @@ def validate_documentation() -> None:
             "gpt-5.6-sol",
             "No Luna",
         ),
-        "docs/product-specs/mvp-1-test-generation.md": ("manual-test-v2", "Stage 1"),
+        "docs/product-specs/mvp-1-test-generation.md": ("manual-test-v5", "Stage 1"),
         ".github/pull_request_template.md": ("ExecPlan", "Evaluation"),
     }
     for relative_path, terms in required_terms.items():
@@ -1617,11 +1829,14 @@ def main() -> int:
         return 1
 
     validate_agent_configuration()
+    run_compose_frontend_port_self_tests()
+    validate_compose_frontend_port()
     run_contract_parser_self_tests()
     run_workflow_package_self_tests()
     run_evaluator_matrix_self_tests()
     run_manual_008_oracle_self_tests()
     source_contracts = validate_source_contracts()
+    validate_live_generation_guardrails()
     validate_skills()
     validate_manual_evaluations(source_contracts)
     validate_automation_evaluations(source_contracts)
@@ -1636,7 +1851,7 @@ def main() -> int:
 
     print(
         "TestForge harness validation passed: 3 specialist profiles, 6 skills, "
-        "8 blocking manual fixtures, and 3 non-blocking automation roadmap fixtures."
+        "9 blocking manual fixtures, and 3 non-blocking automation roadmap fixtures."
     )
     return 0
 

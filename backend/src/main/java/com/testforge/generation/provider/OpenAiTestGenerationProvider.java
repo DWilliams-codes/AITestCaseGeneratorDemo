@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.testforge.config.DemoModePolicy;
 import com.testforge.config.OpenAiProperties;
 import com.testforge.generation.provider.TestGenerationResult.GeneratedAmbiguity;
 import com.testforge.generation.provider.TestGenerationResult.GeneratedTestCase;
@@ -27,8 +28,9 @@ import org.springframework.web.client.RestClientException;
 @Component
 @ConditionalOnProperty(name = "testforge.generation.provider", havingValue = "openai")
 public final class OpenAiTestGenerationProvider implements TestGenerationProvider {
-  private static final String PROMPT_RESOURCE = "classpath:prompts/test-generation-v2.txt";
-  private static final String SCHEMA_RESOURCE = "classpath:prompts/test-generation-schema-v2.json";
+  static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+  private static final String PROMPT_RESOURCE = "classpath:prompts/test-generation-v5.txt";
+  private static final String SCHEMA_RESOURCE = "classpath:prompts/test-generation-schema-v3.json";
   private static final Set<String> SUPPORTED_SCHEMA_KEYWORDS =
       Set.of(
           "type",
@@ -45,6 +47,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
           "maximum");
 
   private final OpenAiProperties properties;
+  private final DemoModePolicy demoMode;
   private final ObjectMapper objectMapper;
   private final ObjectReader structuredResultReader;
   private final RestClient restClient;
@@ -56,7 +59,9 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
       OpenAiProperties properties,
       ObjectMapper objectMapper,
       ResourceLoader resourceLoader,
-      @Qualifier("openAiRestClient") RestClient restClient) {
+      @Qualifier("openAiRestClient") RestClient restClient,
+      DemoModePolicy demoMode) {
+    this.demoMode = demoMode;
     this.properties = properties;
     this.objectMapper = objectMapper;
     ObjectMapper strictMapper = objectMapper.copy();
@@ -76,7 +81,7 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
   @Override
   public TestGenerationResult generate(TestGenerationRequest request) {
     ObjectNode body = objectMapper.createObjectNode();
-    body.put("model", properties.model());
+    body.put("model", modelName());
     body.put("instructions", instructions);
     body.put("input", serializeInput(request));
     body.put("store", false);
@@ -92,43 +97,73 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
 
     try {
       JsonNode response =
-          restClient.post().uri("/responses").body(body).retrieve().body(JsonNode.class);
+          restClient
+              .post()
+              .uri("/responses")
+              .body(body)
+              .exchange(
+                  (requestMessage, transport) -> {
+                    // Own the JDK stream directly: Spring response.close() otherwise drains unread
+                    // bytes.
+                    try (var stream = transport.getBody()) {
+                      if (!transport.getStatusCode().is2xxSuccessful()) {
+                        throw new GenerationProviderException(
+                            "The configured provider rejected the request.", null);
+                      }
+                      byte[] bytes = stream.readNBytes(MAX_RESPONSE_BYTES + 1);
+                      if (bytes.length > MAX_RESPONSE_BYTES) {
+                        throw new GenerationProviderException(
+                            "The configured provider response exceeded the safe size limit.", null);
+                      }
+                      return objectMapper.readTree(bytes);
+                    }
+                  },
+                  false);
       return parseResponse(response);
     } catch (RestClientException exception) {
       throw new GenerationProviderException(
-          "The configured AI provider could not complete the generation request.", exception);
+          "The configured AI provider could not complete the generation request.", null);
     }
   }
 
   /** Returns the stable provider identifier stored with generation runs. */
   @Override
   public String providerName() {
-    return "openai-responses";
+    return demoMode.isEnabled() ? "external-demo-fixture" : "openai-responses";
   }
 
   /** Returns the model or engine identifier stored with generation runs. */
   @Override
   public String modelName() {
-    return properties.model();
+    return demoMode.isEnabled() ? DemoModePolicy.FIXTURE_MODEL : properties.model();
   }
 
   /** Executes the adapter version operation for OpenAiTestGenerationProvider. */
   @Override
   public String adapterVersion() {
-    return com.testforge.generation.application.GenerationContractVersions.OPENAI_ADAPTER;
+    return demoMode.isEnabled()
+        ? "external-demo-fixture-v1"
+        : com.testforge.generation.application.GenerationContractVersions.OPENAI_ADAPTER;
   }
 
   /** Accepts only completed structured text and maps it for application semantic validation. */
   private TestGenerationResult parseResponse(JsonNode response) {
+    JsonNode transportUsage =
+        response == null || demoMode.isEnabled() ? null : response.get("usage");
+    UsageMetadata usage =
+        new UsageMetadata(
+            tokenCount(transportUsage, "input_tokens"),
+            tokenCount(transportUsage, "output_tokens"));
     if (response == null || !"completed".equals(response.path("status").asText())) {
       throw new RetryableStructuredOutputException(
-          "The AI provider returned an incomplete response.");
+          "The AI provider returned an incomplete response.", null, usage);
     }
     StringBuilder outputText = new StringBuilder();
     for (JsonNode output : response.path("output")) {
       for (JsonNode content : output.path("content")) {
         if ("refusal".equals(content.path("type").asText())) {
-          throw new GenerationProviderException("The AI provider declined the generation request.");
+          throw new GenerationProviderException(
+              "The AI provider declined the generation request.", null, usage);
         }
         if ("output_text".equals(content.path("type").asText())) {
           outputText.append(content.path("text").asText());
@@ -137,19 +172,34 @@ public final class OpenAiTestGenerationProvider implements TestGenerationProvide
     }
     if (outputText.isEmpty()) {
       throw new RetryableStructuredOutputException(
-          "The AI provider returned no structured output.");
+          "The AI provider returned no structured output.", null, usage);
     }
     try {
       StructuredGenerationResult generated =
           structuredResultReader.readValue(outputText.toString());
-      JsonNode usage = response.path("usage");
-      return generated.toResult(
-          new UsageMetadata(
-              usage.path("input_tokens").asInt(), usage.path("output_tokens").asInt()));
+      if (generated == null) {
+        throw new RetryableStructuredOutputException(
+            "The AI provider returned no structured result.", null, usage);
+      }
+      return generated.toResult(usage);
     } catch (JsonProcessingException exception) {
       throw new RetryableStructuredOutputException(
-          "The AI provider returned malformed structured output.", exception);
+          "The AI provider returned malformed structured output.", null, usage);
     }
+  }
+
+  /**
+   * Accepts only exact nonnegative integer transport counts; omitted or malformed usage stays
+   * unknown.
+   */
+  private Integer tokenCount(JsonNode usage, String name) {
+    JsonNode count = usage == null ? null : usage.get(name);
+    return count != null
+            && count.isIntegralNumber()
+            && count.canConvertToInt()
+            && count.intValue() >= 0
+        ? count.intValue()
+        : null;
   }
 
   /** Excludes identifiers and explicitly delimits requirement fields as untrusted data. */

@@ -33,6 +33,11 @@ public final class AuditMetadata {
     return new AuditMetadata(Map.of("caseCount", caseCount, "provider", provider));
   }
 
+  /** Records only bounded deletion facts, never generated content or actor-supplied text. */
+  public static AuditMetadata generationSetPurged(int setNumber, int purgedCaseCount) {
+    return new AuditMetadata(Map.of("setNumber", setNumber, "purgedCaseCount", purgedCaseCount));
+  }
+
   /** Exports ed for the current operation. */
   public static AuditMetadata exported(String format, int approvedCaseCount) {
     return new AuditMetadata(Map.of("format", format, "approvedCaseCount", approvedCaseCount));

@@ -1,6 +1,7 @@
 package com.testforge.generation.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -8,6 +9,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.testforge.generation.domain.GenerationRunEntity;
@@ -81,16 +83,20 @@ class GenerationServiceTest {
             Map.of(
                 "AC-1", new GenerationTransactionService.CapturedCriterion(1L, UUID.randomUUID())),
             false);
-    when(provider.providerName()).thenReturn("provider");
-    when(provider.modelName()).thenReturn("model");
-    when(provider.adapterVersion()).thenReturn(GenerationContractVersions.OPENAI_ADAPTER);
-    when(transactions.claim(
-            any(), any(), anyString(), anyBoolean(), anyString(), anyString(), anyString()))
+    lenient().when(provider.providerName()).thenReturn("provider");
+    lenient().when(provider.modelName()).thenReturn("model");
+    lenient().when(provider.adapterVersion()).thenReturn(GenerationContractVersions.OPENAI_ADAPTER);
+    lenient()
+        .when(
+            transactions.claim(
+                any(), any(), anyString(), anyBoolean(), anyString(), anyString(), anyString()))
         .thenReturn(claim);
     lenient()
-        .when(transactions.fail(any(), any(), anyString(), anyString()))
+        .when(transactions.fail(any(), any(), anyString(), anyString(), any()))
         .thenAnswer(
             invocation -> {
+              TestGenerationResult.UsageMetadata usage = invocation.getArgument(4);
+              run.recordUsage(usage.inputTokens(), usage.outputTokens());
               run.fail(
                   invocation.getArgument(1),
                   invocation.getArgument(2),
@@ -98,9 +104,17 @@ class GenerationServiceTest {
                   Instant.parse("2026-08-05T12:00:01Z"));
               return run;
             });
-    when(activeSets.describe(any(), any()))
+    lenient()
+        .when(activeSets.describe(any(), any()))
         .thenReturn(new ActiveGenerationSetResolver.Metadata(null, Map.of()));
-    service = new GenerationService(transactions, provider, validator, activeSets, legacyEvidence);
+    service =
+        new GenerationService(
+            transactions,
+            provider,
+            validator,
+            activeSets,
+            legacyEvidence,
+            org.mockito.Mockito.mock(com.testforge.config.DemoModePolicy.class));
   }
 
   /** Retries retryable structured output once and succeeds with the second candidate. */
@@ -146,5 +160,108 @@ class GenerationServiceTest {
     assertThat(service.generate(UUID.randomUUID(), request.requirementId(), "failure-key").status())
         .isEqualTo(GenerationStatus.FAILED);
     verify(provider).generate(request);
+  }
+
+  /** Requires explicit confirmation and never reaches the provider for a deletion request. */
+  @Test
+  void requiresConfirmationBeforeDeletingASupersededSet() {
+    assertThatThrownBy(() -> service.deleteSuperseded(UUID.randomUUID(), run.getId(), false))
+        .isInstanceOf(com.testforge.common.error.ApiException.class)
+        .hasMessageContaining("Confirm deletion");
+    verifyNoInteractions(provider);
+    verify(transactions, times(0)).getOwned(any(), any());
+  }
+
+  /** Delegates a confirmed deletion with the stable set number and no provider call. */
+  @Test
+  void deletesConfirmedSupersededSetWithoutProviderInvocation() {
+    UUID userId = UUID.randomUUID();
+    when(transactions.getOwned(userId, run.getId())).thenReturn(run);
+    when(activeSets.describe(run.getRequirementId(), List.of(run)))
+        .thenReturn(
+            new ActiveGenerationSetResolver.Metadata(UUID.randomUUID(), Map.of(run.getId(), 2)));
+
+    service.deleteSuperseded(userId, run.getId(), true);
+
+    verify(transactions).deleteSuperseded(userId, run.getId(), 2);
+    verifyNoInteractions(provider);
+  }
+
+  /**
+   * Counts malformed transport attempts before a valid response, using the same captured source.
+   */
+  @Test
+  void accumulatesMalformedAndValidUsage() {
+    when(result.usage()).thenReturn(new TestGenerationResult.UsageMetadata(7, 11));
+    when(provider.generate(request))
+        .thenThrow(
+            new RetryableStructuredOutputException(
+                "safe malformed", null, new TestGenerationResult.UsageMetadata(3, 5)))
+        .thenReturn(result);
+    when(transactions.complete(any(), any()))
+        .thenAnswer(
+            invocation -> {
+              TestGenerationResult saved = invocation.getArgument(1);
+              run.complete(
+                  1, saved.usage().inputTokens(), saved.usage().outputTokens(), Instant.now());
+              return run;
+            });
+    var response = service.generate(UUID.randomUUID(), request.requirementId(), "usage-success");
+    assertThat(response.inputTokens()).isEqualTo(10);
+    assertThat(response.outputTokens()).isEqualTo(16);
+    verify(provider, times(2)).generate(request);
+  }
+
+  /** Stores both rejected semantic candidates' usage despite persisting no cases. */
+  @Test
+  void accumulatesSemanticRejections() {
+    when(result.usage()).thenReturn(new TestGenerationResult.UsageMetadata(7, 11));
+    when(provider.generate(request)).thenReturn(result);
+    doThrow(new GenerationValidationException("invalid")).when(validator).validate(request, result);
+    var response = service.generate(UUID.randomUUID(), request.requirementId(), "usage-rejected");
+    assertThat(response.status()).isEqualTo(GenerationStatus.REJECTED_BY_VALIDATION);
+    assertThat(response.inputTokens()).isEqualTo(14);
+    assertThat(response.outputTokens()).isEqualTo(22);
+  }
+
+  /** Includes available usage on refusal and retains unknown dimensions rather than zero. */
+  @Test
+  void recordsFailureUsageAndUnknownTotals() {
+    when(provider.generate(request))
+        .thenThrow(
+            new GenerationProviderException(
+                "refused", null, new TestGenerationResult.UsageMetadata(8, null)));
+    var response = service.generate(UUID.randomUUID(), request.requirementId(), "usage-refused");
+    assertThat(response.status()).isEqualTo(GenerationStatus.FAILED);
+    assertThat(response.inputTokens()).isEqualTo(8);
+    assertThat(response.outputTokens()).isNull();
+    verify(provider).generate(request);
+  }
+
+  /** A missing usage observation on either attempt makes the aggregate unavailable. */
+  @Test
+  void unknownAttemptNeverBecomesAFabricatedTotal() {
+    when(provider.generate(request))
+        .thenThrow(new RetryableStructuredOutputException("unknown"))
+        .thenThrow(
+            new GenerationProviderException(
+                "failed", null, new TestGenerationResult.UsageMetadata(7, 11)));
+    var response = service.generate(UUID.randomUUID(), request.requirementId(), "usage-unknown");
+    assertThat(response.inputTokens()).isNull();
+    assertThat(response.outputTokens()).isNull();
+    verify(provider, times(2)).generate(request);
+  }
+
+  /** Exhausted malformed attempts retain known totals without candidate persistence. */
+  @Test
+  void accumulatesExhaustedMalformedAttempts() {
+    when(provider.generate(request))
+        .thenThrow(
+            new RetryableStructuredOutputException(
+                "safe", null, new TestGenerationResult.UsageMetadata(4, 9)));
+    var response = service.generate(UUID.randomUUID(), request.requirementId(), "usage-malformed");
+    assertThat(response.status()).isEqualTo(GenerationStatus.FAILED);
+    assertThat(response.inputTokens()).isEqualTo(8);
+    assertThat(response.outputTokens()).isEqualTo(18);
   }
 }

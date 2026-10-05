@@ -16,11 +16,13 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Navigate, useLocation, useNavigate } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { z } from 'zod';
 import { ApiError } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { useDemoInfo } from '../demo/useDemoInfo';
 import { safeReturnLocation } from '../auth/returnLocation';
+import { ThemeModeControl } from '../components/ThemeModeControl';
 
 const schema = z.object({
   email: z.email('Enter a valid email address.'),
@@ -32,6 +34,7 @@ type FormValues = z.infer<typeof schema>;
 /** Presents sign-in and registration flows with validation and recoverable API errors. */
 export function LoginPage() {
   const { user, login, register: registerAccount } = useAuth();
+  const demo = useDemoInfo();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [serverError, setServerError] = useState('');
   const navigate = useNavigate();
@@ -39,6 +42,7 @@ export function LoginPage() {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -74,9 +78,8 @@ export function LoginPage() {
           flexDirection: 'column',
           justifyContent: 'space-between',
           p: 7,
-          color: 'common.white',
-          background:
-            'radial-gradient(circle at 18% 12%, rgba(87, 199, 183, .38), transparent 32%), linear-gradient(145deg, #122A46 0%, #1D4A72 58%, #176B6A 100%)',
+          color: '#FFFFFF',
+          bgcolor: 'primary.dark',
         }}
       >
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -86,8 +89,8 @@ export function LoginPage() {
               height: 40,
               display: 'grid',
               placeItems: 'center',
-              bgcolor: '#62D6C4',
-              color: '#10243A',
+              bgcolor: 'secondary.light',
+              color: 'secondary.contrastText',
               borderRadius: 1.5,
               fontWeight: 900,
             }}
@@ -99,7 +102,7 @@ export function LoginPage() {
           </Typography>
         </Stack>
         <Box sx={{ maxWidth: 560 }}>
-          <AutoAwesomeRoundedIcon sx={{ fontSize: 40, color: '#80E0D1', mb: 2 }} />
+          <AutoAwesomeRoundedIcon sx={{ fontSize: 40, color: 'secondary.light', mb: 2 }} />
           <Typography
             component="h1"
             sx={{
@@ -111,15 +114,13 @@ export function LoginPage() {
           >
             From user stories to review-ready test coverage.
           </Typography>
-          <Typography
-            sx={{ mt: 3, fontSize: '1.125rem', color: 'rgba(255,255,255,.74)', maxWidth: 500 }}
-          >
+          <Typography sx={{ mt: 3, fontSize: '1.125rem', color: '#FFFFFF', maxWidth: 500 }}>
             Structure the source, expose ambiguity, generate balanced manual tests, and keep human
             approval in control.
           </Typography>
         </Box>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,.62)' }}>
-          Provider-neutral • Traceable • Secure by design
+        <Typography variant="caption" sx={{ color: '#FFFFFF' }}>
+          Provider-neutral | Traceable | Secure by design
         </Typography>
       </Box>
 
@@ -128,6 +129,9 @@ export function LoginPage() {
       >
         <Container maxWidth="xs">
           <Stack spacing={2.5}>
+            <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
+              <ThemeModeControl />
+            </Stack>
             <Box sx={{ display: { md: 'none' }, textAlign: 'center' }}>
               <LockOutlinedIcon color="primary" />
               <Typography component="p" variant="h5" sx={{ fontWeight: 750 }}>
@@ -144,6 +148,33 @@ export function LoginPage() {
                   : 'Start a secure quality engineering workspace.'}
               </Typography>
             </Box>
+            {demo.data?.enabled && (
+              <Alert severity="info">
+                <Stack spacing={1}>
+                  <Typography component="p" variant="subtitle2">
+                    Local fixture demo
+                  </Typography>
+                  <Typography variant="body2">
+                    Public disposable account. Generation uses maintained synthetic responses; no
+                    live AI call occurs. Use synthetic content only.
+                  </Typography>
+                  <Typography variant="body2">Email: {demo.data.email}</Typography>
+                  <Typography variant="body2">Password: {demo.data.password}</Typography>
+                  <Button
+                    variant="outlined"
+                    onClick={() => {
+                      if (!demo.data?.enabled) return;
+                      setMode('login');
+                      setServerError('');
+                      setValue('email', demo.data.email);
+                      setValue('password', demo.data.password);
+                    }}
+                  >
+                    Fill demo credentials
+                  </Button>
+                </Stack>
+              </Alert>
+            )}
             <Card>
               <Tabs
                 value={mode}
@@ -186,11 +217,14 @@ export function LoginPage() {
                     helperText={errors.password?.message}
                   />
                   <Button type="submit" variant="contained" size="large" disabled={isSubmitting}>
-                    {isSubmitting ? 'Working…' : mode === 'login' ? 'Sign in' : 'Create account'}
+                    {isSubmitting ? 'Working...' : mode === 'login' ? 'Sign in' : 'Create account'}
                   </Button>
                 </Stack>
               </CardContent>
             </Card>
+            <Button component={Link} to="/simulation" variant="outlined">
+              Explore the Salesforce simulation
+            </Button>
             <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
               Refresh tokens stay in protected cookies. Access tokens are kept only in memory.
             </Typography>

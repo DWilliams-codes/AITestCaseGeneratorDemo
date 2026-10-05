@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw';
 
 export const handlers = [
+  http.get('/api/v1/demo-info', () => HttpResponse.json({ enabled: false })),
   http.get('/api/v1/auth/csrf', () =>
     HttpResponse.json({ headerName: 'X-XSRF-TOKEN', token: 'test-csrf-token' }),
   ),

@@ -87,26 +87,55 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         true,
         CoverageIntent.ACCEPTANCE_CRITERIA,
         List.of(
-            "The tester is authenticated in the designated test environment.",
+            "A synthetic authorized tester account is available in the designated test environment.",
             "Synthetic records required by the scenario are available."),
         List.of(syntheticData(request, criterion)),
         List.of(
             new GeneratedStep(
                 1,
-                "Open the workflow for " + request.title() + '.',
-                "The workflow is available without an authorization or loading error.",
+                "Open the designated test-environment sign-in page.",
+                "The sign-in form is visible.",
                 null),
             new GeneratedStep(
                 2,
-                "Complete the workflow using the synthetic valid data set.",
-                "The input is accepted and the requested operation is submitted once.",
+                "Enter the synthetic authorized tester identifier into the sign-in identifier input.",
+                "The identifier input displays the synthetic tester identifier.",
+                null),
+            new GeneratedStep(
+                3,
+                "Enter the synthetic credential into the sign-in password input.",
+                "The password input contains a masked synthetic credential.",
+                null),
+            new GeneratedStep(
+                4, "Select the sign-in control once.", "The tester dashboard opens.", null),
+            new GeneratedStep(
+                5,
+                "Inspect the tester dashboard account identity.",
+                "The dashboard displays the synthetic account identity.",
+                null)),
+        List.of(
+            new GeneratedStep(
+                1,
+                "Open the workflow for " + request.title() + '.',
+                "The workflow is visible.",
+                null),
+            new GeneratedStep(
+                2,
+                "Enter the value from validScenarioData into the required workflow input.",
+                "The required input displays the synthetic value from validScenarioData.",
                 "validScenarioData"),
             new GeneratedStep(
                 3,
-                "Inspect the resulting record and confirmation state.",
-                criterion.description(),
+                "Select the workflow submit control once.",
+                "The requested operation is submitted once.",
+                null),
+            new GeneratedStep(4, "Inspect the resulting record.", criterion.description(), null),
+            new GeneratedStep(
+                5,
+                "Inspect the confirmation state.",
+                "The confirmation state is displayed.",
                 null)),
-        "The system satisfies " + criterion.key() + " and preserves the submitted test data.",
+        "The submitted synthetic data is stored.",
         List.of(criterion.key()),
         "Provides direct evidence for " + criterion.key() + '.');
   }
@@ -122,7 +151,8 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         TestPriority.HIGH,
         true,
         CoverageIntent.ACCEPTANCE_CRITERIA,
-        List.of("The tester can access the workflow in the designated test environment."),
+        List.of(
+            "A synthetic authorized tester account is available in the designated test environment."),
         List.of(
             new GeneratedTestData(
                 "missingRequiredValue",
@@ -133,14 +163,44 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         List.of(
             new GeneratedStep(
                 1,
-                "Open the workflow and leave one required value empty.",
+                "Open the designated test-environment sign-in page.",
+                "The sign-in form is visible.",
+                null),
+            new GeneratedStep(
+                2,
+                "Enter the synthetic authorized tester identifier into the sign-in identifier input.",
+                "The identifier input displays the synthetic tester identifier.",
+                null),
+            new GeneratedStep(
+                3,
+                "Enter the synthetic credential into the sign-in password input.",
+                "The password input contains a masked synthetic credential.",
+                null),
+            new GeneratedStep(
+                4, "Select the sign-in control once.", "The tester dashboard opens.", null),
+            new GeneratedStep(
+                5,
+                "Inspect the tester dashboard account identity.",
+                "The dashboard displays the synthetic account identity.",
+                null)),
+        List.of(
+            new GeneratedStep(
+                1,
+                "Open the workflow for " + request.title() + '.',
+                "The workflow input controls are visible.",
+                null),
+            new GeneratedStep(
+                2,
+                "Leave the required workflow input empty.",
                 "The incomplete value remains visibly unpopulated.",
                 "missingRequiredValue"),
             new GeneratedStep(
-                2,
-                "Submit the incomplete workflow.",
-                "A specific validation message identifies the missing value and submission is blocked.",
-                null)),
+                3,
+                "Select the workflow submit control once.",
+                "A specific validation message identifies the missing value.",
+                null),
+            new GeneratedStep(
+                4, "Inspect the submission state.", "Submission remains blocked.", null)),
         "No record is created or changed while required input is missing.",
         List.of(criterion.key()),
         "Tests input validation and protects data integrity around " + criterion.key() + '.');
@@ -162,20 +222,33 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         List.of(
             new GeneratedStep(
                 1,
+                "Enable the synthetic dependency-failure condition in the test environment.",
+                "The test environment reports that the dependency failure is active.",
+                null)),
+        List.of(
+            new GeneratedStep(
+                1,
                 "Enter the synthetic valid data while the dependency failure is active.",
                 "The entered values remain available for submission.",
                 "validScenarioData"),
             new GeneratedStep(
                 2,
-                "Submit the workflow once.",
-                "A non-sensitive error message explains that the operation could not be completed.",
+                "Select the workflow submit control once.",
+                "A non-sensitive error message is displayed.",
                 null),
             new GeneratedStep(
                 3,
-                "Restore the dependency and retry the operation once.",
-                "The operation completes once without duplicate records.",
+                "Restore the synthetic dependency service.",
+                "The test environment reports that the dependency service is available.",
+                null),
+            new GeneratedStep(
+                4, "Select the workflow retry control once.", "The operation completes.", null),
+            new GeneratedStep(
+                5,
+                "Inspect the records created by the retry.",
+                "One resulting record is present.",
                 null)),
-        "The failure is recoverable, entered data is preserved, and no duplicate is created.",
+        "The operation recovers after the synthetic failure.",
         List.of(criterion.key()),
         "Adds supporting recovery coverage without inventing a business-specific error rule.");
   }
@@ -191,18 +264,30 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
         TestPriority.MEDIUM,
         true,
         CoverageIntent.SUPPORTING_EXPLORATORY,
-        List.of("The browser and assistive-technology test settings are enabled."),
+        List.of(
+            "The browser supports standard keyboard navigation and assistive-technology test settings."),
         List.of(),
         List.of(
             new GeneratedStep(
                 1,
-                "Navigate through the workflow using only standard keyboard controls.",
-                "Interactive controls receive a visible focus indicator in a logical order.",
+                "Enable the synthetic keyboard-only browser test setting.",
+                "The browser test setting confirms keyboard-only navigation is active.",
+                null)),
+        List.of(
+            new GeneratedStep(
+                1,
+                "Press Tab to focus the first workflow control.",
+                "The first workflow control shows a visible focus indicator.",
                 null),
             new GeneratedStep(
                 2,
-                "Complete and submit the workflow using the keyboard.",
-                "All required actions can be completed and the result is announced clearly.",
+                "Press Tab to move focus to the workflow submit control.",
+                "The workflow submit control shows a visible focus indicator.",
+                null),
+            new GeneratedStep(
+                3,
+                "Press Enter on the focused workflow submit control.",
+                "A result is announced.",
                 null)),
         "The core workflow remains operable and understandable with keyboard navigation.",
         List.of(criterion.key()),
@@ -295,6 +380,13 @@ public class FakeTestGenerationProvider implements TestGenerationProvider {
                         + length(testCase.finalExpectedOutcome())
                         + length(testCase.rationale())
                         + testCase.preconditions().stream().mapToInt(this::length).sum()
+                        + testCase.setupSteps().stream()
+                            .mapToInt(
+                                step ->
+                                    length(step.action())
+                                        + length(step.expectedResult())
+                                        + length(step.testDataReference()))
+                            .sum()
                         + testCase.steps().stream()
                             .mapToInt(
                                 step ->

@@ -90,6 +90,22 @@ paged routes should be used by new clients. The legacy array routes are
 deprecated bounded adapters capped at 100 rows, and embedded legacy review
 history is capped at 20 rows.
 
+The canonical test-case page accepts optional `search`, `status`, `category`,
+`priority`, and `sort` in addition to `generationRunId`, `page`, and `size`.
+Search is a trimmed maximum-300-character literal case-insensitive substring
+over case key, title, objective, and immutable criterion keys. The allowed
+sorts are `sequence-asc` (default), `sequence-desc`, `priority-desc`,
+`status-asc`, and `updated-desc`; each applies before pagination with work-item
+number as the stable final tie-breaker. Invalid query values return `400`.
+Omitted or blank search is an unfiltered, parameterized escaped-LIKE pattern;
+clients receive the same successful page contract as an explicit empty filter.
+
+Full test-case responses include ordered `setupSteps` (`stepNumber`, `action`,
+`expectedResult`, optional `testDataReference`). Setup establishes observable
+readiness and is distinct from assumed preconditions and evidence-bearing test
+steps. Legacy cases return `[]`; PATCH omission preserves setup while an explicit
+empty array clears it.
+
 The SPA stores the selected generation set, workflow tab, case filters/sort,
 and collection/history pages in URL query parameters. A failed coverage,
 traceability, run, or case request is displayed as unavailable with a retry
@@ -189,3 +205,51 @@ Workspace membership does not authorize project-derived data in TF-001. Project,
 requirement, test-case, generation-run, traceability, export, and audit endpoints
 continue to enforce the existing owner predicate and return `404` across owner
 boundaries.
+# Superseded generation-set deletion
+
+`DELETE /api/v1/generation-runs/{runId}?confirm=true` returns `204` only for an
+owner's eligible completed superseded set. Missing confirmation is
+`409 generation_set_deletion_confirmation_required`; active, noncompleted, and
+human-evidence protections return their documented `409` codes, while hidden
+tombstones are `404`. Generation-run responses expose server-derived
+`deletable`. Reusing the exact idempotency key of a purged tombstone returns
+`409 generation_set_deleted` without invoking a provider; it is the deliberate
+exception to normal idempotency replay.
+
+## TF-015 clarification and usage semantics
+
+No simulation execution endpoint was added: `/simulation` is a public browser
+route for synthetic fixtures only. Existing authenticated APIs remain
+owner-scoped. Resolving an ambiguity now advances the source requirement version
+and captures a prior revision. Saved answers feed subsequent generation through
+the existing minimized assumptions field and hash; original assumptions are not
+overwritten. Concurrent answer changes cause `source_clarification_changed`
+without partial cases. Excess clarified input returns `clarification_limit`.
+
+Generation `inputTokens`/`outputTokens` are nullable totals across all attempts,
+including rejected candidates and failed/refused responses when transport
+counts are available. Missing counts mean unknown, not zero. The current
+adapter is `openai-responses-v5`. Malformed null/blank/empty acceptance criteria
+return controlled 400 validation responses without provider calls.
+
+Late usage from the original provider claim may fill previously unknown totals
+only on an expired `FAILED` / `stale_generation_claim` run. Row locking and
+fill-once assignment prevent double-counting duplicate completion/failure.
+The failure, completion timestamp and no-case outcome remain unchanged.
+
+## Local fixture demo metadata
+
+`GET /api/v1/demo-info` is anonymous and read-only. Normal/unready applications
+return exactly `{"enabled":false}`. A server-validated, ready local fixture
+returns `enabled`, public disposable `email` and `password`, and a `label`.
+These are never provider credentials, environment settings or connection URLs.
+The login page uses this response to display/fill the known public account;
+it does not embed fallback credentials. Reserved-account authentication and
+generation are denied outside fixture mode, including old access tokens.
+
+Fixture generation uses the normal story/generation/review endpoints and
+validation, preserves unapproved review state, and persists provider
+`external-demo-fixture`, model `testforge-review-fixture`, adapter
+`external-demo-fixture-v1`. Nullable usage means no real billed usage is
+reported. A saved clarification is part of the captured source used on the
+next generation. No Salesforce execution endpoint is added.

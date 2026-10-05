@@ -28,4 +28,5 @@ public record GenerationRunResponse(
     String failureMessage,
     String correlationId,
     int setNumber,
+    boolean deletable,
     GenerationSetState setState) {}

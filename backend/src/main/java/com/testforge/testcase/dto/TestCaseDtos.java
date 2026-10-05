@@ -45,12 +45,14 @@ public final class TestCaseDtos {
       @NotBlank @Size(max = 4000) String rationale,
       @NotBlank @Size(max = 4000) String finalExpectedOutcome,
       @NotNull @Size(max = 30) List<@NotBlank @Size(max = 4000) String> preconditions,
+      @Size(max = 30) List<@Valid StepRequest> setupSteps,
       @NotNull @Size(min = 1, max = 30) List<@Valid StepRequest> steps,
       @NotNull @Size(max = 30) List<@Valid TestDataRequest> testData,
       @NotNull @PositiveOrZero Long version) {
     /** Initializes UpdateTestCaseRequest with its required collaborators and domain state. */
     public UpdateTestCaseRequest {
       preconditions = preconditions == null ? null : List.copyOf(preconditions);
+      setupSteps = setupSteps == null ? null : List.copyOf(setupSteps);
       steps = steps == null ? null : List.copyOf(steps);
       testData = testData == null ? null : List.copyOf(testData);
     }
@@ -103,6 +105,7 @@ public final class TestCaseDtos {
       String rationale,
       String finalExpectedOutcome,
       List<PreconditionResponse> preconditions,
+      List<StepResponse> setupSteps,
       List<StepResponse> steps,
       List<TestDataResponse> testData,
       List<String> acceptanceCriteriaKeys,
@@ -113,6 +116,7 @@ public final class TestCaseDtos {
     /** Initializes TestCaseResponse with its required collaborators and domain state. */
     public TestCaseResponse {
       preconditions = preconditions == null ? null : List.copyOf(preconditions);
+      setupSteps = setupSteps == null ? List.of() : List.copyOf(setupSteps);
       steps = steps == null ? null : List.copyOf(steps);
       testData = testData == null ? null : List.copyOf(testData);
       acceptanceCriteriaKeys =

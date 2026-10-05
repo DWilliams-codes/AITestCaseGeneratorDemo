@@ -119,6 +119,7 @@ public class SecurityConfiguration {
                     .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/health",
+                        "/api/v1/demo-info",
                         "/api/v1/auth/csrf",
                         "/actuator/health",
                         "/actuator/health/**",

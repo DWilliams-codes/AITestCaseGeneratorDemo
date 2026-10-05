@@ -21,7 +21,7 @@ Teams often turn the same requirement into disconnected documents, generic AI pr
 - Generate requirement-specific happy-path, boundary, validation, security, recovery, concurrency, and accessibility coverage through a provider-neutral boundary.
 - Generate runtime test cases only through the OpenAI Responses API with strict Structured Outputs; deterministic output exists only as a test fixture and is never packaged into the application.
 - Detect and resolve requirement ambiguity without silently inventing business rules.
-- Edit structured preconditions, synthetic test data, steps, expected results, priority, risk, and automation candidacy.
+- Edit structured preconditions, reproducible setup steps, synthetic test data, evidence-bearing test steps, expected results, priority, risk, and automation candidacy.
 - Review cases in natural test-case-number order by default, with text search, status/category/priority filters, and alternate sort modes.
 - Approve, reject, or request changes with immutable review and revision history.
 - Inspect acceptance-criterion coverage and traceability.
@@ -48,23 +48,26 @@ The API is one deployable with explicit domain packages for `auth`, `workspace`,
 - JUnit 5, MockMvc, AssertJ, Vitest, React Testing Library, MSW, Playwright, and axe-core.
 - Spotless, SpotBugs, JaCoCo, OWASP Dependency-Check, ESLint, Prettier, npm audit policy, Docker, Nginx, and GitHub Actions.
 
-## Fastest seeded demo
+## Isolated public fixture demo
 
-Prerequisites: Docker Compose and an OpenAI API key. Copy `.env.example` to
-`.env`, replace the secrets, set `TESTFORGE_DEMO_SEED_ENABLED=true`, and start
-the PostgreSQL-backed topology:
+The demo uses the real saved-workspace login, story, clarification, generation,
+review and persistence flow with maintained synthetic responses. No paid API
+key is needed. Supply disposable database/JWT configuration from `.env.example`,
+then use the explicit fixture topology:
 
 ```powershell
-Copy-Item .env.example .env
-docker compose up --build --wait
+docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build --wait
 ```
 
-Open `http://localhost:3000` and enter the seeded account explicitly:
+Open `http://127.0.0.1:3000`. The login page displays server-confirmed public
+credentials and **Fill demo credentials** only after safe startup. Generation
+is labeled fixture-only and no live AI call occurs. Use synthetic content only.
+The public principal is deliberately blocked outside fixture mode. Never turn
+on only the seed flag or supply a real provider key to this fixture mode.
 
-- Email: `demo@testforge.local`
-- Password: `TestForge!Demo2026`
-
-The demo contains a Commerce Returns Platform project with four professionally specified user stories covering customer workflows, authorization, boundary conditions, idempotency, concurrency, failure atomicity, auditability, and accessibility. It intentionally seeds no test cases or steps: every test artifact must be generated from a story through the configured provider. The demo uses PostgreSQL and fixed non-production credentials; never enable it in a shared or production environment.
+See [the interview walkthrough](docs/INTERVIEW_WALKTHROUGH.md) for the desktop
+5173 demo, canonical five-criterion Case story, six manual drafts and current
+limitations. The separate `/simulation` does not require the backend.
 
 ## Docker Compose
 
@@ -76,11 +79,14 @@ Copy-Item .env.example .env
 docker compose up --build --wait
 ```
 
-Open the application at `http://localhost:3000`. Default Compose publishes only
-the Nginx frontend; the API and PostgreSQL remain on private container networks
-and API traffic is same-origin through `/api`.
+Open the application at `http://127.0.0.1:3000`. Default Compose publishes only
+the Nginx frontend, bound to IPv4 loopback; the API and PostgreSQL remain on
+private container networks and API traffic is same-origin through `/api`. This
+deliberately cleartext local topology is not available for LAN, shared, or
+public use. Any non-loopback deployment must terminate TLS and use secure
+cookies.
 
-The default Compose environment does not seed a shared demo account. Register through the UI, or set `TESTFORGE_DEMO_SEED_ENABLED=true` only for an isolated disposable environment. Stop with `docker compose down`; add `--volumes` only when you intentionally want to delete local database data.
+The default Compose environment does not seed a shared demo account. Register a normal account through the UI. The public demo requires the explicit fixture topology above; a seed flag alone fails startup. Stop with `docker compose down`; add `--volumes` only when you intentionally want to delete local database data.
 
 ## AI generation provider
 
@@ -106,12 +112,13 @@ The model does not assign identity. A single database sequence assigns every use
 | `JWT_ACCESS_TOKEN_SECRET` | Yes outside demo | none | Base64-encoded key containing at least 32 bytes |
 | `ALLOWED_ORIGINS` | No | `http://localhost:5173` | Exact credentialed CORS origins |
 | `TRUSTED_PROXY_CIDRS` | No | empty | Socket-peer CIDRs allowed to supply one forwarded client IP |
-| `SECURE_COOKIES` | No | `true` | Requires HTTPS for refresh cookies |
+| `SECURE_COOKIES` | No | `true` | Requires HTTPS for refresh cookies outside the explicit loopback-only Compose local profile |
 | `TEST_GENERATION_PROVIDER` | No | `openai` | Runtime generation provider; `fake` is test-scope only |
 | `OPENAI_API_KEY` | Yes for generation | none | Server-side provider key |
 | `OPENAI_MODEL` | No | `gpt-5.6-sol` | Provider model, overridable for controlled evaluations |
 | `OPENAPI_ENABLED` | No | `false` | Exposes API docs when explicitly enabled |
-| `TESTFORGE_DEMO_SEED_ENABLED` | No | `false` | Seeds the non-production sample workspace |
+| `TESTFORGE_DEMO_SEED_ENABLED` | No | `false` | Requires validated fixture mode before seeding |
+| `TESTFORGE_DEMO_FIXTURE_MODE` | No | `false` | Enables only the exact isolated loopback fixture configuration |
 
 Additional token lifetimes, rate limits, model timeouts, output limits, ports, and cookie names are documented in [.env.example](.env.example) and `backend/src/main/resources/application.yml`.
 
@@ -160,6 +167,10 @@ The default Playwright suite signs into the seeded workspace, generates through
 the synthetic external Responses stub, traverses review/traceability/export,
 exercises a safe terminal failure, verifies keyboard focus, and rejects serious
 or critical axe violations. It does not call a live provider.
+
+The interface supports System, Light, and Dark color preferences stored locally
+under `testforge-color-mode`; no authentication, workspace, search, or generated
+content is persisted with this preference.
 
 ## Security posture
 
@@ -210,3 +221,9 @@ See the active [TF-007 Stage 2 execution plan](docs/exec-plans/active/TF-007-sta
 ## Architecture reset references
 
 The evidence-based [current assessment](docs/assessment/current-codebase-assessment.md), [gap analysis](docs/assessment/gap-analysis.md), [migration risks](docs/assessment/migration-risks.md), and [target architecture](docs/architecture/target-architecture.md) describe the staged path beyond Stage 1. Future-state documents are explicitly non-implemented. “TestForce AI” appears in planning material, but TestForge remains the code, UI, schema, and environment namespace until a dedicated naming decision is approved.
+
+## Salesforce simulation walkthrough
+
+Open `/simulation` on the local frontend for the bounded synthetic walkthrough.
+No org or AI provider is called. See [the interview walkthrough](docs/INTERVIEW_WALKTHROUGH.md)
+for steps, run instructions and implemented/simulated/planned boundaries.

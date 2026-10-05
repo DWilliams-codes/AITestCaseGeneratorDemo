@@ -126,6 +126,7 @@ export interface TestCase {
   rationale: string;
   finalExpectedOutcome: string;
   preconditions: { sortOrder: number; description: string }[];
+  setupSteps: TestStep[];
   steps: TestStep[];
   testData: {
     name: string;
@@ -183,6 +184,7 @@ export interface GenerationRun {
   startedAt: string;
   completedAt: string | null;
   setNumber: number;
+  deletable: boolean;
   setState: 'ACTIVE' | 'SUPERSEDED' | null;
 }
 

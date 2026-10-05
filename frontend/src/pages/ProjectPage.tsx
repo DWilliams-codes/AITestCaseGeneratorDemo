@@ -15,7 +15,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -32,6 +31,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { ApiError, apiRequest } from '../api/client';
 import { PaginationControls } from '../components/PaginationControls';
+import { ResponsiveDialog as Dialog } from '../components/ResponsiveDialog';
 import type {
   AuditEvent,
   PageResponse,
@@ -541,7 +541,9 @@ export function ProjectPage() {
                 {...form.register('sourceReference')}
               />
               <Box>
-                <Typography sx={{ fontWeight: 700, mb: 1 }}>Acceptance criteria</Typography>
+                <Typography sx={{ fontWeight: 700, mb: 1 }}>
+                  Acceptance criteria ({fields.fields.length} of 50)
+                </Typography>
                 <Stack spacing={1.25}>
                   {fields.fields.map((field, index) => (
                     <Stack key={field.id} direction="row" spacing={1}>
@@ -580,6 +582,7 @@ export function ProjectPage() {
                 <Button
                   sx={{ mt: 1 }}
                   startIcon={<AddRoundedIcon />}
+                  disabled={fields.fields.length >= 50}
                   onClick={() => fields.append({ value: '' })}
                 >
                   Add criterion

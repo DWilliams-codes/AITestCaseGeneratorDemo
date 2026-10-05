@@ -34,6 +34,9 @@ public class GenerationResultValidator {
 
   private static final List<String> VAGUE_PHRASES =
       List.of("works correctly", "behaves correctly", "as expected", "verify it works");
+  private static final Pattern GENERIC_STEP_ACTION =
+      Pattern.compile(
+          "(?i)^(?:submit\\s+input\\s+for\\s+ac-\\d+|verify\\s+ac-\\d+|test\\s+the\\s+feature|perform\\s+the\\s+workflow)[.!]?$");
   private static final Pattern EXECUTABLE_CONTENT =
       Pattern.compile(
           "(?is)(```|\\b(?:bash|sh)\\s+-c\\b|\\bcmd(?:\\.exe)?\\s+/c\\b|\\b(?:powershell|pwsh)\\b|"
@@ -122,23 +125,47 @@ public class GenerationResultValidator {
     if (!normalizedTitles.add(titleKey)) fail("The provider returned duplicate test cases.");
 
     validateTextCollection(testCase.preconditions(), MAX_COLLECTION, MAX_TEXT, "precondition");
-    if (testCase.steps() == null
-        || testCase.steps().isEmpty()
-        || testCase.steps().size() > Math.min(properties.maximumStepsPerCase(), MAX_STEPS)) {
-      fail("Every generated test case must contain an allowed number of steps.");
+    validateSteps(testCase.setupSteps(), false, "setup step");
+    validateSteps(testCase.steps(), true, "step");
+    List<String> references = new java.util.ArrayList<>();
+    references.addAll(
+        testCase.setupSteps().stream().map(GeneratedStep::testDataReference).toList());
+    references.addAll(testCase.steps().stream().map(GeneratedStep::testDataReference).toList());
+    validateTestData(testCase, references, allowedKeys, directlyCovered);
+  }
+
+  /** Validates one independently numbered setup or evidence-procedure phase. */
+  private void validateSteps(List<GeneratedStep> values, boolean required, String label) {
+    if (values == null
+        || (required && values.isEmpty())
+        || values.size() > Math.min(properties.maximumStepsPerCase(), MAX_STEPS)) {
+      fail("Generated " + label + " collection has an invalid size.");
     }
-    for (int index = 0; index < testCase.steps().size(); index++) {
-      GeneratedStep step = testCase.steps().get(index);
+    for (int index = 0; index < values.size(); index++) {
+      GeneratedStep step = values.get(index);
       if (step == null || step.stepNumber() != index + 1) {
-        fail("Generated step numbers must be contiguous and start at one.");
+        fail("Generated " + label + " numbers must be contiguous and start at one.");
       }
       validateText(step.action(), MAX_TEXT, "step action");
+      if (GENERIC_STEP_ACTION.matcher(step.action().strip()).matches()) {
+        fail("Generated step action is a generic criterion placeholder.");
+      }
       validateText(step.expectedResult(), MAX_TEXT, "step expected result");
       if (step.testDataReference() != null && !step.testDataReference().isBlank()) {
         validateText(step.testDataReference(), MAX_DATA_REFERENCE, "step data reference");
       }
     }
+  }
 
+  /**
+   * Validates direct criterion mappings and resolves all declared setup and procedure data
+   * references.
+   */
+  private void validateTestData(
+      GeneratedTestCase testCase,
+      List<String> references,
+      Set<String> allowedKeys,
+      Set<String> directlyCovered) {
     List<String> mappedKeys = testCase.acceptanceCriteriaKeys();
     if (mappedKeys == null || mappedKeys.size() > MAX_AMBIGUITIES) {
       fail("A generated test case has an invalid number of criterion mappings.");
@@ -170,8 +197,7 @@ public class GenerationResultValidator {
     }
     try {
       testDataReferences.canonicalize(
-          testCase.testData().stream().map(GeneratedTestData::name).toList(),
-          testCase.steps().stream().map(GeneratedStep::testDataReference).toList());
+          testCase.testData().stream().map(GeneratedTestData::name).toList(), references);
     } catch (TestDataReferencePolicy.Violation violation) {
       fail(violation.getMessage());
     }

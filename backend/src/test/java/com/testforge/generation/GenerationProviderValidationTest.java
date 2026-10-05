@@ -51,6 +51,17 @@ class GenerationProviderValidationTest {
     assertThat(first.testCases())
         .extracting(GeneratedTestCase::category)
         .contains(TestCaseCategory.ACCESSIBILITY);
+    assertThat(first.testCases())
+        .allSatisfy(
+            testCase -> {
+              assertThat(testCase.setupSteps()).isNotEmpty();
+              assertThat(testCase.preconditions())
+                  .noneMatch(
+                      precondition ->
+                          precondition.matches("(?is).*\\b(?:authenticated|enabled)\\b.*"));
+              assertAtomicFakeSteps(testCase.setupSteps());
+              assertAtomicFakeSteps(testCase.steps());
+            });
     assertThat(provider.providerName()).isEqualTo("requirement-rules");
     assertThat(provider.modelName()).isEqualTo("testforge-rules-v2");
     validator.validate(ambiguousUi, first);
@@ -68,6 +79,27 @@ class GenerationProviderValidationTest {
     assertThat(explicitResult.requirementSummary().actor()).isEqualTo("QA-authorized user");
     assertThat(explicitResult.requirementSummary().assumptions()).isEmpty();
     validator.validate(explicitRules, explicitResult);
+
+    TestGenerationRequest atomicScenario =
+        request(
+            "As a customer, I want to submit the form, so that my request is recorded.",
+            "The page blocks missing required input and supports retry after a dependency failure.",
+            "A synthetic account exists.");
+    TestGenerationResult atomicResult = provider.generate(atomicScenario);
+    assertThat(atomicResult.testCases())
+        .extracting(GeneratedTestCase::category)
+        .contains(
+            TestCaseCategory.HAPPY_PATH,
+            TestCaseCategory.VALIDATION,
+            TestCaseCategory.ERROR_HANDLING,
+            TestCaseCategory.ACCESSIBILITY);
+    assertThat(atomicResult.testCases())
+        .allSatisfy(
+            testCase -> {
+              assertAtomicFakeSteps(testCase.setupSteps());
+              assertAtomicFakeSteps(testCase.steps());
+            });
+    validator.validate(atomicScenario, atomicResult);
   }
 
   /**
@@ -108,6 +140,33 @@ class GenerationProviderValidationTest {
     assertThat(invoiceResult.testCases().getFirst().testData().getFirst().exampleValue())
         .contains(archiveInvoice.requirementId().toString())
         .isNotEqualTo(reportResult.testCases().getFirst().testData().getFirst().exampleValue());
+  }
+
+  /** Covers every deterministic setup and evidence step remains independently actionable. */
+  private void assertAtomicFakeSteps(List<GeneratedStep> steps) {
+    assertThat(steps)
+        .extracting(GeneratedStep::action)
+        .noneMatch(
+            action ->
+                action.matches("(?i)Submit input for AC-\\d+")
+                    || action.matches("(?i)Verify AC-\\d+")
+                    || action.matches("(?i)Test the feature")
+                    || action.matches("(?i)Perform the workflow")
+                    || action.contains("Sign in to")
+                    || action.contains("resulting record and confirmation")
+                    || action.contains("Complete the workflow")
+                    || action.contains("Complete and submit")
+                    || action.contains("Open the workflow and"));
+    assertThat(steps)
+        .extracting(GeneratedStep::expectedResult)
+        .noneMatch(
+            expected ->
+                expected.contains("validation message identifies the missing value and")
+                    || expected.contains("completes once without duplicate"));
+    assertThat(steps)
+        .extracting(GeneratedStep::stepNumber)
+        .containsExactlyElementsOf(
+            java.util.stream.IntStream.rangeClosed(1, steps.size()).boxed().toList());
   }
 
   /** Accepts one direct case that independently maps multiple supplied acceptance criteria. */
@@ -307,6 +366,30 @@ class GenerationProviderValidationTest {
     assertInvalid(request, result(List.of(withSteps(List.of(step(2, "Action", "Result"))))));
     assertInvalid(request, result(List.of(withSteps(List.of(step(1, " ", "Result"))))));
     assertInvalid(request, result(List.of(withSteps(List.of(step(1, "Action", " "))))));
+  }
+
+  /** Rejects criterion placeholders but accepts a concrete atomic tester interaction. */
+  @Test
+  void validatorRejectsGenericStepActionsWithoutImposingAMinimumStepCount() {
+    TestGenerationRequest request =
+        request("As a tester, I want a form, so that I can submit.", "", "");
+    List<String> genericActions =
+        List.of("Submit input for AC-2", "Verify AC-2", "Test the feature", "Perform the workflow");
+    genericActions.forEach(
+        action ->
+            assertInvalid(
+                request, result(List.of(withSteps(List.of(step(1, action, "Observed")))))));
+
+    validator.validate(
+        request,
+        result(
+            List.of(
+                withSteps(
+                    List.of(
+                        step(
+                            1,
+                            "Select Submit after entering the synthetic request ID.",
+                            "The request confirmation displays its generated reference."))))));
   }
 
   /** Covers the validator rejects invalid mappings unsafe language and incomplete data scenario. */

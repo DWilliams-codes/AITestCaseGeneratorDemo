@@ -25,7 +25,7 @@ class WorkspaceMigrationIntegrationTest {
         jdbc.queryForList(
             "select version from testforge.flyway_schema_history where success and version is not null order by installed_rank",
             String.class);
-    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6");
+    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
     assertThat(
             jdbc.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = 'testforge' and table_name in ('workspaces', 'workspace_memberships')",

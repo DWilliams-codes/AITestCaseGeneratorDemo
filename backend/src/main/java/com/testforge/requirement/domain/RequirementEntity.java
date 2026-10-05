@@ -144,6 +144,11 @@ public class RequirementEntity {
     this.updatedAt = now.isAfter(updatedAt) ? now : updatedAt.plusNanos(1);
   }
 
+  /** Advances the source version through JPA dirty checking when a saved clarification changes. */
+  public void markClarificationChanged(Instant now) {
+    markCriteriaChanged(now);
+  }
+
   /** Marks the entity as archived and records its modification time. */
   public void archive(Instant now) {
     this.status = RequirementStatus.ARCHIVED;

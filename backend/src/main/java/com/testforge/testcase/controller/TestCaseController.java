@@ -4,6 +4,9 @@ import com.testforge.common.dto.PageResponse;
 import com.testforge.security.CurrentUser;
 import com.testforge.testcase.application.TestCaseService;
 import com.testforge.testcase.domain.ReviewDecision;
+import com.testforge.testcase.domain.TestCaseCategory;
+import com.testforge.testcase.domain.TestCaseStatus;
+import com.testforge.testcase.domain.TestPriority;
 import com.testforge.testcase.dto.TestCaseDtos.ReopenRequest;
 import com.testforge.testcase.dto.TestCaseDtos.ReviewRequest;
 import com.testforge.testcase.dto.TestCaseDtos.ReviewResponse;
@@ -13,6 +16,7 @@ import com.testforge.testcase.dto.TestCaseDtos.UpdateTestCaseRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.security.core.Authentication;
@@ -59,9 +63,23 @@ public class TestCaseController {
       @PathVariable UUID requirementId,
       @RequestParam(required = false) UUID generationRunId,
       @RequestParam(defaultValue = "0") @Min(0) int page,
-      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+      @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+      @RequestParam(required = false) @Size(max = 300) String search,
+      @RequestParam(required = false) TestCaseStatus status,
+      @RequestParam(required = false) TestCaseCategory category,
+      @RequestParam(required = false) TestPriority priority,
+      @RequestParam(defaultValue = "sequence-asc") String sort) {
     return testCaseService.listPage(
-        currentUser.id(authentication), requirementId, generationRunId, page, size);
+        currentUser.id(authentication),
+        requirementId,
+        generationRunId,
+        page,
+        size,
+        search,
+        status,
+        category,
+        priority,
+        sort);
   }
 
   /** Handles the authenticated HTTP request to get. */

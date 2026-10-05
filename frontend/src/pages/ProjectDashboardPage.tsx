@@ -12,7 +12,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -26,6 +25,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { ApiError, apiRequest } from '../api/client';
 import { PaginationControls } from '../components/PaginationControls';
+import { ResponsiveDialog as Dialog } from '../components/ResponsiveDialog';
 import type { PageResponse, Project } from '../types/api';
 
 const schema = z.object({

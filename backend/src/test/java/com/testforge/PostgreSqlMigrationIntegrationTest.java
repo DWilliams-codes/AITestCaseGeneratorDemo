@@ -8,6 +8,7 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,6 +16,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.testforge.generation.provider.FakeTestGenerationProvider;
+import com.testforge.testcase.application.TestCaseService;
+import com.testforge.testcase.domain.ReviewDecision;
+import com.testforge.testcase.dto.TestCaseDtos.ReviewRequest;
 import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,7 +43,9 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -82,6 +89,8 @@ class PostgreSqlMigrationIntegrationTest {
   @Autowired private JdbcTemplate jdbc;
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private TestCaseService testCaseService;
+  @Autowired private PlatformTransactionManager transactionManager;
   @MockitoSpyBean private FakeTestGenerationProvider generationProvider;
 
   /** Proves fresh PostgreSQL applies every migration and retains rollback-safe nullable bridges. */
@@ -107,12 +116,34 @@ class PostgreSqlMigrationIntegrationTest {
         jdbc.queryForObject(
             "select count(*) from information_schema.columns where table_schema = 'testforge' and table_name = 'requirements' and column_name = 'priority' and is_nullable = 'YES' and column_default is null",
             Integer.class);
+    Integer setupStepConstraints =
+        jdbc.queryForObject(
+            "select count(*) from information_schema.table_constraints where table_schema = 'testforge' and table_name = 'test_case_setup_steps' and constraint_type in ('PRIMARY KEY', 'FOREIGN KEY', 'UNIQUE', 'CHECK')",
+            Integer.class);
+    String setupDeleteRule =
+        jdbc.queryForObject(
+            "select delete_rule from information_schema.referential_constraints where constraint_schema = 'testforge' and constraint_name = 'test_case_setup_steps_test_case_id_fkey'",
+            String.class);
 
-    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6");
+    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from information_schema.table_constraints where table_schema = 'testforge' and table_name = 'generation_runs' and constraint_name = 'ck_generation_runs_deletion_pair'",
+                Integer.class))
+        .isEqualTo(1);
     assertThat(domainTables).isGreaterThanOrEqualTo(20);
     assertThat(timestampType).isEqualTo("timestamp with time zone");
     assertThat(projectWorkspaceNullable).isEqualTo("YES");
     assertThat(priorityRollbackBridgeColumns).isEqualTo(1);
+    assertThat(setupStepConstraints).isGreaterThanOrEqualTo(4);
+    assertThat(setupDeleteRule).isEqualTo("CASCADE");
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "insert into testforge.test_case_setup_steps (id, test_case_id, step_number, action, expected_result) values (?, ?, 1, 'Synthetic setup.', 'Synthetic readiness.')",
+                    UUID.randomUUID(),
+                    UUID.randomUUID()))
+        .isInstanceOf(DataIntegrityViolationException.class);
 
     UUID ownerId = UUID.randomUUID();
     insertUser(ownerId, "case@testforge.local", "case@testforge.local");
@@ -245,14 +276,123 @@ class PostgreSqlMigrationIntegrationTest {
     }
   }
 
+  /**
+   * Proves a flushed real review commits before a waiting purge can tombstone its superseded set.
+   */
+  @Test
+  void serializesSupersededPurgeAfterARealReviewCommitsWithoutTombstoningEvidence()
+      throws Exception {
+    Fixture fixture = createGenerationFixture();
+    MvcResult initial = generate(fixture, "postgres-purge-initial");
+    assertThat(initial.getResponse().getStatus()).isEqualTo(201);
+    UUID oldRunId = UUID.fromString(json(initial).path("id").asText());
+    UUID oldCaseId =
+        jdbc.queryForObject(
+            "select id from testforge.test_cases where generation_run_id = ?",
+            UUID.class,
+            oldRunId);
+    CountDownLatch reviewFlushed = new CountDownLatch(1);
+    CountDownLatch releaseReviewCommit = new CountDownLatch(1);
+    CountDownLatch purgeStarted = new CountDownLatch(1);
+    TransactionTemplate transactions = new TransactionTemplate(transactionManager);
+    Callable<Void> reviewWhileActive =
+        () -> {
+          transactions.executeWithoutResult(
+              transaction -> {
+                testCaseService.review(
+                    fixture.ownerId(),
+                    oldCaseId,
+                    ReviewDecision.CHANGES_REQUESTED,
+                    new ReviewRequest("Synthetic concurrent review.", 0L));
+                reviewFlushed.countDown();
+                try {
+                  if (!releaseReviewCommit.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Review transaction was not released in time.");
+                  }
+                } catch (InterruptedException exception) {
+                  Thread.currentThread().interrupt();
+                  throw new IllegalStateException("Review transaction was interrupted.", exception);
+                }
+              });
+          return null;
+        };
+    Callable<MvcResult> purge =
+        () -> {
+          purgeStarted.countDown();
+          return mockMvc
+              .perform(
+                  delete("/api/v1/generation-runs/{runId}", oldRunId)
+                      .with(csrf())
+                      .queryParam("confirm", "true")
+                      .header("Authorization", bearer(fixture.accessToken())))
+              .andReturn();
+        };
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<Void> reviewResult = executor.submit(reviewWhileActive);
+      assertThat(reviewFlushed.await(10, TimeUnit.SECONDS)).isTrue();
+      MvcResult successor =
+          mockMvc
+              .perform(
+                  post("/api/v1/user-stories/{requirementId}/regenerate", fixture.requirementId())
+                      .with(csrf())
+                      .header("Authorization", bearer(fixture.accessToken()))
+                      .header("Idempotency-Key", "postgres-purge-successor"))
+              .andReturn();
+      assertThat(successor.getResponse().getStatus()).isEqualTo(201);
+      Future<MvcResult> purgeResult = executor.submit(purge);
+      assertThat(purgeStarted.await(10, TimeUnit.SECONDS)).isTrue();
+      assertThat(awaitCaseLockWait(5, TimeUnit.SECONDS)).isTrue();
+      // This short timeout is only a hang guard; pg_stat_activity/pg_locks above proves the wait.
+      assertThatThrownBy(() -> purgeResult.get(300, TimeUnit.MILLISECONDS))
+          .isInstanceOf(TimeoutException.class);
+      releaseReviewCommit.countDown();
+      reviewResult.get(10, TimeUnit.SECONDS);
+      MvcResult blockedPurge = purgeResult.get(10, TimeUnit.SECONDS);
+      assertThat(blockedPurge.getResponse().getStatus()).isEqualTo(409);
+      assertThat(json(blockedPurge).path("code").asText())
+          .isEqualTo("generation_set_has_human_evidence");
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from testforge.test_cases where generation_run_id = ?",
+                  Integer.class,
+                  oldRunId))
+          .isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from testforge.test_case_reviews where test_case_id = ?",
+                  Integer.class,
+                  oldCaseId))
+          .isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from testforge.test_case_revisions where test_case_id = ?",
+                  Integer.class,
+                  oldCaseId))
+          .isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select deleted_at is null and deleted_by is null from testforge.generation_runs where id = ?",
+                  Boolean.class,
+                  oldRunId))
+          .isTrue();
+    } finally {
+      releaseReviewCommit.countDown();
+      executor.shutdownNow();
+    }
+  }
+
   /** Builds a complete owner/project/story fixture through public PostgreSQL-backed APIs. */
   private Fixture createGenerationFixture() throws Exception {
+    String fixtureSuffix = UUID.randomUUID().toString();
     MvcResult registration =
         register(
-            "postgres-generation@testforge.local",
+            "postgres-generation-" + fixtureSuffix + "@testforge.local",
             "PostgreSQL Generation",
             "TestForge!PgGeneration2026");
-    String token = json(registration).path("accessToken").asText();
+    JsonNode registered = json(registration);
+    String token = registered.path("accessToken").asText();
+    UUID ownerId = UUID.fromString(registered.path("user").path("id").asText());
     JsonNode project =
         json(
             mockMvc
@@ -263,7 +403,11 @@ class PostgreSqlMigrationIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(
                             objectMapper.writeValueAsString(
-                                Map.of("name", "PostgreSQL claims", "description", "Synthetic"))))
+                                Map.of(
+                                    "name",
+                                    "PostgreSQL claims " + fixtureSuffix,
+                                    "description",
+                                    "Synthetic"))))
                 .andExpect(status().isCreated())
                 .andReturn());
     String projectId = project.path("id").asText();
@@ -287,7 +431,7 @@ class PostgreSqlMigrationIntegrationTest {
                                     "acceptanceCriteria", List.of("One claim is created.")))))
                 .andExpect(status().isCreated())
                 .andReturn());
-    return new Fixture(token, projectId, UUID.fromString(requirement.path("id").asText()));
+    return new Fixture(token, ownerId, projectId, UUID.fromString(requirement.path("id").asText()));
   }
 
   /** Executes one generation request without asserting its transient or terminal state. */
@@ -301,6 +445,33 @@ class PostgreSqlMigrationIntegrationTest {
                 .header("Authorization", bearer(fixture.accessToken()))
                 .header("Idempotency-Key", key))
         .andReturn();
+  }
+
+  /**
+   * Observes the waiting purge backend on the old-case row-lock query without relying on timing.
+   */
+  private boolean awaitCaseLockWait(long timeout, TimeUnit unit) throws InterruptedException {
+    long deadline = System.nanoTime() + unit.toNanos(timeout);
+    do {
+      Boolean waiting =
+          jdbc.queryForObject(
+              """
+              select exists (
+                select 1
+                from pg_stat_activity activity
+                join pg_locks locks on locks.pid = activity.pid
+                where activity.datname = current_database()
+                  and activity.wait_event_type = 'Lock'
+                  and activity.state = 'active'
+                  and activity.query like '%testforge.test_cases%'
+                  and locks.granted = false
+              )
+              """,
+              Boolean.class);
+      if (Boolean.TRUE.equals(waiting)) return true;
+      Thread.sleep(25);
+    } while (System.nanoTime() < deadline);
+    return false;
   }
 
   /** Registers one unique synthetic integration account. */
@@ -340,7 +511,7 @@ class PostgreSqlMigrationIntegrationTest {
     return "Bearer " + token;
   }
 
-  private record Fixture(String accessToken, String projectId, UUID requirementId) {}
+  private record Fixture(String accessToken, UUID ownerId, String projectId, UUID requirementId) {}
 
   /** Supplies normalized email explicitly so PostgreSQL uniqueness is exercised. */
   private void insertUser(UUID id, String email, String normalizedEmail) {

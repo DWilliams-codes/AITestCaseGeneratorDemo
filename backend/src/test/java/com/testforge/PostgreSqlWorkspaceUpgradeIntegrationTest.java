@@ -23,9 +23,7 @@ class PostgreSqlWorkspaceUpgradeIntegrationTest {
           .withUsername("testforge_app")
           .withPassword("integration-only-password");
 
-  /**
-   * Proves V3-to-V6 upgrades preserve owner mapping and backfill legacy priority deterministically.
-   */
+  /** Proves V3-to-V8 upgrades preserve owner mapping, setup-step, and tombstone compatibility. */
   @Test
   void upgradesLegacyUsersAndProjectsThroughV4WithoutCrossUserMapping() {
     configuredFlyway(MigrationVersion.fromVersion("3")).migrate();
@@ -46,13 +44,28 @@ class PostgreSqlWorkspaceUpgradeIntegrationTest {
         requirementId,
         firstProjectId,
         firstUserId);
+    configuredFlyway(MigrationVersion.fromVersion("6")).migrate();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from information_schema.tables where table_schema = 'testforge' and table_name = 'test_case_setup_steps'",
+                Integer.class))
+        .isZero();
     configuredFlyway(null).migrate();
 
     List<String> appliedVersions =
         jdbc.queryForList(
             "select version from testforge.flyway_schema_history where success and version is not null order by installed_rank",
             String.class);
-    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6");
+    assertThat(appliedVersions).containsExactly("1", "2", "3", "4", "5", "6", "7", "8");
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from information_schema.columns where table_schema = 'testforge' and table_name = 'generation_runs' and column_name in ('deleted_at', 'deleted_by')",
+                Integer.class))
+        .isEqualTo(2);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from testforge.test_case_setup_steps", Integer.class))
+        .isZero();
     assertThat(
             jdbc.queryForObject(
                 "select priority from testforge.requirements where id = ?",

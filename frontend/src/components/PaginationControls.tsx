@@ -12,11 +12,19 @@ export function PaginationControls({
   onPageChange(page: number): void;
 }) {
   return (
-    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+    <Stack
+      direction={{ xs: 'column', sm: 'row' }}
+      spacing={1}
+      sx={{ justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'center' } }}
+    >
       <Typography variant="caption" color="text.secondary" aria-live="polite">
         Page {page.page + 1} of {Math.max(page.totalPages, 1)} • {page.totalElements} items
       </Typography>
-      <Stack direction="row" spacing={1}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ justifyContent: { xs: 'space-between', sm: 'end' } }}
+      >
         <Button
           size="small"
           disabled={page.page === 0 || busy}

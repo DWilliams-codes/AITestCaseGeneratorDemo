@@ -58,6 +58,8 @@ class GenerationSchemaParityTest {
             new Bound("/testCases/0/testData/0/description", 2000),
             new Bound("/testCases/0/testData/0/exampleValue", 1000),
             new Bound("/testCases/0/testData/0/generationStrategy", 100),
+            new Bound("/testCases/0/setupSteps/0/action", 4000),
+            new Bound("/testCases/0/setupSteps/0/expectedResult", 4000),
             new Bound("/testCases/0/steps/0/action", 4000),
             new Bound("/testCases/0/steps/0/expectedResult", 4000),
             new Bound("/testCases/0/finalExpectedOutcome", 4000),
@@ -110,6 +112,7 @@ class GenerationSchemaParityTest {
     List<CollectionBound> bounds =
         List.of(
             new CollectionBound("/testCases", GenerationResultValidator.MAX_CASES),
+            new CollectionBound("/testCases/0/setupSteps", GenerationResultValidator.MAX_STEPS),
             new CollectionBound("/testCases/0/steps", GenerationResultValidator.MAX_STEPS),
             new CollectionBound(
                 "/testCases/0/preconditions", GenerationResultValidator.MAX_COLLECTION),
@@ -145,15 +148,21 @@ class GenerationSchemaParityTest {
 
   /** Verifies all schema collection and string ceilings match the Java validator constants. */
   @Test
-  void schemaV2CeilingsMatchTheApplicationValidatorMatrix() throws Exception {
+  void schemaV3CeilingsMatchTheApplicationValidatorMatrix() throws Exception {
     JsonNode schema =
         objectMapper.readTree(
             new DefaultResourceLoader()
-                .getResource("classpath:prompts/test-generation-schema-v2.json")
+                .getResource("classpath:prompts/test-generation-schema-v3.json")
                 .getInputStream());
     Map<String, Integer> expected =
         Map.ofEntries(
             Map.entry("/properties/testCases/maxItems", GenerationResultValidator.MAX_CASES),
+            Map.entry(
+                "/properties/testCases/items/properties/setupSteps/maxItems",
+                GenerationResultValidator.MAX_STEPS),
+            Map.entry(
+                "/properties/testCases/items/properties/setupSteps/items/properties/stepNumber/maximum",
+                GenerationResultValidator.MAX_STEPS),
             Map.entry(
                 "/properties/testCases/items/properties/steps/maxItems",
                 GenerationResultValidator.MAX_STEPS),
@@ -214,6 +223,15 @@ class GenerationSchemaParityTest {
                 "/properties/testCases/items/properties/testData/items/properties/generationStrategy/maxLength",
                 GenerationResultValidator.MAX_DATA_STRATEGY),
             Map.entry(
+                "/properties/testCases/items/properties/setupSteps/items/properties/testDataReference/maxLength",
+                GenerationResultValidator.MAX_DATA_REFERENCE),
+            Map.entry(
+                "/properties/testCases/items/properties/setupSteps/items/properties/action/maxLength",
+                GenerationResultValidator.MAX_TEXT),
+            Map.entry(
+                "/properties/testCases/items/properties/setupSteps/items/properties/expectedResult/maxLength",
+                GenerationResultValidator.MAX_TEXT),
+            Map.entry(
                 "/properties/testCases/items/properties/steps/items/properties/testDataReference/maxLength",
                 GenerationResultValidator.MAX_DATA_REFERENCE),
             Map.entry(
@@ -238,11 +256,11 @@ class GenerationSchemaParityTest {
 
   /** Keeps ambiguity severity identical across the domain and provider-output schema. */
   @Test
-  void schemaV2AmbiguitySeverityMatchesTheApplicationOutputContract() throws Exception {
+  void schemaV3AmbiguitySeverityMatchesTheApplicationOutputContract() throws Exception {
     JsonNode schema =
         objectMapper.readTree(
             new DefaultResourceLoader()
-                .getResource("classpath:prompts/test-generation-schema-v2.json")
+                .getResource("classpath:prompts/test-generation-schema-v3.json")
                 .getInputStream());
     Set<String> schemaSeverities =
         objectMapper.convertValue(
@@ -273,6 +291,9 @@ class GenerationSchemaParityTest {
             "/testCases/0/testData/0/description",
             "/testCases/0/testData/0/exampleValue",
             "/testCases/0/testData/0/generationStrategy",
+            "/testCases/0/setupSteps/0/action",
+            "/testCases/0/setupSteps/0/expectedResult",
+            "/testCases/0/setupSteps/0/testDataReference",
             "/testCases/0/steps/0/action",
             "/testCases/0/steps/0/expectedResult",
             "/testCases/0/steps/0/testDataReference",
@@ -297,6 +318,36 @@ class GenerationSchemaParityTest {
     }
   }
 
+  /** Ensures v3 setup steps are required, independently contiguous, and reference declared data. */
+  @Test
+  void rejectsMissingInvalidAndUnreferencedSetupSteps() throws Exception {
+    ObjectNode missing = objectMapper.valueToTree(validResult());
+    ((ObjectNode) missing.at("/testCases/0")).remove("setupSteps");
+    assertThatThrownBy(
+            () ->
+                validator.validate(
+                    request(), objectMapper.treeToValue(missing, TestGenerationResult.class)))
+        .isInstanceOf(GenerationValidationException.class);
+
+    ObjectNode discontinuous = objectMapper.valueToTree(validResult());
+    ((ObjectNode) discontinuous.at("/testCases/0/setupSteps/0")).put("stepNumber", 2);
+    assertThatThrownBy(
+            () ->
+                validator.validate(
+                    request(), objectMapper.treeToValue(discontinuous, TestGenerationResult.class)))
+        .isInstanceOf(GenerationValidationException.class);
+
+    ObjectNode unknownReference = objectMapper.valueToTree(validResult());
+    ((ObjectNode) unknownReference.at("/testCases/0/setupSteps/0"))
+        .put("testDataReference", "unknownData");
+    assertThatThrownBy(
+            () ->
+                validator.validate(
+                    request(),
+                    objectMapper.treeToValue(unknownReference, TestGenerationResult.class)))
+        .isInstanceOf(GenerationValidationException.class);
+  }
+
   /** Mutates one provider-authored scalar through its serialized contract path. */
   private TestGenerationResult mutate(String pointer, String value) throws Exception {
     JsonNode root = objectMapper.valueToTree(validResult());
@@ -319,6 +370,7 @@ class GenerationSchemaParityTest {
   private TestGenerationResult withDataReference(String name, String reference) throws Exception {
     ObjectNode root = objectMapper.valueToTree(validResult());
     ((ObjectNode) root.at("/testCases/0/testData/0")).put("name", name);
+    ((ObjectNode) root.at("/testCases/0/setupSteps/0")).put("testDataReference", reference);
     ((ObjectNode) root.at("/testCases/0/steps/0")).put("testDataReference", reference);
     return objectMapper.treeToValue(root, TestGenerationResult.class);
   }
@@ -343,6 +395,12 @@ class GenerationSchemaParityTest {
           ((ObjectNode) item).put("action", "Submit synthetic request " + (index + 1) + '.');
           ((ObjectNode) item)
               .put("expectedResult", "Synthetic request " + (index + 1) + " is observed.");
+        }
+        case "/testCases/0/setupSteps" -> {
+          ((ObjectNode) item).put("stepNumber", index + 1);
+          ((ObjectNode) item).put("action", "Prepare synthetic request " + (index + 1) + '.');
+          ((ObjectNode) item)
+              .put("expectedResult", "Synthetic readiness " + (index + 1) + " is observed.");
         }
         case "/testCases/0/testData" ->
             ((ObjectNode) item).put("name", index == 0 ? "requestId" : "requestId" + index);
@@ -425,6 +483,12 @@ class GenerationSchemaParityTest {
                         "TF-001",
                         DataSensitivity.PUBLIC,
                         "Generate a unique value.")),
+                List.of(
+                    new GeneratedStep(
+                        1,
+                        "Prepare the synthetic request.",
+                        "The request is ready to submit.",
+                        "requestId")),
                 List.of(
                     new GeneratedStep(
                         1, "Submit the synthetic request.", "One request is stored.", "requestId")),

@@ -21,18 +21,19 @@ public interface GenerationRunRepository extends JpaRepository<GenerationRunEnti
       UUID requirementId, UUID requestedBy, String idempotencyKeyHash);
 
   /** Finds all by requirement id order by started at desc for the supplied criteria. */
-  Page<GenerationRunEntity> findAllByRequirementIdOrderByStartedAtDesc(
+  Page<GenerationRunEntity> findAllByRequirementIdAndDeletedAtIsNullOrderByStartedAtDesc(
       UUID requirementId, Pageable pageable);
 
   /**
    * Finds first by requirement id and status order by completed at desc id desc for the supplied
    * criteria.
    */
-  Optional<GenerationRunEntity> findFirstByRequirementIdAndStatusOrderByCompletedAtDescIdDesc(
-      UUID requirementId, GenerationStatus status);
+  Optional<GenerationRunEntity>
+      findFirstByRequirementIdAndStatusAndDeletedAtIsNullOrderByCompletedAtDescIdDesc(
+          UUID requirementId, GenerationStatus status);
 
   /** Finds by id and requirement id and status for the supplied criteria. */
-  Optional<GenerationRunEntity> findByIdAndRequirementIdAndStatus(
+  Optional<GenerationRunEntity> findByIdAndRequirementIdAndStatusAndDeletedAtIsNull(
       UUID id, UUID requirementId, GenerationStatus status);
 
   /** Computes stable successful-set numbers for a bounded run page in one query. */
@@ -57,6 +58,12 @@ public interface GenerationRunRepository extends JpaRepository<GenerationRunEnti
   @Query(
       "select run from GenerationRunEntity run join RequirementEntity requirement on requirement.id = run.requirementId join ProjectEntity project on project.id = requirement.projectId where run.id = :runId and project.ownerId = :ownerId")
   Optional<GenerationRunEntity> findOwned(UUID runId, UUID ownerId);
+
+  /** Locks one owner-scoped run, including a tombstone only for deletion rechecks. */
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query(
+      "select run from GenerationRunEntity run join RequirementEntity requirement on requirement.id = run.requirementId join ProjectEntity project on project.id = requirement.projectId where run.id = :runId and project.ownerId = :ownerId")
+  Optional<GenerationRunEntity> findOwnedForUpdate(UUID runId, UUID ownerId);
 
   /** Locks a pending run while one finalizer transitions it to a terminal state. */
   @Lock(LockModeType.PESSIMISTIC_WRITE)

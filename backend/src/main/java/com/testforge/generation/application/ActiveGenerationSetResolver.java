@@ -22,13 +22,14 @@ public class ActiveGenerationSetResolver {
 
   /** Resolves the latest successful run; failures never supersede it. */
   public Optional<GenerationRunEntity> resolve(UUID requirementId) {
-    return runs.findFirstByRequirementIdAndStatusOrderByCompletedAtDescIdDesc(
+    return runs.findFirstByRequirementIdAndStatusAndDeletedAtIsNullOrderByCompletedAtDescIdDesc(
         requirementId, GenerationStatus.COMPLETED);
   }
 
   /** Resolves one successful set without loading the complete history. */
   public Optional<GenerationRunEntity> successful(UUID requirementId, UUID runId) {
-    return runs.findByIdAndRequirementIdAndStatus(runId, requirementId, GenerationStatus.COMPLETED);
+    return runs.findByIdAndRequirementIdAndStatusAndDeletedAtIsNull(
+        runId, requirementId, GenerationStatus.COMPLETED);
   }
 
   /** Resolves active identity and set numbers once for a bounded response collection. */

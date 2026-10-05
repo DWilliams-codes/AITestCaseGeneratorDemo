@@ -96,4 +96,5 @@ testforge:
       read-timeout-seconds: ${OPENAI_READ_TIMEOUT_SECONDS:90}
       maximum-output-tokens: ${OPENAI_MAXIMUM_OUTPUT_TOKENS:16000}
   demo:
+    fixture-mode: false
     seed-enabled: false

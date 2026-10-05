@@ -99,6 +99,9 @@ jobs:
       - name: Test dependency audit policy
         working-directory: frontend
         run: npm run test:audit-policy
+      - name: Test maintained external fixture
+        working-directory: frontend
+        run: npm run test:demo-fixture
       - name: Check formatting
         working-directory: frontend
         run: npm run format:check

@@ -10,6 +10,7 @@ import com.testforge.auth.dto.AuthDtos.UserResponse;
 import com.testforge.auth.repository.RefreshTokenRepository;
 import com.testforge.common.error.ApiExceptions;
 import com.testforge.config.AuthProperties;
+import com.testforge.config.DemoModePolicy;
 import com.testforge.user.domain.UserEntity;
 import com.testforge.user.repository.UserRepository;
 import com.testforge.workspace.application.WorkspaceService;
@@ -23,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuthService {
   private final UserRepository users;
+  private final DemoModePolicy demoMode;
   private final RefreshTokenRepository refreshTokens;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
@@ -42,7 +44,9 @@ public class AuthService {
       Clock clock,
       AuditService auditService,
       WorkspaceService workspaceService,
-      RefreshTokenRotationService rotationService) {
+      RefreshTokenRotationService rotationService,
+      DemoModePolicy demoMode) {
+    this.demoMode = demoMode;
     this.users = users;
     this.refreshTokens = refreshTokens;
     this.passwordEncoder = passwordEncoder;
@@ -59,6 +63,7 @@ public class AuthService {
   public Session register(RegisterRequest request) {
     String email = request.email().strip();
     String normalized = normalizeEmail(email);
+    demoMode.requirePrincipalAllowed(normalized);
     if (users.existsByEmailNormalized(normalized)) {
       throw ApiExceptions.conflict("email_in_use", "An account already exists for this email.");
     }
@@ -80,6 +85,7 @@ public class AuthService {
   /** Authenticates supplied credentials and creates a rotating session. */
   @Transactional
   public Session login(LoginRequest request) {
+    demoMode.requirePrincipalAllowed(request.email());
     UserEntity user =
         users
             .findByEmailNormalized(normalizeEmail(request.email()))
@@ -139,6 +145,7 @@ public class AuthService {
     return users
         .findById(userId)
         .filter(UserEntity::isEnabled)
+        .filter(user -> demoMode.isPrincipalAllowed(user.getEmail()))
         .map(this::toUserResponse)
         .orElseThrow(() -> ApiExceptions.unauthorized("The account is unavailable."));
   }

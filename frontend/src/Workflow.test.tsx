@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { http, HttpResponse } from 'msw';
@@ -6,6 +6,7 @@ import { vi } from 'vitest';
 import { App } from './App';
 import { appRoutes } from './routes/routes';
 import { server } from './test/server';
+import type { TestCase } from './types/api';
 
 const user = {
   id: '10000000-0000-0000-0000-000000000001',
@@ -66,7 +67,7 @@ const requirement = {
   updatedAt: '2026-07-30T12:00:00Z',
   version: 1,
 };
-const testCase = {
+const testCase: TestCase = {
   id: '60000000-0000-0000-0000-000000000001',
   workItemNumber: 1001,
   requirementId: requirement.id,
@@ -83,6 +84,14 @@ const testCase = {
   rationale: 'Provides direct evidence for AC-1.',
   finalExpectedOutcome: 'One return request is linked to the order item.',
   preconditions: [{ sortOrder: 0, description: 'A synthetic eligible order exists.' }],
+  setupSteps: [
+    {
+      stepNumber: 1,
+      action: 'Prepare the synthetic eligible order.',
+      expectedResult: 'The order is ready for return submission.',
+      testDataReference: 'validReturn',
+    },
+  ],
   steps: [
     {
       stepNumber: 1,
@@ -239,7 +248,13 @@ describe('project and user-story workflow', () => {
     await actor.click(screen.getByRole('button', { name: 'Move acceptance criterion 1 down' }));
     await actor.click(screen.getByRole('button', { name: 'Remove acceptance criterion 2' }));
     expect(screen.queryByLabelText('AC-2')).not.toBeInTheDocument();
-  }, 20_000);
+    const addCriterion = screen.getByRole('button', { name: 'Add criterion' });
+    for (let index = 2; index <= 50; index += 1) fireEvent.click(addCriterion);
+    expect(screen.getByLabelText('AC-50')).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Add criterion' })).toBeDisabled();
+    await actor.click(screen.getByRole('button', { name: 'Remove acceptance criterion 50' }));
+    expect(screen.getByRole('button', { name: 'Add criterion' })).toBeEnabled();
+  }, 45_000);
 
   it('orders test cases naturally by default and supports sorting and filtering', async () => {
     const unorderedCases = [
@@ -271,16 +286,69 @@ describe('project and user-story workflow', () => {
     server.use(
       ...authenticatedHandlers(),
       http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
-      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, () =>
-        HttpResponse.json({
-          items: unorderedCases,
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, ({ request }) => {
+        const query = new URL(request.url).searchParams;
+        const requestedPage = Number(query.get('page') ?? '0');
+        if (requestedPage === 3) {
+          return HttpResponse.json({
+            items: [],
+            page: 3,
+            size: 20,
+            totalElements: unorderedCases.length,
+            totalPages: 1,
+            hasNext: false,
+          });
+        }
+        const search = query.get('search')?.toLocaleLowerCase() ?? '';
+        const status = query.get('status');
+        const category = query.get('category');
+        const priority = query.get('priority');
+        const rank: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+        const items = unorderedCases
+          .filter(
+            (item) =>
+              (!search ||
+                [item.testCaseKey, item.title, item.objective]
+                  .join(' ')
+                  .toLocaleLowerCase()
+                  .includes(search)) &&
+              (!status || item.status === status) &&
+              (!category || item.category === category) &&
+              (!priority || item.priority === priority),
+          )
+          .sort((left, right) => {
+            switch (query.get('sort')) {
+              case 'sequence-desc':
+                return right.workItemNumber - left.workItemNumber;
+              case 'priority-desc':
+                return (
+                  (rank[left.priority] ?? Number.MAX_SAFE_INTEGER) -
+                    (rank[right.priority] ?? Number.MAX_SAFE_INTEGER) ||
+                  left.workItemNumber - right.workItemNumber
+                );
+              case 'status-asc':
+                return (
+                  left.status.localeCompare(right.status) ||
+                  left.workItemNumber - right.workItemNumber
+                );
+              case 'updated-desc':
+                return (
+                  right.updatedAt.localeCompare(left.updatedAt) ||
+                  left.workItemNumber - right.workItemNumber
+                );
+              default:
+                return left.workItemNumber - right.workItemNumber;
+            }
+          });
+        return HttpResponse.json({
+          items,
           page: 0,
           size: 20,
-          totalElements: unorderedCases.length,
+          totalElements: items.length,
           totalPages: 1,
           hasNext: false,
-        }),
-      ),
+        });
+      }),
       http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
         HttpResponse.json({
           requirementId: requirement.id,
@@ -296,9 +364,11 @@ describe('project and user-story workflow', () => {
       ),
     );
     const actor = userEvent.setup();
-    renderRoute(`/requirements/${requirement.id}`);
+    const { router } = renderRoute(`/requirements/${requirement.id}?casePage=3`);
 
     await actor.click(await screen.findByRole('tab', { name: 'Test cases (3)' }));
+    await waitFor(() => expect(router.state.location.search).toBe('?tab=1'));
+    expect(screen.getByText('Open cases on this page')).toBeVisible();
     await screen.findByText('TC-1010');
     expect(screen.getAllByText(/^TC-\d+$/).map((item) => item.textContent)).toEqual([
       'TC-1001',
@@ -307,15 +377,16 @@ describe('project and user-story workflow', () => {
     ]);
     expect(screen.getByText('Showing 3 of 3 test cases')).toBeVisible();
 
-    await actor.type(screen.getByRole('textbox', { name: 'Search test cases' }), 'boundary');
-    expect(screen.getByText('Showing 1 of 3 test cases')).toBeVisible();
+    await actor.click(screen.getByRole('textbox', { name: 'Search test cases' }));
+    await actor.paste('boundary');
+    expect(await screen.findByText('Showing 1 of 1 test cases')).toBeVisible();
     expect(screen.getByText('TC-1002')).toBeVisible();
     expect(screen.queryByText('TC-1001')).not.toBeInTheDocument();
 
     await actor.click(screen.getByRole('button', { name: 'Clear filters' }));
     await actor.click(screen.getByRole('combobox', { name: 'Status' }));
     await actor.click(screen.getByRole('option', { name: 'APPROVED' }));
-    expect(screen.getByText('Showing 1 of 3 test cases')).toBeVisible();
+    expect(await screen.findByText('Showing 1 of 1 test cases')).toBeVisible();
     expect(screen.getByText('TC-1010')).toBeVisible();
 
     await actor.click(screen.getByRole('button', { name: 'Clear filters' }));
@@ -329,13 +400,13 @@ describe('project and user-story workflow', () => {
 
     await actor.click(screen.getByRole('combobox', { name: 'Category' }));
     await actor.click(screen.getByRole('option', { name: 'BOUNDARY' }));
-    expect(screen.getByText('Showing 1 of 3 test cases')).toBeVisible();
+    expect(await screen.findByText('Showing 1 of 1 test cases')).toBeVisible();
     expect(screen.getByText('TC-1002')).toBeVisible();
 
     await actor.click(screen.getByRole('button', { name: 'Clear filters' }));
     await actor.click(screen.getByRole('combobox', { name: 'Priority' }));
     await actor.click(screen.getByRole('option', { name: 'CRITICAL' }));
-    expect(screen.getByText('Showing 1 of 3 test cases')).toBeVisible();
+    expect(await screen.findByText('Showing 1 of 1 test cases')).toBeVisible();
     expect(screen.getByText('TC-1002')).toBeVisible();
 
     await actor.click(screen.getByRole('button', { name: 'Clear filters' }));
@@ -363,8 +434,10 @@ describe('project and user-story workflow', () => {
       'TC-1001',
     ]);
 
-    await actor.type(screen.getByRole('textbox', { name: 'Search test cases' }), 'no match');
-    expect(screen.getByText('No test cases match the current filters.')).toBeVisible();
+    await actor.click(screen.getByRole('textbox', { name: 'Search test cases' }));
+    await actor.paste('no match');
+    expect(await screen.findByText('No test cases match the current filters.')).toBeVisible();
+    expect(screen.getAllByRole('button', { name: 'Clear filters' })).not.toHaveLength(0);
   }, 20_000);
 
   it('keeps every generation outcome and its paging reachable when no cases exist', async () => {
@@ -395,6 +468,7 @@ describe('project and user-story workflow', () => {
       startedAt: '2026-08-05T12:00:00Z',
       completedAt: status === 'PENDING' ? null : '2026-08-05T12:00:01Z',
       setNumber,
+      deletable: setState === 'SUPERSEDED',
       setState,
     });
     server.use(
@@ -459,11 +533,72 @@ describe('project and user-story workflow', () => {
     expect(screen.getByText('Generated output failed validation.')).toBeVisible();
     expect(screen.getByText('No test cases yet')).toBeVisible();
     expect(screen.getByText('Page 1 of 2 • 21 items')).toBeVisible();
-
     await actor.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(await screen.findByText('Set 2')).toBeVisible();
+    await actor.click(screen.getByRole('button', { name: 'Delete set' }));
+    expect(await screen.findByRole('heading', { name: 'Delete Set 2' })).toBeVisible();
+    await actor.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('heading', { name: 'Delete Set 2' })).not.toBeInTheDocument();
+
     await waitFor(() => expect(runRequests.at(-1)).toBe(1));
     expect(await screen.findByText('Set 2')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'View set' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View set' })).toBeEnabled());
+  });
+
+  it('repairs a stale selected-set URL after the authoritative tombstone 404', async () => {
+    const deletedRunId = '70000000-0000-0000-0000-000000000099';
+    const selectedCaseRequests: string[] = [];
+    server.use(
+      ...authenticatedHandlers(),
+      http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, ({ request }) => {
+        const selected = new URL(request.url).searchParams.get('generationRunId') ?? '';
+        selectedCaseRequests.push(selected);
+        if (selected === deletedRunId) {
+          return HttpResponse.json(
+            { detail: 'Generation set not found.', code: 'not_found' },
+            { status: 404 },
+          );
+        }
+        return HttpResponse.json({
+          items: [testCase],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+          hasNext: false,
+        });
+      }),
+      http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
+        HttpResponse.json({
+          requirementId: requirement.id,
+          totalCriteria: 1,
+          coveredCriteria: 1,
+          approvedCriteria: 0,
+          coveragePercent: 100,
+          approvedCoveragePercent: 0,
+        }),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/traceability`, () =>
+        HttpResponse.json({ requirementId: requirement.id, rows: [] }),
+      ),
+    );
+    const { router } = renderRoute(
+      `/user-stories/${requirement.id}?generationRunId=${deletedRunId}`,
+    );
+
+    await waitFor(() => expect(selectedCaseRequests).toContain(deletedRunId));
+    expect(
+      await screen.findByText(
+        'That generation set is no longer available. Viewing the active set instead.',
+        {},
+        { timeout: 5_000 },
+      ),
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?generationSetUnavailable=true');
+      expect(screen.getByRole('heading', { level: 1, name: requirement.title })).toBeVisible();
+    });
   });
 
   it('renders typed notice severity for every generation outcome', async () => {
@@ -771,6 +906,125 @@ describe('project and user-story workflow', () => {
     });
   }, 20_000);
 
+  it('enforces editor collection limits while allowing a legacy oversized case to be reduced', async () => {
+    const items = Array.from({ length: 29 }, (_, index) => index + 1);
+    let currentCase: TestCase = {
+      ...testCase,
+      preconditions: items.map((sortOrder) => ({
+        sortOrder,
+        description: `Condition ${sortOrder}`,
+      })),
+      setupSteps: items.map((stepNumber) => ({
+        stepNumber,
+        action: `Setup ${stepNumber}`,
+        expectedResult: `Ready ${stepNumber}`,
+        testDataReference: null,
+      })),
+      steps: items.map((stepNumber) => ({
+        stepNumber,
+        action: `Action ${stepNumber}`,
+        expectedResult: `Expected ${stepNumber}`,
+        testDataReference: null,
+      })),
+      testData: items.map((number) => ({
+        name: `data-${number}`,
+        description: `Synthetic ${number}`,
+        exampleValue: `value-${number}`,
+        sensitivity: 'PUBLIC' as const,
+        generationStrategy: 'Create a unique synthetic value.',
+      })),
+    };
+    /** Returns the current case page after each synthetic edit. */
+    const response = () =>
+      HttpResponse.json({
+        items: [currentCase],
+        page: 0,
+        size: 20,
+        totalElements: 1,
+        totalPages: 1,
+        hasNext: false,
+      });
+    server.use(
+      ...authenticatedHandlers(),
+      http.get(`/api/v1/user-stories/${requirement.id}`, () => HttpResponse.json(requirement)),
+      http.get(`/api/v1/user-stories/${requirement.id}/test-cases/page`, response),
+      http.get(`/api/v1/user-stories/${requirement.id}/coverage`, () =>
+        HttpResponse.json({
+          requirementId: requirement.id,
+          totalCriteria: 1,
+          coveredCriteria: 1,
+          approvedCriteria: 0,
+          coveragePercent: 100,
+          approvedCoveragePercent: 0,
+        }),
+      ),
+      http.get(`/api/v1/user-stories/${requirement.id}/traceability`, () =>
+        HttpResponse.json({ requirementId: requirement.id, rows: [] }),
+      ),
+      http.patch(`/api/v1/test-cases/${testCase.id}`, async ({ request }) => {
+        currentCase = {
+          ...currentCase,
+          ...((await request.json()) as Partial<typeof currentCase>),
+          version: 1,
+        };
+        return HttpResponse.json(currentCase);
+      }),
+    );
+    const mounted = renderRoute(`/requirements/${requirement.id}`);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Test cases (1)' }));
+    fireEvent.click(await screen.findByText(testCase.title));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const dialog = screen.getByRole('dialog', { name: `Edit ${testCase.testCaseKey}` });
+    /** Finds a named control within the current case-edit dialog. */
+    const dialogButton = (name: string) =>
+      [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) =>
+          button.textContent?.includes(name) || button.getAttribute('aria-label') === name,
+      )!;
+
+    for (const button of ['Add precondition', 'Add setup step', 'Add step', 'Add test data']) {
+      fireEvent.click(dialogButton(button));
+      expect(dialogButton(button)).toBeDisabled();
+    }
+    fireEvent.click(dialogButton('Remove precondition 30'));
+    fireEvent.click(dialogButton('Remove setup step 30'));
+    fireEvent.click(dialogButton('Remove step 30'));
+    fireEvent.click(dialogButton('Remove test data item 30'));
+    expect(dialogButton('Add precondition')).toBeEnabled();
+    expect(dialogButton('Add setup step')).toBeEnabled();
+    expect(dialogButton('Add step')).toBeEnabled();
+    expect(dialogButton('Add test data')).toBeEnabled();
+    fireEvent.click(dialogButton('Save changes'));
+    expect(await screen.findByText(testCase.title)).toBeVisible();
+
+    currentCase = {
+      ...currentCase,
+      preconditions: Array.from({ length: 31 }, (_, sortOrder) => ({
+        sortOrder,
+        description: `Legacy ${sortOrder + 1}`,
+      })),
+      setupSteps: [],
+      steps: testCase.steps,
+      testData: [],
+    };
+    mounted.unmount();
+    renderRoute(`/requirements/${requirement.id}`);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Test cases (1)' }));
+    fireEvent.click(await screen.findByText(testCase.title));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const legacyDialog = screen.getByRole('dialog', { name: `Edit ${testCase.testCaseKey}` });
+    /** Finds a named control within the oversized legacy fixture dialog. */
+    const legacyButton = (name: string) =>
+      [...legacyDialog.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) =>
+          button.textContent?.includes(name) || button.getAttribute('aria-label') === name,
+      )!;
+    expect(within(legacyDialog).getByText(/exceeds a 30-item limit/)).toBeVisible();
+    expect(legacyButton('Save changes')).toBeDisabled();
+    fireEvent.click(legacyButton('Remove precondition 31'));
+    expect(legacyButton('Save changes')).toBeEnabled();
+  }, 90_000);
+
   it('reviews generated evidence, edits its structure, and inspects traceability', async () => {
     let currentCase = testCase;
     let approvalPayload: Record<string, unknown> | null = null;
@@ -937,9 +1191,16 @@ describe('project and user-story workflow', () => {
     );
     await actor.click(within(dialog).getByRole('button', { name: 'Move precondition 2 up' }));
     await actor.click(within(dialog).getByRole('button', { name: 'Remove precondition 1' }));
+    await actor.click(within(dialog).getByRole('button', { name: 'Add setup step' }));
+    await actor.type(within(dialog).getAllByLabelText(/^Action/)[1]!, 'Open the synthetic order.');
+    await actor.type(
+      within(dialog).getAllByLabelText(/^Observed readiness/)[1]!,
+      'The synthetic order details are visible.',
+    );
+    await actor.click(within(dialog).getByRole('button', { name: 'Remove setup step 2' }));
     await actor.click(within(dialog).getByRole('button', { name: 'Add step' }));
-    await waitFor(() => expect(within(dialog).getAllByLabelText(/^Action/)).toHaveLength(2));
-    await actor.type(within(dialog).getAllByLabelText(/^Action/)[1]!, 'Inspect the saved return.');
+    await waitFor(() => expect(within(dialog).getAllByLabelText(/^Action/)).toHaveLength(3));
+    await actor.type(within(dialog).getAllByLabelText(/^Action/)[2]!, 'Inspect the saved return.');
     await actor.type(
       within(dialog).getAllByLabelText(/^Expected result/)[1]!,
       'The return is linked once.',
@@ -982,5 +1243,5 @@ describe('project and user-story workflow', () => {
     expect(screen.getByText('MISSING PERMISSION RULE')).toBeVisible();
     await actor.click(screen.getByRole('button', { name: 'Regenerate' }));
     expect(await screen.findByText(/1 manual test case was created from this story/)).toBeVisible();
-  }, 30_000);
+  }, 45_000);
 });

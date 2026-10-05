@@ -23,11 +23,11 @@ and [API.md](../API.md). Submitted text is untrusted data, not model instruction
 
 Generation requires a nonblank idempotency key. The application minimizes the
 provider request to requirement fields and keyed acceptance criteria. The
-versioned `manual-test-v2` developer prompt requires only application-owned
-structured JSON. New runs record `manual-test-result-v1`,
-`manual-test-schema-v2`, `manual-test-validator-v2`, and provider-adapter
+versioned `manual-test-v5` developer prompt requires only application-owned
+structured JSON. New runs record `manual-test-result-v2`,
+`manual-test-schema-v3`, `manual-test-validator-v4`, and provider-adapter
 evidence with exact source criterion snapshots before provider work.
-The current OpenAI adapter evidence is `openai-responses-v3`; it rejects
+The current OpenAI adapter evidence is `openai-responses-v5`; it rejects
 provider-authored transport metadata and JSON scalar/enum coercion without
 changing the prompt, result, schema, or semantic-validator contracts.
 
@@ -40,10 +40,17 @@ suite that realizes them without emitting hidden reasoning or an obligation
 inventory. A direct case maps to one or more supplied criteria when one
 realistic workflow independently proves them together; it must not split shared
 workflow/data merely to increase case count. Supporting exploratory coverage
-maps only to supplied keys when a mapping is claimed.
+maps only to supplied keys when a mapping is claimed. Tester-performed
+authentication and state preparation are actionable setup steps with observable
+readiness; evidence-bearing steps are individual concrete interactions and
+observations, never criterion-key placeholders or compressed workflows. Cases
+use realistic enterprise roles, synthetic data, permissions, statuses, approvals,
+and audit-relevant outcomes where applicable; each is independently executable
+without undocumented assumptions and uses only source-supported policy.
 
 The semantic validator rejects empty or oversized output, unsupported enums,
-duplicate titles, missing or non-contiguous steps, blank or vague text,
+duplicate titles, missing or non-contiguous steps, generic criterion-placeholder
+actions, blank or vague text,
 executable content, unknown criterion keys, incomplete synthetic test data,
 normalized duplicate data names, and dangling step data references.
 The service permits one controlled retry only for incomplete, empty, malformed,
@@ -106,3 +113,8 @@ with the 100-point rubric; 80 with no hard failure is the passing threshold.
 - Automatic approval or export of unreviewed cases.
 - Playwright, Copado, or other automation generation or execution.
 - A live-provider CI quality gate.
+# Superseded-set deletion
+
+The owner may confirm permanent deletion only for an unreviewed, unrevised,
+completed superseded set. The UI explains permanent case purge, reserved set
+number, and bounded audit fact; cancellation makes no request.

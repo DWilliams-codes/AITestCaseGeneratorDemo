@@ -14,11 +14,15 @@ import com.testforge.generation.repository.GenerationRunRepository;
 import com.testforge.requirement.application.RequirementService;
 import com.testforge.requirement.domain.RequirementEntity;
 import com.testforge.testcase.domain.ReviewDecision;
+import com.testforge.testcase.domain.TestCaseCategory;
 import com.testforge.testcase.domain.TestCaseEntity;
 import com.testforge.testcase.domain.TestCasePreconditionEntity;
 import com.testforge.testcase.domain.TestCaseReviewEntity;
 import com.testforge.testcase.domain.TestCaseRevisionEntity;
+import com.testforge.testcase.domain.TestCaseSetupStepEntity;
+import com.testforge.testcase.domain.TestCaseStatus;
 import com.testforge.testcase.domain.TestDataItemEntity;
+import com.testforge.testcase.domain.TestPriority;
 import com.testforge.testcase.domain.TestStepEntity;
 import com.testforge.testcase.dto.TestCaseDtos.PreconditionResponse;
 import com.testforge.testcase.dto.TestCaseDtos.ReopenRequest;
@@ -31,6 +35,7 @@ import com.testforge.testcase.repository.TestCasePreconditionRepository;
 import com.testforge.testcase.repository.TestCaseRepository;
 import com.testforge.testcase.repository.TestCaseReviewRepository;
 import com.testforge.testcase.repository.TestCaseRevisionRepository;
+import com.testforge.testcase.repository.TestCaseSetupStepRepository;
 import com.testforge.testcase.repository.TestDataItemRepository;
 import com.testforge.testcase.repository.TestStepRepository;
 import com.testforge.testcase.validation.TestDataReferencePolicy;
@@ -40,6 +45,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +54,7 @@ public class TestCaseService {
   private final TestCaseRepository testCases;
   private final TestCasePreconditionRepository preconditions;
   private final TestStepRepository steps;
+  private final TestCaseSetupStepRepository setupSteps;
   private final TestDataItemRepository testData;
   private final TestCaseReviewRepository reviews;
   private final TestCaseRevisionRepository revisions;
@@ -67,6 +74,7 @@ public class TestCaseService {
       TestCaseRepository testCases,
       TestCasePreconditionRepository preconditions,
       TestStepRepository steps,
+      TestCaseSetupStepRepository setupSteps,
       TestDataItemRepository testData,
       TestCaseReviewRepository reviews,
       TestCaseRevisionRepository revisions,
@@ -83,6 +91,7 @@ public class TestCaseService {
     this.testCases = testCases;
     this.preconditions = preconditions;
     this.steps = steps;
+    this.setupSteps = setupSteps;
     this.testData = testData;
     this.reviews = reviews;
     this.revisions = revisions;
@@ -118,15 +127,57 @@ public class TestCaseService {
   @Transactional(readOnly = true)
   public PageResponse<TestCaseResponse> listPage(
       UUID ownerId, UUID requirementId, UUID generationRunId, int page, int size) {
+    return listPage(
+        ownerId,
+        requirementId,
+        generationRunId,
+        page,
+        size,
+        null,
+        null,
+        null,
+        null,
+        "sequence-asc");
+  }
+
+  /** Returns a canonical bounded page for one selected immutable generation set. */
+  @Transactional(readOnly = true)
+  public PageResponse<TestCaseResponse> listPage(
+      UUID ownerId,
+      UUID requirementId,
+      UUID generationRunId,
+      int page,
+      int size,
+      String search,
+      TestCaseStatus status,
+      TestCaseCategory category,
+      TestPriority priority,
+      String sort) {
     requirementService.requireOwned(ownerId, requirementId);
     GenerationRunEntity selectedRun = selectReadableRun(requirementId, generationRunId);
     if (selectedRun == null) {
       return new PageResponse<>(List.of(), page, size, 0, 0, false);
     }
     ensureLegacyEvidence(selectedRun);
+    var pageable = PageRequest.of(page, size, pageSort(sort));
     var testCasePage =
-        testCases.findAllByRequirementIdAndGenerationRunIdOrderByWorkItemNumber(
-            requirementId, selectedRun.getId(), PageRequest.of(page, size));
+        "priority-desc".equals(sort)
+            ? testCases.queryPagePriorityDescending(
+                requirementId,
+                selectedRun.getId(),
+                escapedSearchPattern(search),
+                status,
+                category,
+                priority,
+                PageRequest.of(page, size))
+            : testCases.queryPage(
+                requirementId,
+                selectedRun.getId(),
+                escapedSearchPattern(search),
+                status,
+                category,
+                priority,
+                pageable);
     return new PageResponse<>(
         responseAssembler.assembleAll(testCasePage.getContent()),
         testCasePage.getNumber(),
@@ -136,11 +187,35 @@ public class TestCaseService {
         testCasePage.hasNext());
   }
 
+  /** Maps the allowlisted client order to safe persistence properties. */
+  private Sort pageSort(String requested) {
+    return switch (requested) {
+      case "sequence-asc" -> Sort.by("workItemNumber").ascending();
+      case "sequence-desc" -> Sort.by("workItemNumber").descending();
+      case "priority-desc" -> Sort.unsorted();
+      case "status-asc" -> Sort.by("status").ascending().and(Sort.by("workItemNumber"));
+      case "updated-desc" -> Sort.by("updatedAt").descending().and(Sort.by("workItemNumber"));
+      default ->
+          throw ApiExceptions.badRequest("invalid_test_case_sort", "Unsupported test-case sort.");
+    };
+  }
+
+  /** Returns an always-non-null escaped LIKE pattern for literal substring search. */
+  private String escapedSearchPattern(String search) {
+    if (search == null || search.strip().isEmpty()) return "%";
+    return "%" + search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+  }
+
   /** Returns the owned resource identified by the request. */
   @Transactional(readOnly = true)
   public TestCaseResponse get(UUID ownerId, UUID testCaseId) {
     TestCaseEntity testCase = requireOwned(ownerId, testCaseId);
-    generationRuns.findById(testCase.getGenerationRunId()).ifPresent(this::ensureLegacyEvidence);
+    GenerationRunEntity run =
+        generationRuns
+            .findById(testCase.getGenerationRunId())
+            .filter(candidate -> !candidate.isDeleted())
+            .orElseThrow(() -> ApiExceptions.notFound("Test case not found."));
+    ensureLegacyEvidence(run);
     return toResponse(testCase);
   }
 
@@ -154,7 +229,7 @@ public class TestCaseService {
           "stale_version", "This test case changed since it was loaded. Refresh and retry.");
     }
     validateStepNumbers(request);
-    List<String> canonicalReferences = validateTestDataReferences(request);
+    ReferenceParts canonicalReferences = validateTestDataReferences(testCaseId, request);
     RequirementEntity requirement =
         requirementService.requireOwned(ownerId, testCase.getRequirementId());
     boolean actualChange = hasActualChange(testCase, request, canonicalReferences);
@@ -301,12 +376,18 @@ public class TestCaseService {
 
   /** Executes the replace parts operation for TestCaseService. */
   private void replaceParts(
-      UUID testCaseId, UpdateTestCaseRequest request, List<String> canonicalReferences) {
+      UUID testCaseId, UpdateTestCaseRequest request, ReferenceParts canonicalReferences) {
     preconditions.deleteAllByTestCaseId(testCaseId);
     steps.deleteAllByTestCaseId(testCaseId);
+    if (request.setupSteps() != null) {
+      setupSteps.deleteAllByTestCaseId(testCaseId);
+    }
     testData.deleteAllByTestCaseId(testCaseId);
     preconditions.flush();
     steps.flush();
+    if (request.setupSteps() != null) {
+      setupSteps.flush();
+    }
     testData.flush();
     for (int index = 0; index < request.preconditions().size(); index++) {
       preconditions.save(
@@ -321,7 +402,19 @@ public class TestCaseService {
               item.stepNumber(),
               item.action().strip(),
               item.expectedResult().strip(),
-              canonicalReferences.get(index)));
+              canonicalReferences.testSteps().get(index)));
+    }
+    if (request.setupSteps() != null) {
+      for (int index = 0; index < request.setupSteps().size(); index++) {
+        var item = request.setupSteps().get(index);
+        setupSteps.save(
+            TestCaseSetupStepEntity.create(
+                testCaseId,
+                item.stepNumber(),
+                item.action().strip(),
+                item.expectedResult().strip(),
+                canonicalReferences.setupSteps().get(index)));
+      }
     }
     request
         .testData()
@@ -337,12 +430,32 @@ public class TestCaseService {
                         item.generationStrategy().strip())));
   }
 
-  /** Validates names/references before any managed case state is mutated. */
-  private List<String> validateTestDataReferences(UpdateTestCaseRequest request) {
+  /** Validates every retained or replacement setup/test-step reference before mutation. */
+  private ReferenceParts validateTestDataReferences(
+      UUID testCaseId, UpdateTestCaseRequest request) {
     try {
-      return testDataReferences.canonicalize(
-          request.testData().stream().map(item -> item.name().strip()).toList(),
-          request.steps().stream().map(item -> item.testDataReference()).toList());
+      List<String> references = new java.util.ArrayList<>();
+      int setupSize = request.setupSteps() == null ? 0 : request.setupSteps().size();
+      if (request.setupSteps() != null) {
+        references.addAll(
+            request.setupSteps().stream().map(item -> item.testDataReference()).toList());
+      } else {
+        references.addAll(
+            setupSteps
+                .findAllByTestCaseIdInOrderByTestCaseIdAscStepNumberAsc(List.of(testCaseId))
+                .stream()
+                .map(TestCaseSetupStepEntity::getTestDataReference)
+                .toList());
+      }
+      references.addAll(request.steps().stream().map(item -> item.testDataReference()).toList());
+      List<String> canonical =
+          testDataReferences.canonicalize(
+              request.testData().stream().map(item -> item.name().strip()).toList(), references);
+      return new ReferenceParts(
+          request.setupSteps() == null ? List.of() : canonical.subList(0, setupSize),
+          canonical.subList(
+              request.setupSteps() == null ? references.size() - request.steps().size() : setupSize,
+              canonical.size()));
     } catch (TestDataReferencePolicy.Violation violation) {
       throw ApiExceptions.badRequest("invalid_test_data_reference", violation.getMessage());
     }
@@ -350,7 +463,7 @@ public class TestCaseService {
 
   /** Compares normalized mutable fields and parts to prevent a false revision transition. */
   private boolean hasActualChange(
-      TestCaseEntity testCase, UpdateTestCaseRequest request, List<String> canonicalReferences) {
+      TestCaseEntity testCase, UpdateTestCaseRequest request, ReferenceParts canonicalReferences) {
     TestCaseResponse current = toResponse(testCase);
     if (!Objects.equals(current.title(), request.title().strip())
         || !Objects.equals(current.objective(), request.objective().strip())
@@ -380,8 +493,23 @@ public class TestCaseService {
       if (persisted.stepNumber() != requested.stepNumber()
           || !Objects.equals(persisted.action(), requested.action().strip())
           || !Objects.equals(persisted.expectedResult(), requested.expectedResult().strip())
-          || !Objects.equals(persisted.testDataReference(), canonicalReferences.get(index))) {
+          || !Objects.equals(
+              persisted.testDataReference(), canonicalReferences.testSteps().get(index))) {
         return true;
+      }
+    }
+    if (request.setupSteps() != null) {
+      if (current.setupSteps().size() != request.setupSteps().size()) return true;
+      for (int index = 0; index < request.setupSteps().size(); index++) {
+        var persisted = current.setupSteps().get(index);
+        var requested = request.setupSteps().get(index);
+        if (persisted.stepNumber() != requested.stepNumber()
+            || !Objects.equals(persisted.action(), requested.action().strip())
+            || !Objects.equals(persisted.expectedResult(), requested.expectedResult().strip())
+            || !Objects.equals(
+                persisted.testDataReference(), canonicalReferences.setupSteps().get(index))) {
+          return true;
+        }
       }
     }
     List<TestDataComparable> persistedData =
@@ -481,10 +609,17 @@ public class TestCaseService {
       throw ApiExceptions.badRequest(
           "steps_required", "A test case must contain at least one step.");
     }
-    for (int index = 0; index < request.steps().size(); index++) {
-      if (request.steps().get(index).stepNumber() != index + 1) {
+    validateContiguousSteps(request.steps(), "Step");
+    if (request.setupSteps() != null) validateContiguousSteps(request.setupSteps(), "Setup step");
+  }
+
+  /** Requires an independently numbered phase to start at one without gaps. */
+  private void validateContiguousSteps(
+      List<com.testforge.testcase.dto.TestCaseDtos.StepRequest> values, String label) {
+    for (int index = 0; index < values.size(); index++) {
+      if (values.get(index).stepNumber() != index + 1) {
         throw ApiExceptions.badRequest(
-            "invalid_step_order", "Step numbers must be contiguous and start at one.");
+            "invalid_step_order", label + " numbers must be contiguous and start at one.");
       }
     }
   }
@@ -531,4 +666,6 @@ public class TestCaseService {
       String exampleValue,
       String sensitivity,
       String generationStrategy) {}
+
+  private record ReferenceParts(List<String> setupSteps, List<String> testSteps) {}
 }

@@ -14,6 +14,7 @@ import java.util.UUID;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -23,6 +24,8 @@ public class DemoDataSeeder implements ApplicationRunner {
   public static final String DEMO_PASSWORD = "TestForge!Demo2026";
 
   private final UserRepository users;
+  private final DemoModePolicy demoMode;
+  private final PasswordEncoder encoder;
   private final AuthService authService;
   private final ProjectService projectService;
   private final ProjectRepository projects;
@@ -36,7 +39,11 @@ public class DemoDataSeeder implements ApplicationRunner {
       ProjectService projectService,
       ProjectRepository projects,
       RequirementService requirementService,
-      RequirementRepository requirements) {
+      RequirementRepository requirements,
+      DemoModePolicy demoMode,
+      PasswordEncoder encoder) {
+    this.demoMode = demoMode;
+    this.encoder = encoder;
     this.users = users;
     this.authService = authService;
     this.projectService = projectService;
@@ -48,6 +55,8 @@ public class DemoDataSeeder implements ApplicationRunner {
   /** Ensures the demo account contains professional source stories without generated output. */
   @Override
   public void run(ApplicationArguments args) {
+    if (!demoMode.isEnabled())
+      throw new IllegalStateException("Demo seeding requires validated fixture mode.");
     UUID userId = ensureDemoUser();
     UUID projectId = ensureDemoProject(userId);
     professionalStories().stream()
@@ -56,13 +65,21 @@ public class DemoDataSeeder implements ApplicationRunner {
                 !requirements.existsByProjectIdAndSourceReference(
                     projectId, story.sourceReference()))
         .forEach(story -> createStory(userId, projectId, story));
+    demoMode.markReady();
   }
 
   /** Returns the existing demo account or creates it on the first demo startup. */
   private UUID ensureDemoUser() {
     return users
         .findByEmailNormalized(DEMO_EMAIL)
-        .map(user -> user.getId())
+        .map(
+            user -> {
+              if (!user.isEnabled() || !encoder.matches(DEMO_PASSWORD, user.getPasswordHash())) {
+                throw new IllegalStateException(
+                    "Reserved demo account is not the enabled public disposable account. Use a fresh disposable database; existing credentials and content were not changed.");
+              }
+              return user.getId();
+            })
         .orElseGet(
             () ->
                 authService
@@ -102,7 +119,10 @@ public class DemoDataSeeder implements ApplicationRunner {
             story.acceptanceCriteria()));
   }
 
-  /** Provides representative enterprise stories used solely as inputs to live generation. */
+  /**
+   * Provides representative enterprise stories used solely in the explicitly isolated synthetic
+   * fixture demo.
+   */
   private List<DemoStory> professionalStories() {
     return List.of(
         new DemoStory(

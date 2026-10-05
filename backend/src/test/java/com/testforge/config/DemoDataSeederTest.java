@@ -37,13 +37,25 @@ class DemoDataSeederTest {
     UUID userId = UUID.randomUUID();
     UUID projectId = UUID.randomUUID();
     when(user.getId()).thenReturn(userId);
+    when(user.isEnabled()).thenReturn(true);
+    var policy = mock(DemoModePolicy.class);
+    when(policy.isEnabled()).thenReturn(true);
+    var encoder = mock(org.springframework.security.crypto.password.PasswordEncoder.class);
+    when(encoder.matches(DemoDataSeeder.DEMO_PASSWORD, null)).thenReturn(true);
     when(project.getId()).thenReturn(projectId);
     when(users.findByEmailNormalized(DemoDataSeeder.DEMO_EMAIL)).thenReturn(Optional.of(user));
     when(projects.findFirstByOwnerIdAndNameOrderByCreatedAtAsc(userId, "Commerce Returns Platform"))
         .thenReturn(Optional.of(project));
 
     new DemoDataSeeder(
-            users, authService, projectService, projects, requirementService, requirements)
+            users,
+            authService,
+            projectService,
+            projects,
+            requirementService,
+            requirements,
+            policy,
+            encoder)
         .run(mock(ApplicationArguments.class));
 
     ArgumentCaptor<CreateRequirementRequest> stories =
@@ -64,6 +76,40 @@ class DemoDataSeederTest {
             .distinct()
             .count();
     assertThat(uniqueReferences).isEqualTo(4);
+  }
+
+  /** Refuses a reserved account with another password without changing or adopting its contents. */
+  @Test
+  void refusesMismatchedPublicAccountWithoutMutation() {
+    var users = mock(UserRepository.class);
+    var auth = mock(AuthService.class);
+    var projectService = mock(ProjectService.class);
+    var projects = mock(ProjectRepository.class);
+    var requirements = mock(RequirementRepository.class);
+    var requirementService = mock(RequirementService.class);
+    var policy = mock(DemoModePolicy.class);
+    when(policy.isEnabled()).thenReturn(true);
+    var encoder = mock(org.springframework.security.crypto.password.PasswordEncoder.class);
+    var user = mock(UserEntity.class);
+    when(user.isEnabled()).thenReturn(true);
+    when(users.findByEmailNormalized(DemoDataSeeder.DEMO_EMAIL)).thenReturn(Optional.of(user));
+    var seeder =
+        new DemoDataSeeder(
+            users,
+            auth,
+            projectService,
+            projects,
+            requirementService,
+            requirements,
+            policy,
+            encoder);
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> seeder.run(mock(ApplicationArguments.class)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("fresh disposable database");
+    org.mockito.Mockito.verifyNoInteractions(
+        auth, projectService, projects, requirementService, requirements);
+    org.mockito.Mockito.verify(policy, org.mockito.Mockito.never()).markReady();
   }
 
   /** Requires each seeded criterion to state context, action, and an observable outcome. */
