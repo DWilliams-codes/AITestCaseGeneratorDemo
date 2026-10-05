@@ -14,7 +14,9 @@ RUN apk upgrade --no-cache \
     libcrypto3 \
     libssl3 \
     libexpat \
-    libxml2
+    libxml2 \
+    libuuid \
+    pcre2
 USER 101
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/dist /usr/share/nginx/html

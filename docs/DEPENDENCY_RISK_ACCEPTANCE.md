@@ -74,6 +74,91 @@ scans with zero fixable HIGH/CRITICAL findings, plus the other exact-SHA CI
 gates. Docker is unavailable on the local desktop; do not relabel local source
 inspection as image-build or scanner evidence.
 
+## Unresolved Spring dependency release blocker (TF-018)
+
+**Release BLOCK: no exception or risk acceptance is granted.** A refreshed
+local OWASP Dependency-Check 12.2.2 scan on 2026-10-05 failed the unchanged
+CVSS >= 7 gate. Evidence is the task-workspace `owasp-final-check.log` and
+`backend/target/dependency-check-report.json`. Earlier OSV or container scan
+success does not override this additional scanner evidence.
+
+| Affected installed line | HIGH/CRITICAL findings reported |
+| --- | --- |
+| Spring Framework 6.2.19 (`spring-core`) | CVE-2026-47884, -47885, -47886, -47888, -47889, -47890, -47891, -47892, -47893, -59282, -59283, -59313 |
+| Spring Security 6.5.11 (`spring-security-core` and OAuth2 resource server) | CVE-2026-47841, CVE-2026-41707, CVE-2026-59270 |
+
+These are genuine affected-version matches. Product-level CPE mappings are
+not proof that every packaged JAR or every reported vulnerability is reachable
+in this application. Official advisories for
+[Framework CVE-2026-47884](https://spring.io/security/cve-2026-47884/),
+[Security CVE-2026-41707](https://spring.io/security/cve-2026-41707/),
+[CVE-2026-47841](https://spring.io/security/cve-2026-47841/), and
+[CVE-2026-59270](https://spring.io/security/cve-2026-59270/) list affected
+6.2.0-6.2.19 and 6.5.0-6.5.11 lines. Same-line fixes 6.2.20 and 6.5.12 are
+Enterprise Support Only; free fixes are Framework 7.0.9 and Security 7.0.7.
+Read-only Maven Central metadata verification on 2026-10-05 found no public
+6.2.20, 6.5.12 or Boot 3.5.17 artifacts; latest same-line versions were
+6.2.19, 6.5.11 and the installed Boot 3.5.16. No paid access is authorized.
+
+Public Boot 4.0.8 coordinates Framework 7.0.9, Security 7.0.7, Data 2025.1.7,
+Tomcat 11.0.24, Jackson 3.1.5 and Hibernate 7.2.24.Final. A coordinated
+[Boot 4 migration](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide)
+is future separately planned, approved and tested scope. Forcing Spring 7
+overrides under Boot 3 is not an approved or validated remediation.
+
+Observed source and built-JAR inspection found servlet MVC REST/JSON with
+stateless bearer JWT, no WebFlux/RSocket/Aalto/Jetty/embedded LDAP runtime JARs,
+and no XSLT, SSE, SpEL evaluation, DPoP or WebAuthn setup. This reduces observed
+reachability for some features; it neither suppresses the findings nor proves
+them all unexploitable. More specific read-only source findings are:
+
+- MEDIUM CVE-2026-47883 (6.1) concerns broad-pattern `UrlHandlerFilter` open
+  redirect handling; no `UrlHandlerFilter` configuration is present.
+- LOW CVE-2026-59314 (3.7) concerns `ContentDisposition`, not CVE-2026-47883.
+  Current export filenames are `testforge-` plus a UUID and an extension from
+  a fixed csv/json/md switch. The described untrusted-filename trigger is absent.
+- HIGH CVE-2026-59282 concerns Spring property binding. All complex controller
+  DTOs use `@RequestBody`/Jackson; no `@ModelAttribute`, `WebDataBinder`,
+  `BeanWrapper` or user-controlled property-path application was found. Its
+  described property-binding trigger is not observed in this application.
+
+These observations do not clear the other Spring findings or authorize scanner
+exceptions. Export and binding behavior must still be assessed during a future
+coordinated migration. MEDIUM Data JPA CVE-2026-47834 and DOMPurify
+CVE-2026-75838 embedded in Swagger UI remain report context, not the current
+>=7 blockers.
+
+The local functional fixture demo remains unchanged. No POM, application,
+runtime, CI, suppression or scanner policy change is made by this triage.
+Completing TF-018 records the unresolved blocker; it does not make a release
+security-green or authorize an exception.
+
+## Frontend Alpine runtime scan remediation (TF-019)
+
+Predecessor `13be562ef4dd7835ff4a512511a1370e7b0ab497` passed its backend
+container scan but failed the frontend container scan with ten HIGH findings.
+The task-workspace evidence is `github-container-final.log`.
+
+| Package | Installed in predecessor | Highest fixed threshold | Advisories |
+| --- | --- | --- | --- |
+| libuuid | 2.41.4-r0 | 2.41.6-r1 | CVE-2026-53612, -53613, -53614, -76642, -78408, -78410 |
+| pcre2 | 10.47-r0 | 10.49-r0 | CVE-2026-103111, -86145, -89157, -89161 |
+
+The existing runtime `apk upgrade --no-cache` list now also names `libuuid`
+and `pcre2`. Official Alpine v3.23/main/x86_64 package pages for
+[libuuid](https://pkgs.alpinelinux.org/package/v3.23/main/x86_64/libuuid) and
+[pcre2](https://pkgs.alpinelinux.org/package/v3.23/main/x86_64/pcre2) were
+verified on 2026-10-05 to offer those fixed versions. Existing packages, pinned
+Node/Nginx digests, repository branch, USER 101 and nginx configuration remain
+unchanged. No scanner threshold, suppression or mixed repository is introduced.
+
+Docker is unavailable locally. Rebuilt candidate installed versions and
+backend/frontend scans with zero fixable HIGH/CRITICAL require new exact-SHA
+CI evidence. Predecessor Docker E2E succeeded with 13 initial passes and one
+retry pass; that does not establish 14 first-attempt passes for a new candidate.
+TF-018's Spring dependency release BLOCK remains independent and unresolved;
+this OS-package patch does not establish an all-seven-job security-green release.
+
 ## Verified immutable references
 
 All values below were resolved on 2026-08-05 from the named publisher's

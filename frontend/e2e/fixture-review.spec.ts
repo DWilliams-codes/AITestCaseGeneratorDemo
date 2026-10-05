@@ -77,6 +77,7 @@ test('maintained Case drafts persist, consume clarification, and retain a human 
     .first()
     .fill('The same recorded Case identifier displays New before the routing update.');
   await editor.getByRole('button', { name: 'Save changes' }).click();
+  await expect(editor).toBeHidden();
   await page.reload();
   await page
     .getByText('Move a Case to Working with the confirmed priority and owner', { exact: true })
